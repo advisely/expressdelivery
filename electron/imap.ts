@@ -12,18 +12,18 @@ export class ImapEngine {
         const db = getDatabase();
         // Assuming you select the account by id and it has imap_host, imap_port, etc.
         // For now we assume typical config format in the DB
-        const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId) as any;
+        const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId) as Record<string, unknown>;
 
         if (!account) throw new Error('Account not found');
 
-        const password = decryptData(Buffer.from(account.password_encrypted, 'base64'));
+        const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
 
         const client = new ImapFlow({
             host: account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com', // TBD per provider
             port: 993,
             secure: true,
             auth: {
-                user: account.email,
+                user: account.email as string,
                 pass: password
             },
             logger: false

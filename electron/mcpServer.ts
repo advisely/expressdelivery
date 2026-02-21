@@ -211,9 +211,10 @@ export class McpServerManager {
                 }
 
                 throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
-            } catch (error: any) {
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
                 return {
-                    content: [{ type: 'text', text: `Error executing tool: ${error.message}` }],
+                    content: [{ type: 'text', text: `Error executing tool: ${errorMessage}` }],
                     isError: true,
                 };
             }
