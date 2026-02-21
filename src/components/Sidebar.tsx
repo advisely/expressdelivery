@@ -1,69 +1,70 @@
 import React from 'react';
 import {
-    Inbox,
-    Send,
-    FileText,
-    Archive,
-    Trash2,
-    Settings,
-    Plus
+  Inbox,
+  Send,
+  FileText,
+  Archive,
+  Trash2,
+  Settings,
+  Plus
 } from 'lucide-react';
 
 const navItems = [
-    { icon: Inbox, label: 'Inbox', count: 12, active: true },
-    { icon: Send, label: 'Sent', count: 0 },
-    { icon: FileText, label: 'Drafts', count: 3 },
-    { icon: Archive, label: 'Archive', count: 0 },
-    { icon: Trash2, label: 'Trash', count: 0 },
+  { icon: Inbox, label: 'Inbox', count: 12, active: true },
+  { icon: Send, label: 'Sent', count: 0 },
+  { icon: FileText, label: 'Drafts', count: 3 },
+  { icon: Archive, label: 'Archive', count: 0 },
+  { icon: Trash2, label: 'Trash', count: 0 },
 ];
 
 interface SidebarProps {
-    onCompose: () => void;
+  onCompose: () => void;
+  onSettings: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onCompose }) => {
-    return (
-        <aside className="sidebar glass">
-            <div className="sidebar-header">
-                <div className="account-selector">
-                    <div className="avatar">A</div>
-                    <div className="account-info">
-                        <span className="account-name">Personal</span>
-                        <span className="account-email">alex@example.com</span>
-                    </div>
-                </div>
-            </div>
+export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
+  return (
+    <aside className="sidebar glass">
+      <div className="sidebar-header">
+        <div className="account-selector">
+          <div className="avatar">A</div>
+          <div className="account-info">
+            <span className="account-name">Personal</span>
+            <span className="account-email">alex@example.com</span>
+          </div>
+        </div>
+      </div>
 
-            <div className="compose-wrapper">
-                <button className="compose-btn" onClick={onCompose}>
-                    <Plus size={18} />
-                    <span>New Message</span>
-                </button>
-            </div>
+      <div className="compose-wrapper">
+        <button className="compose-btn" onClick={onCompose}>
+          <Plus size={18} />
+          <span>New Message</span>
+        </button>
+      </div>
 
-            <nav className="sidebar-nav">
-                {navItems.map((item) => (
-                    <button
-                        key={item.label}
-                        className={`nav-item ${item.active ? 'active' : ''}`}
-                    >
-                        <item.icon size={18} className="nav-icon" />
-                        <span className="nav-label">{item.label}</span>
-                        {item.count > 0 && (
-                            <span className="nav-badge">{item.count}</span>
-                        )}
-                    </button>
-                ))}
-            </nav>
+      <nav className="sidebar-nav">
+        {navItems.map((item) => (
+          <button
+            key={item.label}
+            className={`nav-item ${item.active ? 'active' : ''}`}
+          >
+            <item.icon size={18} className="nav-icon" />
+            <span className="nav-label">{item.label}</span>
+            {item.count > 0 && (
+              <span className="nav-badge">{item.count}</span>
+            )}
+          </button>
+        ))}
+      </nav>
 
-            <div className="sidebar-footer">
-                <button className="nav-item">
-                    <Settings size={18} className="nav-icon" />
-                    <span className="nav-label">Settings</span>
-                </button>
-            </div>
+      <div className="sidebar-footer">
+        <button className="nav-item" onClick={onSettings}>
+          <Settings size={18} className="nav-icon" />
+          <span className="nav-label">Settings</span>
+        </button>
+      </div>
 
-            <style>{`
+      <style>{`
         .sidebar {
           width: var(--sidebar-width);
           height: 100vh;
@@ -187,6 +188,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose }) => {
           padding: 16px 8px;
         }
       `}</style>
-        </aside>
-    );
+    </aside>
+  );
 };
