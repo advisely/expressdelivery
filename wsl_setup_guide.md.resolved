@@ -1,0 +1,112 @@
+# WSL2 Setup & Development Guide: Modern AI Mail Client
+
+This document outlines the complete plan, architecture, and step-by-step instructions to initialize and build the standalone, premium email client (with native MCP integration) entirely within Windows Subsystem for Linux (WSL2).
+
+---
+
+## 🏗️ Architecture & Technology Stack
+
+1. **Core Framework**: Electron + Node.js
+   - **Main Process (Backend)**: Manages local SQLite indexing, multi-account IMAP/SMTP connections natively in Node, and runs the local HTTP/SSE MCP Server.
+   - **Renderer Process (Frontend)**: Renders the sleek, premium user interface.
+2. **Frontend Stack**: React 18 + Vite (for fast HMR) + Vanilla CSS (focusing on glassmorphism, smooth micro-animations, and dynamic Dark/Light modes).
+3. **Local Database**: `better-sqlite3` for offline full-text search and instant retrieval of emails and thread histories for the AI agent.
+4. **Security**: Node's native `crypto` or Electron's `safeStorage` for encrypting locally stored OAuth tokens and provider passwords.
+5. **AI Integration**: Official `@modelcontextprotocol/sdk` to serve local email data via Server-Sent Events (SSE) to tools like OpenClaw.
+
+---
+
+## 🛠️ Step 1: Prepare the WSL2 Environment
+
+To ensure maximum performance, all development should happen on the native Linux filesystem (e.g., inside `~/`), not in the mounted Windows drives (like `/mnt/c/`).
+
+Open your WSL terminal and install Node.js using Node Version Manager (NVM):
+
+```bash
+# 1. Install nvm (Node Version Manager)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+
+# 2. Reload profile to use nvm immediately
+source ~/.bashrc
+
+# 3. Install the latest Long-Term Support (LTS) version of Node.js
+nvm install --lts
+
+# 4. Verify installation
+node -v
+npm -v
+```
+
+### Install Required Linux Dependencies for Electron
+Since WSL2 is a minimal Linux environment, you might be missing some GUI dependencies required for Electron development:
+
+```bash
+sudo apt update
+sudo apt install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2
+```
+
+---
+
+## 🚀 Step 2: Initialize the Project
+
+Let's create the project directory in your Linux home folder and scaffold the app using the official Electron-Vite template.
+
+```bash
+# 1. Navigate to your home directory
+cd ~
+
+# 2. Create the project using the React+TypeScript template
+npm create electron-vite@latest expressdelivery -- --template react-ts
+
+# 3. Enter the newly created directory
+cd expressdelivery
+
+# 4. Install base dependencies
+npm install
+
+# 5. Install the core backend/app dependencies
+npm install better-sqlite3 imapflow nodemailer @modelcontextprotocol/sdk
+
+# 6. Start the development server (WSLg will open the Electron window natively)
+npm run dev
+```
+
+---
+
+## 📂 Step 3: Core Implementation Roadmap
+
+Once the base app is running, development will proceed in these phases:
+
+### Phase 1: Local Database & Security
+- **Goal**: Create the local indexing structures.
+- **Action**: In `src/main`, set up `better-sqlite3`. Create tables for `accounts`, `emails` (with Full-Text Search enabled), `folders`, and `contacts`. Implement encryption utilities for storing account credentials securely.
+
+### Phase 2: Mail Engine Integration
+- **Goal**: Connect to providers securely and sync mail locally.
+- **Action**: Implement independent Node worker threads (`Worker` from `worker_threads` or Electron `utilityProcess`) to run `imapflow`. Listen for `IDLE` events to stream new emails into the SQLite database instantly.
+
+### Phase 3: Premium UI Construction
+- **Goal**: Build an interface comparable to Spark and Mailbird.
+- **Action**: In `src/renderer`, create a 3-pane layout (Sidebar -> Thread List -> Reading Pane). Style using raw CSS variables, focusing on typography, subtle hover effects, and a unified inbox view.
+
+### Phase 4: The AI (MCP) Interface
+- **Goal**: Allow OpenClaw to manage the inbox.
+- **Action**: Set up a local Express server in the Main process running an SSE endpoint (`http://localhost:3000/sse`). Register tools using the MCP SDK: `search_emails`, `read_thread`, and `create_draft`.
+
+### Phase 5: Packaging for Distribution
+- **Goal**: Distribute for Windows and Linux.
+- **Action**: Configure `electron-builder` in `package.json`.
+  - Compile the `.AppImage` directly in WSL.
+  - *Optional*: Install `wine` in WSL to cross-compile the Windows `.exe` installer directly from Linux.
+
+---
+
+## 💻 Step 4: Connecting the Code to VS Code
+
+To edit the repository inside WSL while keeping the rich Windows UI of VS Code:
+
+1. Open your WSL terminal in the project directory (`cd ~/expressdelivery`).
+2. Type `code .`
+3. VS Code will open in Windows, automatically connected to the WSL environment.
+
+**You're all set!** Follow step 1 and 2 in your WSL terminal, and we can start building out the database and the Main process right away.
