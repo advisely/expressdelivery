@@ -1,73 +1,80 @@
 import React from 'react';
 import { X, Layout, Monitor, Moon, Sun, MonitorPlay, Droplets } from 'lucide-react';
-import { useTheme, Theme, Layout as LayoutType } from './ThemeContext';
+import { useLayout, Layout as LayoutType } from './ThemeContext';
+import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
 
 interface SettingsModalProps {
-    onClose: () => void;
+  onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
-    const { theme, layout, setTheme, setLayout } = useTheme();
+  const { layout, setLayout } = useLayout();
+  const { themeName, setTheme } = useThemeStore();
 
-    const themes: { id: Theme; label: string; icon: React.ElementType }[] = [
-        { id: 'system', label: 'System', icon: MonitorPlay },
-        { id: 'light', label: 'Light Theme', icon: Sun },
-        { id: 'dark', label: 'Default Dark', icon: Moon },
-        { id: 'midnight', label: 'Midnight OLED', icon: Moon },
-        { id: 'ocean', label: 'Deep Ocean', icon: Droplets }
-    ];
+  const getIconForTheme = (name: ThemeName) => {
+    switch (name) {
+      case 'light': return Sun;
+      case 'cream': return Sun;
+      case 'midnight': return Moon;
+      case 'forest': return Droplets;
+      default: return MonitorPlay;
+    }
+  };
 
-    const layouts: { id: LayoutType; label: string; icon: React.ElementType }[] = [
-        { id: 'vertical', label: 'Vertical Split (3-Pane)', icon: Layout },
-        { id: 'horizontal', label: 'Horizontal Split', icon: Monitor }
-    ];
+  const layouts: { id: LayoutType; label: string; icon: React.ElementType }[] = [
+    { id: 'vertical', label: 'Vertical Split (3-Pane)', icon: Layout },
+    { id: 'horizontal', label: 'Horizontal Split', icon: Monitor }
+  ];
 
-    return (
-        <div className="modal-overlay">
-            <div className="settings-modal glass animate-fade-in">
-                <div className="modal-header">
-                    <h2>Appearance Settings</h2>
-                    <button className="close-btn" onClick={onClose}>
-                        <X size={20} />
-                    </button>
-                </div>
+  return (
+    <div className="modal-overlay">
+      <div className="settings-modal glass animate-fade-in">
+        <div className="modal-header">
+          <h2>Appearance Settings</h2>
+          <button className="close-btn" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
 
-                <div className="settings-content">
-                    <div className="setting-group">
-                        <h3>Interface Theme</h3>
-                        <div className="options-grid">
-                            {themes.map(t => (
-                                <button
-                                    key={t.id}
-                                    className={`option-btn ${theme === t.id ? 'active' : ''}`}
-                                    onClick={() => setTheme(t.id)}
-                                >
-                                    <t.icon size={18} />
-                                    <span>{t.label}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="setting-group">
-                        <h3>Pane Layout</h3>
-                        <div className="options-grid">
-                            {layouts.map(l => (
-                                <button
-                                    key={l.id}
-                                    className={`option-btn ${layout === l.id ? 'active' : ''}`}
-                                    onClick={() => setLayout(l.id)}
-                                >
-                                    <l.icon size={18} />
-                                    <span>{l.label}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
+        <div className="settings-content">
+          <div className="setting-group">
+            <h3>Interface Theme</h3>
+            <div className="options-grid">
+              {THEMES.map(t => {
+                const Icon = getIconForTheme(t.name);
+                return (
+                  <button
+                    key={t.name}
+                    className={`option-btn ${themeName === t.name ? 'active' : ''}`}
+                    onClick={() => setTheme(t.name)}
+                  >
+                    <Icon size={18} />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
             </div>
+          </div>
 
-            <style>{`
+          <div className="setting-group">
+            <h3>Pane Layout</h3>
+            <div className="options-grid">
+              {layouts.map(l => (
+                <button
+                  key={l.id}
+                  className={`option-btn ${layout === l.id ? 'active' : ''}`}
+                  onClick={() => setLayout(l.id)}
+                >
+                  <l.icon size={18} />
+                  <span>{l.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style>{`
         .modal-overlay {
           position: fixed;
           inset: 0;
@@ -157,6 +164,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           color: var(--accent-color);
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 };
