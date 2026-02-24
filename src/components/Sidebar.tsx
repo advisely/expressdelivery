@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useEmailStore } from '../stores/emailStore';
 import { getProviderIcon } from '../lib/providerIcons';
-import { ipcInvoke } from '../lib/ipc';
+import { ipcInvoke, ipcOn } from '../lib/ipc';
 
 const FOLDER_ICONS: Record<string, React.ElementType> = {
   inbox: Inbox,
@@ -38,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount } = useEmailStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [mcpCount, setMcpCount] = useState(0);
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
 
@@ -61,6 +62,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
 
     return () => { cancelled = true; unsub?.(); };
   }, [selectedAccountId]);
+
+  // MCP connection status
+  useEffect(() => {
+    let cancelled = false;
+    ipcInvoke<{ count: number }>('mcp:connected-count').then(result => {
+      if (result && !cancelled) setMcpCount(result.count);
+    });
+    const cleanup = ipcOn('mcp:status', (...args: unknown[]) => {
+      const data = args[0] as { connectedAgents: number } | undefined;
+      if (data && !cancelled) setMcpCount(data.connectedAgents);
+    });
+    return () => { cancelled = true; cleanup?.(); };
+  }, []);
 
   return (
     <aside className="sidebar glass">
@@ -142,6 +156,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
       </nav>
 
       <div className="sidebar-footer">
+        <div className="mcp-status" aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
+          <div className={`mcp-dot ${mcpCount > 0 ? 'connected' : ''}`} />
+          <span className="mcp-label">
+            {mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : 'No AI connected'}
+          </span>
+        </div>
         <button className="nav-item" onClick={onSettings}>
           <Settings size={18} className="nav-icon" />
           <span className="nav-label">Settings</span>
@@ -255,7 +275,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
         }
 
         .account-picker-item.active {
-          background: rgba(59, 130, 246, 0.1);
+          background: rgba(var(--color-accent), 0.1);
         }
 
         .compose-wrapper {
@@ -304,7 +324,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
         }
 
         .nav-item.active {
-          background: rgba(59, 130, 246, 0.15);
+          background: rgba(var(--color-accent), 0.15);
           color: var(--accent-color);
         }
 
@@ -326,6 +346,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
 
         .sidebar-footer {
           padding: 16px 8px;
+        }
+
+        .mcp-status {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 12px;
+          margin-bottom: 4px;
+          font-size: 12px;
+          color: var(--text-muted);
+        }
+
+        .mcp-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--text-muted);
+          transition: background 0.3s;
+          flex-shrink: 0;
+        }
+
+        .mcp-dot.connected {
+          background: rgb(var(--color-success));
+        }
+
+        .mcp-label {
+          font-size: 12px;
         }
       `}</style>
     </aside>

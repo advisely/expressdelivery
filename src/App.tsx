@@ -85,16 +85,14 @@ function App() {
   }, []);
 
   const handleForward = useCallback((email: EmailFull) => {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const subject = email.subject?.startsWith('Fwd:') ? email.subject : `Fwd: ${email.subject ?? ''}`;
-    const forwardedBody = [
-      '',
-      '---------- Forwarded message ----------',
-      `From: ${email.from_name ? `${email.from_name} <${email.from_email}>` : (email.from_email ?? '')}`,
-      `Date: ${email.date ? new Date(email.date).toLocaleString() : ''}`,
-      `Subject: ${email.subject ?? ''}`,
-      '',
-      email.body_text ?? '',
-    ].join('\n');
+    const fromLine = email.from_name
+      ? `${esc(email.from_name)} &lt;${esc(email.from_email ?? '')}&gt;`
+      : esc(email.from_email ?? '');
+    const dateLine = email.date ? esc(new Date(email.date).toLocaleString()) : '';
+    const bodyContent = email.body_html ?? `<p>${esc(email.body_text ?? '').replace(/\n/g, '<br />')}</p>`;
+    const forwardedBody = `<br /><hr /><p><strong>---------- Forwarded message ----------</strong><br />From: ${fromLine}<br />Date: ${dateLine}<br />Subject: ${esc(email.subject ?? '')}</p>${bodyContent}`;
     setComposeState({
       to: '',
       subject,
@@ -126,13 +124,17 @@ function App() {
   const handleDeleteSelected = useCallback(async () => {
     const email = useEmailStore.getState().selectedEmail;
     if (!email) return;
-    await ipcInvoke('emails:delete', email.id);
-    setSelectedEmail(null);
-    const folderId = useEmailStore.getState().selectedFolderId;
-    if (folderId) {
-      const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', folderId);
-      if (refreshed) setEmails(refreshed);
-    }
+    try {
+      const result = await ipcInvoke<{ success: boolean }>('emails:delete', email.id);
+      if (result?.success) {
+        setSelectedEmail(null);
+        const folderId = useEmailStore.getState().selectedFolderId;
+        if (folderId) {
+          const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', folderId);
+          if (refreshed) setEmails(refreshed);
+        }
+      }
+    } catch { /* deletion failed silently */ }
   }, [setSelectedEmail, setEmails]);
 
   const handleArchiveSelected = useCallback(async () => {

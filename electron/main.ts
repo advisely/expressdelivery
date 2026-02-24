@@ -4,21 +4,8 @@ import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 
-// --- INITIALIZE LOGGER FIRST ---
-let debugLogPath: string;
-try {
-  debugLogPath = path.join(app.getPath('logs'), 'debug_startup.log');
-} catch {
-  debugLogPath = path.join(path.dirname(app.getPath('exe')), 'debug_startup.log');
-}
-function logDebug(message: string) {
-  try {
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(debugLogPath, `[${timestamp}] ${message}\n`);
-  } catch {
-    // Ignore if we can't write to the exe directory
-  }
-}
+// --- INITIALIZE LOGGER ---
+import { logDebug } from './logger.js';
 
 logDebug('--- NEW APP STARTUP ---');
 logDebug(`Platform: ${process.platform}, Arch: ${process.arch}, App Path: ${app.getAppPath()}`);
@@ -39,7 +26,7 @@ import { initDatabase, getDatabase, closeDatabase } from './db.js'
 import { mcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
 import { smtpEngine } from './smtp.js'
-import { encryptData } from './crypto.js'
+import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query } from './utils.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -55,6 +42,36 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null
 let tray: Tray | null = null
+
+function getMimeType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeMap: Record<string, string> = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'application/octet-stream',
+    '.webp': 'image/webp',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.html': 'text/html',
+    '.zip': 'application/zip',
+    '.gz': 'application/gzip',
+    '.tar': 'application/x-tar',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'video/mp4',
+    '.json': 'application/json',
+    '.xml': 'application/xml',
+  };
+  return mimeMap[ext] ?? 'application/octet-stream';
+}
 
 function createWindow() {
   const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize;
@@ -149,7 +166,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('accounts:list', () => {
     return db.prepare(
-      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, created_at FROM accounts'
+      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
     ).all();
   });
 
@@ -162,16 +179,17 @@ function registerIpcHandlers() {
   ipcMain.handle('accounts:add', async (_event, account: {
     email: string; provider: string; password: string;
     display_name?: string; imap_host?: string; imap_port?: number;
-    smtp_host?: string; smtp_port?: number;
+    smtp_host?: string; smtp_port?: number; signature_html?: string;
   }) => {
     const id = crypto.randomUUID();
     const encrypted = encryptData(account.password).toString('base64');
     db.prepare(
-      `INSERT INTO accounts (id, email, provider, password_encrypted, display_name, imap_host, imap_port, smtp_host, smtp_port)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (id, email, provider, password_encrypted, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(id, account.email, account.provider, encrypted,
       account.display_name ?? null, account.imap_host ?? null,
-      account.imap_port ?? 993, account.smtp_host ?? null, account.smtp_port ?? 465);
+      account.imap_port ?? 993, account.smtp_host ?? null, account.smtp_port ?? 465,
+      account.signature_html ? account.signature_html.slice(0, 10_000) : null);
 
     // Post-add: connect IMAP, sync folders, sync INBOX
     try {
@@ -193,7 +211,7 @@ function registerIpcHandlers() {
   ipcMain.handle('accounts:update', async (_event, account: {
     id: string; email?: string; provider?: string; password?: string;
     display_name?: string; imap_host?: string; imap_port?: number;
-    smtp_host?: string; smtp_port?: number;
+    smtp_host?: string; smtp_port?: number; signature_html?: string;
   }) => {
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -205,6 +223,7 @@ function registerIpcHandlers() {
     if (account.imap_port !== undefined) { fields.push('imap_port = ?'); values.push(account.imap_port); }
     if (account.smtp_host !== undefined) { fields.push('smtp_host = ?'); values.push(account.smtp_host); }
     if (account.smtp_port !== undefined) { fields.push('smtp_port = ?'); values.push(account.smtp_port); }
+    if (account.signature_html !== undefined) { fields.push('signature_html = ?'); values.push(account.signature_html ? account.signature_html.slice(0, 10_000) : null); }
     if (account.password) {
       const encrypted = encryptData(account.password).toString('base64');
       fields.push('password_encrypted = ?');
@@ -246,7 +265,8 @@ function registerIpcHandlers() {
   ipcMain.handle('emails:list', (_event, folderId: string) => {
     return db.prepare(
       `SELECT id, thread_id, subject, from_name, from_email, to_email,
-              date, snippet, is_read, is_flagged
+              date, snippet, is_read, is_flagged, has_attachments,
+              ai_category, ai_priority, ai_labels
        FROM emails WHERE folder_id = ? ORDER BY date DESC LIMIT 50`
     ).all(folderId);
   });
@@ -256,7 +276,8 @@ function registerIpcHandlers() {
     return db.prepare(
       `SELECT id, account_id, folder_id, thread_id, subject,
               from_name, from_email, to_email, date, snippet,
-              body_text, body_html, is_read, is_flagged
+              body_text, body_html, is_read, is_flagged, has_attachments,
+              ai_category, ai_priority, ai_labels
        FROM emails WHERE id = ?`
     ).get(emailId);
   });
@@ -266,7 +287,9 @@ function registerIpcHandlers() {
     if (!sanitized) return [];
     try {
       return db.prepare(
-        `SELECT e.id, e.subject, e.from_name, e.from_email, e.snippet, e.date, e.is_read, e.is_flagged
+        `SELECT e.id, e.subject, e.from_name, e.from_email, e.snippet, e.date,
+                e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels
          FROM emails_fts f
          JOIN emails e ON f.rowid = e.rowid
          WHERE emails_fts MATCH ?
@@ -280,6 +303,7 @@ function registerIpcHandlers() {
   ipcMain.handle('email:send', async (_event, params: {
     accountId: string; to: string | string[]; subject: string; html: string;
     cc?: string | string[]; bcc?: string | string[];
+    attachments?: Array<{ filename: string; content: string; contentType: string }>;
   }) => {
     const stripCRLF = (s: string) => s.replace(/[\r\n\0]/g, '');
     const sanitizeList = (list: string | string[] | undefined) => {
@@ -291,9 +315,27 @@ function registerIpcHandlers() {
     };
     const sanitizedTo = sanitizeList(params.to);
     if (!sanitizedTo || sanitizedTo.length === 0) throw new Error('No valid recipients');
+
+    // Validate attachments
+    if (params.attachments && params.attachments.length > 10) {
+      throw new Error('Maximum 10 attachments allowed');
+    }
+    const attachments = params.attachments?.map(att => {
+      if (!att.filename || !att.content || !att.contentType) {
+        throw new Error('Invalid attachment data');
+      }
+      const sanitizedName = stripCRLF(path.basename(att.filename)).slice(0, 255);
+      const buf = Buffer.from(att.content, 'base64');
+      if (buf.length === 0 || buf.length > 25 * 1024 * 1024) {
+        throw new Error(`Attachment ${sanitizedName} exceeds 25MB limit or is empty`);
+      }
+      return { filename: sanitizedName, content: att.content, contentType: getMimeType(sanitizedName) };
+    });
+
     const success = await smtpEngine.sendEmail(
       params.accountId, sanitizedTo, stripCRLF(params.subject), params.html,
-      sanitizeList(params.cc), sanitizeList(params.bcc)
+      sanitizeList(params.cc), sanitizeList(params.bcc),
+      attachments
     );
     if (success) {
       const upsertContact = db.prepare(
@@ -330,7 +372,9 @@ function registerIpcHandlers() {
     ).all(accountId);
   });
 
+  const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key']);
   ipcMain.handle('settings:get', (_event, key: string) => {
+    if (BLOCKED_SETTINGS_GET_KEYS.has(key)) return null;
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
     return row?.value ?? null;
   });
@@ -479,6 +523,220 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
+  // --- Attachment handlers ---
+
+  ipcMain.handle('attachments:list', (_event, emailId: string) => {
+    if (!emailId || typeof emailId !== 'string') return [];
+    return db.prepare(
+      'SELECT id, email_id, filename, mime_type, size, part_number FROM attachments WHERE email_id = ?'
+    ).all(emailId);
+  });
+
+  ipcMain.handle('attachments:download', async (_event, params: {
+    attachmentId: string;
+    emailId: string;
+  }) => {
+    if (!params?.attachmentId || !params?.emailId) throw new Error('Missing parameters');
+
+    const att = db.prepare(
+      'SELECT id, email_id, filename, mime_type, size, part_number, content FROM attachments WHERE id = ?'
+    ).get(params.attachmentId) as {
+      id: string; email_id: string; filename: string; mime_type: string;
+      size: number; part_number: string; content: Buffer | null;
+    } | undefined;
+
+    if (!att) throw new Error('Attachment not found');
+    if (att.email_id !== params.emailId) throw new Error('Attachment-email mismatch');
+
+    const safeName = path.basename(att.filename).slice(0, 255);
+
+    // Return cached content if available
+    if (att.content) {
+      return {
+        filename: safeName,
+        mimeType: att.mime_type,
+        content: att.content.toString('base64'),
+      };
+    }
+
+    // Fetch from IMAP on-demand
+    const email = db.prepare(
+      'SELECT account_id, folder_id FROM emails WHERE id = ?'
+    ).get(params.emailId) as { account_id: string; folder_id: string } | undefined;
+    if (!email) throw new Error('Email not found');
+
+    const folder = db.prepare(
+      'SELECT path FROM folders WHERE id = ?'
+    ).get(email.folder_id) as { path: string } | undefined;
+    if (!folder) throw new Error('Folder not found');
+
+    const uidStr = params.emailId.includes('_') ? params.emailId.split('_').pop() : params.emailId;
+    const uid = parseInt(uidStr ?? '0', 10);
+    if (!uid || isNaN(uid)) throw new Error('Invalid email UID');
+
+    const mailbox = folder.path.replace(/^\//, '');
+    const contentBuffer = await imapEngine.downloadAttachment(
+      email.account_id, uid, mailbox, att.part_number
+    );
+
+    if (!contentBuffer) throw new Error('Failed to download attachment from server');
+
+    // Cache in database for future access
+    db.prepare('UPDATE attachments SET content = ? WHERE id = ?').run(contentBuffer, att.id);
+
+    return {
+      filename: safeName,
+      mimeType: att.mime_type,
+      content: contentBuffer.toString('base64'),
+    };
+  });
+
+  ipcMain.handle('attachments:save', async (_event, params: {
+    filename: string;
+    content: string;
+  }) => {
+    if (!win) throw new Error('No window available');
+    if (!params?.filename || !params?.content) throw new Error('Missing parameters');
+
+    const safeName = path.basename(params.filename).slice(0, 255);
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: safeName,
+    });
+    if (result.canceled || !result.filePath) return { success: false };
+
+    try {
+      const buffer = Buffer.from(params.content, 'base64');
+      if (buffer.length === 0) throw new Error('Empty content');
+      fs.writeFileSync(result.filePath, buffer);
+      return { success: true, path: result.filePath };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Write failed' };
+    }
+  });
+
+  ipcMain.handle('dialog:open-file', async () => {
+    if (!win) throw new Error('No window available');
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'All Files', extensions: ['*'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+
+    const files: Array<{ filename: string; content: string; contentType: string; size: number }> = [];
+    for (const filePath of result.filePaths) {
+      const stat = fs.statSync(filePath);
+      if (stat.size > 25 * 1024 * 1024) {
+        throw new Error(`File ${path.basename(filePath)} exceeds 25MB limit`);
+      }
+      const buffer = fs.readFileSync(filePath);
+      const filename = path.basename(filePath);
+      files.push({
+        filename,
+        content: buffer.toString('base64'),
+        contentType: getMimeType(filename),
+        size: stat.size,
+      });
+    }
+    return files;
+  });
+
+  // --- CID inline image handler ---
+  const SAFE_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp']);
+
+  ipcMain.handle('attachments:by-cid', async (_event, params: {
+    emailId: string;
+    contentIds: string[];
+  }) => {
+    if (!params?.emailId || !params?.contentIds || !Array.isArray(params.contentIds)) return {};
+    const cids = params.contentIds.slice(0, 10); // Cap at 10 inline images per email
+
+    // Verify email exists and belongs to a valid account
+    const emailOwner = db.prepare(
+      'SELECT account_id FROM emails WHERE id = ?'
+    ).get(params.emailId) as { account_id: string } | undefined;
+    if (!emailOwner) return {};
+    const accountExists = db.prepare('SELECT id FROM accounts WHERE id = ?').get(emailOwner.account_id);
+    if (!accountExists) return {};
+
+    const result: Record<string, string> = {};
+
+    for (const cid of cids) {
+      if (!cid || typeof cid !== 'string') continue;
+      const att = db.prepare(
+        'SELECT id, email_id, mime_type, part_number, content FROM attachments WHERE email_id = ? AND content_id = ?'
+      ).get(params.emailId, cid) as {
+        id: string; email_id: string; mime_type: string;
+        part_number: string; content: Buffer | null;
+      } | undefined;
+      if (!att) continue;
+      // Only allow safe image MIME types in data: URLs
+      if (!SAFE_IMAGE_MIMES.has(att.mime_type)) continue;
+
+      if (att.content) {
+        result[cid] = `data:${att.mime_type};base64,${att.content.toString('base64')}`;
+        continue;
+      }
+
+      // On-demand IMAP download
+      const email = db.prepare(
+        'SELECT account_id, folder_id FROM emails WHERE id = ?'
+      ).get(params.emailId) as { account_id: string; folder_id: string } | undefined;
+      if (!email) continue;
+
+      const folder = db.prepare(
+        'SELECT path FROM folders WHERE id = ?'
+      ).get(email.folder_id) as { path: string } | undefined;
+      if (!folder) continue;
+
+      const uidStr = params.emailId.includes('_') ? params.emailId.split('_').pop() : params.emailId;
+      const uid = parseInt(uidStr ?? '0', 10);
+      if (!uid || isNaN(uid)) continue;
+
+      const mailbox = folder.path.replace(/^\//, '');
+      const contentBuffer = await imapEngine.downloadAttachment(
+        email.account_id, uid, mailbox, att.part_number
+      );
+      if (contentBuffer) {
+        db.prepare('UPDATE attachments SET content = ? WHERE id = ?').run(contentBuffer, att.id);
+        result[cid] = `data:${att.mime_type};base64,${contentBuffer.toString('base64')}`;
+      }
+    }
+
+    return result;
+  });
+
+  // --- API key handlers (encrypted via safeStorage) ---
+
+  ipcMain.handle('apikeys:get-openrouter', () => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'openrouter_api_key'")
+      .get() as { value: string } | undefined;
+    if (!row?.value) return null;
+    try {
+      return decryptData(Buffer.from(row.value, 'base64'));
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('apikeys:set-openrouter', (_event: Electron.IpcMainInvokeEvent, apiKey: string) => {
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+      db.prepare("DELETE FROM settings WHERE key = 'openrouter_api_key'").run();
+      return { success: true };
+    }
+    const trimmed = apiKey.trim();
+    if (trimmed.length > 512) throw new Error('API key exceeds maximum length (512 characters)');
+    const encrypted = encryptData(trimmed).toString('base64');
+    db.prepare(
+      "INSERT INTO settings (key, value) VALUES ('openrouter_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(encrypted);
+    return { success: true };
+  });
+
+  // --- MCP connection status handler ---
+  ipcMain.handle('mcp:connected-count', () => {
+    return { count: mcpServer.getConnectedCount() };
+  });
+
 }
 
 app.whenReady().then(() => {
@@ -514,6 +772,13 @@ app.whenReady().then(() => {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] MCP server start failed: ${e.message}\n${e.stack}`);
   }
+
+  // Wire up MCP connection status push to renderer
+  mcpServer.setConnectionCallback((count) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('mcp:status', { connectedAgents: count });
+    }
+  });
 
   // Wire up email:new IPC event from IMAP sync
   imapEngine.setNewEmailCallback((accountId, folderId, count) => {

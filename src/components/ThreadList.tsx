@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Paperclip } from 'lucide-react';
 import { useEmailStore } from '../stores/emailStore';
 import type { EmailSummary, EmailFull } from '../stores/emailStore';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
@@ -80,12 +80,33 @@ export const ThreadList: React.FC = () => {
                 {emails.map((thread) => (
                     <div
                         key={thread.id}
+                        role="button"
+                        tabIndex={0}
                         className={`thread-item ${!thread.is_read ? 'unread' : ''} ${selectedEmailId === thread.id ? 'selected' : ''}`}
                         onClick={() => handleSelectEmail(thread.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectEmail(thread.id); } }}
                     >
                         <div className="thread-item-header">
                             <span className="sender">{thread.from_name || thread.from_email}</span>
-                            <span className="date">{thread.date ? new Date(thread.date).toLocaleDateString() : ''}</span>
+                            <span className="thread-meta">
+                                {thread.ai_priority != null && thread.ai_priority >= 3 && (
+                                    <span
+                                        className={`tl-priority-badge tl-priority-${thread.ai_priority}`}
+                                        aria-label={thread.ai_priority === 4 ? 'Urgent priority' : 'High priority'}
+                                    >
+                                        {thread.ai_priority === 4 ? '!!' : '!'}
+                                    </span>
+                                )}
+                                {thread.ai_category && (
+                                    <span className="tl-category-badge" aria-label={`Category: ${thread.ai_category}`}>
+                                        {thread.ai_category}
+                                    </span>
+                                )}
+                                {thread.has_attachments === 1 && (
+                                    <Paperclip size={12} className="attachment-indicator" aria-label="Has attachments" />
+                                )}
+                                <span className="date">{thread.date ? new Date(thread.date).toLocaleDateString() : ''}</span>
+                            </span>
                         </div>
                         <div className="subject">{thread.subject}</div>
                         <div className="snippet">{thread.snippet}</div>
@@ -152,7 +173,7 @@ export const ThreadList: React.FC = () => {
         }
 
         .thread-item.selected {
-          background: rgba(59, 130, 246, 0.08);
+          background: rgba(var(--color-accent), 0.08);
           border-left: 3px solid var(--accent-color);
         }
 
@@ -176,6 +197,17 @@ export const ThreadList: React.FC = () => {
         .sender {
           font-size: 14px;
           color: var(--text-secondary);
+        }
+
+        .thread-meta {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .attachment-indicator {
+          color: var(--text-secondary);
+          flex-shrink: 0;
         }
 
         .date {
@@ -205,6 +237,40 @@ export const ThreadList: React.FC = () => {
           height: 6px;
           background: var(--accent-color);
           border-radius: 50%;
+        }
+
+        .tl-priority-badge {
+          font-size: 10px;
+          font-weight: 700;
+          padding: 1px 5px;
+          border-radius: 4px;
+          line-height: 1;
+          flex-shrink: 0;
+        }
+
+        .tl-priority-3 {
+          background: rgba(var(--color-flag), 0.15);
+          color: rgb(var(--color-flag));
+        }
+
+        .tl-priority-4 {
+          background: rgba(var(--color-danger), 0.15);
+          color: rgb(var(--color-danger));
+        }
+
+        .tl-category-badge {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 1px 6px;
+          border-radius: 4px;
+          background: rgba(var(--color-accent), 0.1);
+          color: var(--accent-color);
+          text-transform: lowercase;
+          max-width: 80px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          flex-shrink: 0;
         }
       `}</style>
         </div>

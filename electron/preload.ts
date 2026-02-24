@@ -29,6 +29,14 @@ const ALLOWED_INVOKE_CHANNELS = [
   'drafts:save',
   'drafts:get',
   'drafts:delete',
+  'attachments:list',
+  'attachments:download',
+  'attachments:save',
+  'attachments:by-cid',
+  'dialog:open-file',
+  'mcp:connected-count',
+  'apikeys:get-openrouter',
+  'apikeys:set-openrouter',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [

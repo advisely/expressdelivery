@@ -110,6 +110,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
                     imap_port: imapPort,
                     smtp_host: finalSmtpHost,
                     smtp_port: smtpPort,
+                    signature_html: null,
                 });
                 onAccountAdded();
             }

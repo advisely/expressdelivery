@@ -9,12 +9,47 @@ vi.mock('../lib/ipc', () => ({
     ipcInvoke: vi.fn(),
 }));
 
+vi.mock('../lib/formatFileSize', () => ({
+    formatFileSize: (bytes: number) => `${bytes} bytes`,
+}));
+
+// Mock TipTap
+let mockEditorContent = '';
+const mockEditor = {
+    getHTML: () => mockEditorContent,
+    chain: () => ({ focus: () => ({ toggleBold: () => ({ run: vi.fn() }), toggleItalic: () => ({ run: vi.fn() }), toggleUnderline: () => ({ run: vi.fn() }), toggleBulletList: () => ({ run: vi.fn() }), toggleOrderedList: () => ({ run: vi.fn() }), setLink: () => ({ run: vi.fn() }) }) }),
+    isActive: () => false,
+    on: vi.fn(),
+    off: vi.fn(),
+};
+
+vi.mock('@tiptap/react', () => ({
+    useEditor: () => mockEditor,
+    EditorContent: ({ className }: { className?: string; editor: unknown }) => (
+        <div className={className} data-testid="compose-editor" contentEditable>
+            <div className="tiptap">{mockEditorContent}</div>
+        </div>
+    ),
+}));
+
+vi.mock('@tiptap/starter-kit', () => ({ default: {} }));
+vi.mock('@tiptap/extension-link', () => ({ default: { configure: () => ({}) } }));
+vi.mock('@tiptap/extension-underline', () => ({ default: {} }));
+
+vi.mock('dompurify', () => ({
+    default: { sanitize: (html: string) => html },
+}));
+
 vi.mock('lucide-react', () => ({
     X: () => <div data-testid="icon-X">X</div>,
     Send: () => <div data-testid="icon-Send">S</div>,
     Paperclip: () => <div data-testid="icon-Paperclip">P</div>,
-    Image: () => <div data-testid="icon-Image">I</div>,
-    Type: () => <div data-testid="icon-Type">T</div>,
+    Bold: () => <div data-testid="icon-Bold">B</div>,
+    Italic: () => <div data-testid="icon-Italic">I</div>,
+    Underline: () => <div data-testid="icon-Underline">U</div>,
+    List: () => <div data-testid="icon-List">L</div>,
+    ListOrdered: () => <div data-testid="icon-ListOrdered">LO</div>,
+    Link: () => <div data-testid="icon-Link">Lk</div>,
     ChevronDown: () => <div data-testid="icon-ChevronDown">CD</div>,
     ChevronUp: () => <div data-testid="icon-ChevronUp">CU</div>,
 }));
@@ -50,9 +85,10 @@ describe('ComposeModal', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockIpcInvoke.mockResolvedValue(null);
+        mockEditorContent = '';
         // Set up a test account in the store
         useEmailStore.setState({
-            accounts: [{ id: 'acc-1', email: 'test@example.com', provider: 'gmail', display_name: 'Test', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null }],
+            accounts: [{ id: 'acc-1', email: 'test@example.com', provider: 'gmail', display_name: 'Test', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: null }],
         });
     });
 
@@ -61,12 +97,11 @@ describe('ComposeModal', () => {
         expect(screen.getByText('New Message')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Recipient...')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Subject...')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('Write your beautiful email here...')).toBeInTheDocument();
+        expect(screen.getByTestId('compose-editor')).toBeInTheDocument();
     });
 
     it('does not have glass class on modal element', () => {
         renderCompose();
-        // The dialog content should have compose-modal but NOT glass
         const modal = document.querySelector('.compose-modal');
         expect(modal).toBeTruthy();
         expect(modal?.classList.contains('glass')).toBe(false);
@@ -103,11 +138,11 @@ describe('ComposeModal', () => {
     it('calls email:send IPC with correct params on successful send', async () => {
         mockIpcInvoke.mockResolvedValueOnce({ success: true });
         const onClose = vi.fn();
+        mockEditorContent = '<p>Hello world</p>';
         renderCompose({ onClose });
 
         fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
         fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'Test Subject' } });
-        fireEvent.change(screen.getByPlaceholderText('Write your beautiful email here...'), { target: { value: 'Hello world' } });
         fireEvent.click(screen.getByText('Send'));
 
         await waitFor(() => {
@@ -123,7 +158,7 @@ describe('ComposeModal', () => {
         });
     });
 
-    it('pre-fills fields from initialTo, initialSubject, initialBody', () => {
+    it('pre-fills fields from initialTo and initialSubject', () => {
         renderCompose({
             initialTo: 'reply@test.com',
             initialSubject: 'Re: Hello',
@@ -131,7 +166,6 @@ describe('ComposeModal', () => {
         });
         expect(screen.getByPlaceholderText('Recipient...')).toHaveValue('reply@test.com');
         expect(screen.getByPlaceholderText('Subject...')).toHaveValue('Re: Hello');
-        expect(screen.getByPlaceholderText('Write your beautiful email here...')).toHaveValue('Original message');
     });
 
     it('shows error when no account is configured', async () => {
@@ -141,5 +175,107 @@ describe('ComposeModal', () => {
         fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'Sub' } });
         fireEvent.click(screen.getByText('Send'));
         expect(screen.getByRole('alert')).toHaveTextContent('No account configured');
+    });
+
+    it('renders toolbar with formatting buttons', () => {
+        renderCompose();
+        expect(screen.getByTitle('Bold')).toBeInTheDocument();
+        expect(screen.getByTitle('Italic')).toBeInTheDocument();
+        expect(screen.getByTitle('Underline')).toBeInTheDocument();
+        expect(screen.getByTitle('Bullet List')).toBeInTheDocument();
+        expect(screen.getByTitle('Ordered List')).toBeInTheDocument();
+        expect(screen.getByTitle('Insert Link')).toBeInTheDocument();
+        expect(screen.getByTitle('Attach Files')).toBeInTheDocument();
+    });
+
+    it('adds attachments when file picker returns files', async () => {
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'dialog:open-file') {
+                return [{ filename: 'doc.pdf', content: 'base64data', contentType: 'application/pdf', size: 5000 }];
+            }
+            return null;
+        });
+        renderCompose();
+        fireEvent.click(screen.getByTitle('Attach Files'));
+        await waitFor(() => {
+            expect(screen.getByText('doc.pdf')).toBeInTheDocument();
+            expect(screen.getByText('5000 bytes')).toBeInTheDocument();
+        });
+    });
+
+    it('allows removing an attachment', async () => {
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'dialog:open-file') {
+                return [{ filename: 'doc.pdf', content: 'base64data', contentType: 'application/pdf', size: 5000 }];
+            }
+            return null;
+        });
+        renderCompose();
+        fireEvent.click(screen.getByTitle('Attach Files'));
+        await waitFor(() => {
+            expect(screen.getByText('doc.pdf')).toBeInTheDocument();
+        });
+        fireEvent.click(screen.getByLabelText('Remove doc.pdf'));
+        expect(screen.queryByText('doc.pdf')).not.toBeInTheDocument();
+    });
+
+    it('includes attachments in send payload', async () => {
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'dialog:open-file') {
+                return [{ filename: 'doc.pdf', content: 'base64data', contentType: 'application/pdf', size: 5000 }];
+            }
+            if (channel === 'email:send') return { success: true };
+            return null;
+        });
+        const onClose = vi.fn();
+        renderCompose({ onClose });
+
+        fireEvent.click(screen.getByTitle('Attach Files'));
+        await waitFor(() => expect(screen.getByText('doc.pdf')).toBeInTheDocument());
+
+        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
+        fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'With attachment' } });
+        fireEvent.click(screen.getByText('Send'));
+
+        await waitFor(() => {
+            expect(mockIpcInvoke).toHaveBeenCalledWith('email:send', expect.objectContaining({
+                attachments: [{ filename: 'doc.pdf', content: 'base64data', contentType: 'application/pdf' }],
+            }));
+        });
+    });
+
+    it('shows signature preview when account has signature', () => {
+        useEmailStore.setState({
+            accounts: [{ id: 'acc-1', email: 'test@example.com', provider: 'gmail', display_name: 'Test', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: 'Best regards,<br />Test' }],
+        });
+        renderCompose();
+        expect(screen.getByText(/Best regards/)).toBeInTheDocument();
+    });
+
+    it('does not show signature preview when account has no signature', () => {
+        renderCompose();
+        expect(screen.queryByText(/Best regards/)).not.toBeInTheDocument();
+    });
+
+    it('appends signature to HTML in send payload', async () => {
+        useEmailStore.setState({
+            accounts: [{ id: 'acc-1', email: 'test@example.com', provider: 'gmail', display_name: 'Test', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: 'Best regards' }],
+        });
+        mockEditorContent = '<p>Hello</p>';
+        mockIpcInvoke.mockResolvedValueOnce({ success: true });
+        const onClose = vi.fn();
+        renderCompose({ onClose });
+
+        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
+        fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'Sub' } });
+        fireEvent.click(screen.getByText('Send'));
+
+        await waitFor(() => {
+            const call = mockIpcInvoke.mock.calls.find(c => c[0] === 'email:send');
+            expect(call).toBeTruthy();
+            const payload = call![1] as { html: string };
+            expect(payload.html).toContain('Best regards');
+            expect(payload.html).toContain('<hr />');
+        });
     });
 });

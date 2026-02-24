@@ -1,6 +1,13 @@
 import nodemailer from 'nodemailer';
 import { getDatabase } from './db.js';
 import { decryptData } from './crypto.js';
+import { logDebug } from './logger.js';
+
+export interface SendAttachment {
+    filename: string;
+    content: string;       // base64-encoded
+    contentType: string;
+}
 
 export class SmtpEngine {
     async sendEmail(
@@ -9,7 +16,8 @@ export class SmtpEngine {
         subject: string,
         html: string,
         cc?: string | string[],
-        bcc?: string | string[]
+        bcc?: string | string[],
+        attachments?: SendAttachment[]
     ): Promise<boolean> {
         const db = getDatabase();
         const account = db.prepare(
@@ -47,11 +55,16 @@ export class SmtpEngine {
                 bcc: bcc ? (Array.isArray(bcc) ? bcc.join(', ') : bcc) : undefined,
                 subject,
                 html,
+                attachments: attachments?.map(att => ({
+                    filename: att.filename,
+                    content: Buffer.from(att.content, 'base64'),
+                    contentType: att.contentType,
+                })),
             });
 
             return true;
         } catch (error) {
-            console.error('Error sending email:', error);
+            logDebug(`Error sending email: ${error instanceof Error ? error.message : String(error)}`);
             return false;
         }
     }

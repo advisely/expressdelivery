@@ -164,6 +164,65 @@ function runMigrations(db: DatabaseType) {
             version = 2;
         }
 
+        // Migration 3: Attachment support
+        if (version < 3) {
+            const emailCols = db.prepare("SELECT name FROM pragma_table_info('emails')").all() as { name: string }[];
+            const emailColNames = new Set(emailCols.map(c => c.name));
+            if (!emailColNames.has('has_attachments')) {
+                db.exec("ALTER TABLE emails ADD COLUMN has_attachments INTEGER DEFAULT 0");
+            }
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id TEXT PRIMARY KEY,
+                    email_id TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    size INTEGER NOT NULL DEFAULT 0,
+                    part_number TEXT,
+                    content BLOB,
+                    FOREIGN KEY(email_id) REFERENCES emails(id) ON DELETE CASCADE
+                )
+            `);
+            db.exec("CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id)");
+            version = 3;
+        }
+
+        // Migration 4: Add signature_html column to accounts
+        if (version < 4) {
+            const accCols = db.prepare("SELECT name FROM pragma_table_info('accounts')").all() as { name: string }[];
+            const accColNames = new Set(accCols.map(c => c.name));
+            if (!accColNames.has('signature_html')) {
+                db.exec("ALTER TABLE accounts ADD COLUMN signature_html TEXT");
+            }
+            version = 4;
+        }
+
+        // Migration 5: Add content_id column to attachments
+        if (version < 5) {
+            const attCols = db.prepare("SELECT name FROM pragma_table_info('attachments')").all() as { name: string }[];
+            const attColNames = new Set(attCols.map(c => c.name));
+            if (!attColNames.has('content_id')) {
+                db.exec("ALTER TABLE attachments ADD COLUMN content_id TEXT");
+            }
+            version = 5;
+        }
+
+        // Migration 6: Add AI metadata columns to emails
+        if (version < 6) {
+            const emailCols = db.prepare("SELECT name FROM pragma_table_info('emails')").all() as { name: string }[];
+            const emailColNames = new Set(emailCols.map(c => c.name));
+            if (!emailColNames.has('ai_category')) {
+                db.exec("ALTER TABLE emails ADD COLUMN ai_category TEXT");
+            }
+            if (!emailColNames.has('ai_priority')) {
+                db.exec("ALTER TABLE emails ADD COLUMN ai_priority INTEGER");
+            }
+            if (!emailColNames.has('ai_labels')) {
+                db.exec("ALTER TABLE emails ADD COLUMN ai_labels TEXT");
+            }
+            version = 6;
+        }
+
         db.prepare(
             "INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         ).run(String(version));

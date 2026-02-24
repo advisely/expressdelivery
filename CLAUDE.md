@@ -1,14 +1,14 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 2 in progress (v0.2.0). 10 components, 2 Zustand stores, 5 MCP tools, SQLite persistence, 4 themes, 10 test files (111 tests), 24 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges, connection testing, account editing, provider brand icons. App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 3 complete (v0.3.0). 10 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (6 migrations), 4 themes, 14 test files (251 tests), 32 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
 | Layer     | Technology                                                                                   |
 | --------- | -------------------------------------------------------------------------------------------- |
-| Frontend  | React 19, TypeScript 5.9 strict, Zustand (theme + email stores), Radix UI (Dialog, Tabs), Lucide icons, Tailwind CSS v4, DOMPurify, CSS custom properties |
+| Frontend  | React 19, TypeScript 5.9 strict, Zustand (theme + email stores), Radix UI (Dialog, Tabs), TipTap (rich text), Lucide icons, Tailwind CSS v4, DOMPurify, CSS custom properties |
 | Backend   | Electron 40, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5                    |
-| AI/MCP    | @modelcontextprotocol/sdk (SSE transport on port 3000), 5 tools (search, read, send, draft, summary) |
+| AI/MCP    | @modelcontextprotocol/sdk (multi-client SSE transport on port 3000), 8 tools (search, read, send, draft, summary, categorize, analytics, suggest_reply) |
 | Build     | Vite 7 + vite-plugin-electron, electron-builder (Windows NSIS, Linux AppImage, macOS DMG)    |
 | Testing   | Vitest 4 + jsdom, @testing-library/react                                                     |
 
@@ -31,19 +31,21 @@ release/           # Built app artifacts
 
 | File                        | Purpose                                        |
 | --------------------------- | ---------------------------------------------- |
-| `electron/main.ts`         | Electron entry, window + tray + 16 IPC handlers |
-| `electron/db.ts`           | SQLite init, schema, migrations (accounts, folders, emails, drafts, contacts, settings, FTS5) |
-| `electron/mcpServer.ts`    | MCP SSE server with 5 AI-accessible tools (send_email wired to SMTP) |
-| `electron/imap.ts`         | IMAP client (connect, IDLE, sync body + folders, reconnect, connection test) |
-| `electron/smtp.ts`         | SMTP sender via Nodemailer (host/port from DB, CC/BCC)  |
+| `electron/main.ts`         | Electron entry, window + tray + 28 IPC handlers |
+| `electron/db.ts`           | SQLite init, schema, 5 migrations (accounts, folders, emails, drafts, contacts, attachments, settings, FTS5) |
+| `electron/mcpServer.ts`    | MCP multi-client SSE server (Map-based dispatch, connection callback, timing-safe auth) |
+| `electron/mcpTools.ts`     | 8 MCP tool handlers + buildToolRegistry() Map factory |
+| `electron/imap.ts`         | IMAP client (connect, IDLE, sync body + folders + attachments + Content-ID, reconnect, connection test, on-demand download) |
+| `electron/smtp.ts`         | SMTP sender via Nodemailer (host/port from DB, CC/BCC, attachments) |
 | `electron/crypto.ts`       | OS keychain encryption (safeStorage)            |
+| `electron/logger.ts`       | Shared debug logger (writes to `app.getPath('logs')`) |
 | `electron/preload.ts`      | IPC bridge (scoped typed API with channel allowlist) |
 | `electron/utils.ts`        | Shared utilities (FTS5 query sanitizer)         |
 | `src/App.tsx`              | Root component, error boundary, data loading, reply/forward plumbing |
 | `src/components/Sidebar.tsx`     | Multi-account switcher, folders with unread badges |
 | `src/components/ThreadList.tsx`  | Email list with search (wired to IPC)      |
-| `src/components/ReadingPane.tsx` | HTML email viewer, reply/forward/delete/star actions |
-| `src/components/ComposeModal.tsx`| Email compose with To/CC/BCC, reply/forward prefill |
+| `src/components/ReadingPane.tsx` | HTML email viewer, reply/forward/delete/star actions, CID inline images, remote image blocking |
+| `src/components/ComposeModal.tsx`| Rich text email compose (TipTap) with To/CC/BCC, reply/forward prefill, signature preview |
 | `src/components/SettingsModal.tsx`| Account management (add/edit/test/delete) + theme settings |
 | `src/components/ThemeContext.tsx` | Layout context + theme class application   |
 | `src/components/OnboardingScreen.tsx` | First-run account setup (4-step wizard, 9 CSS animations) |
@@ -53,13 +55,14 @@ release/           # Built app artifacts
 | `src/stores/emailStore.ts` | Zustand email/folder/account state             |
 | `src/components/ContactAutocomplete.tsx` | ARIA combobox contact search (To/CC/BCC) |
 | `src/lib/useKeyboardShortcuts.ts` | Global keyboard shortcut hook (mod/shift/alt combos) |
+| `src/lib/formatFileSize.ts` | Human-readable file size formatter (shared utility) |
 | `src/lib/ipc.ts`          | Typed IPC wrapper for renderer process          |
 | `scripts/clean-build.mjs`  | Hydration + clean packaging (purge, rebuild native deps, package, verify) |
 | `src/index.css`            | Global styles, 4 themes, self-hosted Outfit font, layout modes |
 
 ## Data Models
 
-**SQLite Tables:** `accounts` (email, provider, encrypted password, IMAP/SMTP host/port, display_name), `folders` (mailbox hierarchy), `emails` (messages + FTS5 index), `drafts` (pending emails with cc/bcc, schema_version=2), `contacts` (auto-harvested from sent mail), `settings` (key-value, includes schema_version)
+**SQLite Tables:** `accounts` (email, provider, encrypted password, IMAP/SMTP host/port, display_name, signature_html), `folders` (mailbox hierarchy), `emails` (messages + FTS5 index + has_attachments + ai_category + ai_priority + ai_labels, schema_version=6), `attachments` (metadata + BLOB cache + content_id, FK cascade to emails, schema_version=5), `drafts` (pending emails with cc/bcc, schema_version=2), `contacts` (auto-harvested from sent mail), `settings` (key-value, includes schema_version)
 
 **Zustand Stores:**
 - `themeStore` — `themeName`, `layout`, persisted to localStorage
@@ -69,13 +72,18 @@ release/           # Built app artifacts
 
 ## MCP Tools
 
+All handlers in `electron/mcpTools.ts`, dispatched via Map in `electron/mcpServer.ts`.
+
 | Tool              | Purpose                                    |
 | ----------------- | ------------------------------------------ |
-| `search_emails`   | FTS5 full-text search (sanitized input)    |
+| `search_emails`   | FTS5 full-text search with AI metadata (JOIN to emails table, limit 20) |
 | `read_thread`     | Fetch email thread by thread_id            |
-| `send_email`      | Send via SMTP (wired to smtpEngine)        |
-| `create_draft`    | Insert draft to DB for UI review           |
-| `get_smart_summary` | Summarize recent emails for an account  |
+| `send_email`      | Send via SMTP (attachments, filename sanitized, 500KB HTML cap) |
+| `create_draft`    | Insert draft to DB for UI review (account validated) |
+| `get_smart_summary` | Rich mailbox summary: recent 20 emails, unread/flagged, high-priority, folders, drafts |
+| `categorize_email` | AI writes category/priority(1-4)/labels to DB (account ownership enforced) |
+| `get_email_analytics` | Mailbox stats: volume, top senders, folders, busiest hours, category/priority dist. (1-90 days) |
+| `suggest_reply`   | Structured reply context: email + thread + sender history + account (body 2KB cap, account ownership) |
 
 ## Design System
 
@@ -117,9 +125,9 @@ npm run lint             # eslint (strict, 0 warnings)
 - Components use inline `<style>` tags (CSS-in-JS via template literals)
 - Electron main process uses `.js` extension in imports (ESM)
 - Preload script exposes IPC via `contextBridge` (MUST build as CJS `.cjs` — Electron requires `require()` for preload in sandboxed mode; configured in `vite.config.ts`)
-- Database uses WAL mode + foreign keys + FTS5 triggers
+- Database uses WAL mode + foreign keys + FTS5 triggers (6 migrations)
 - Passwords encrypted via `electron.safeStorage` (OS keychain)
-- MCP server runs on localhost:3000 with SSE + POST transport
+- MCP server runs on localhost:3000 with multi-client SSE + POST transport (timing-safe auth, account ownership enforcement)
 
 ### Quality Pipeline (MANDATORY)
 
@@ -225,26 +233,51 @@ Full reports in `.claude/`: `security-audit-report.md`, `code-review-report.md`,
 - ~~Duplicate test connection logic~~ -- Fixed: extracted shared `runConnectionTest()` helper
 - ~~SMTP field changes don't reset test status~~ -- Fixed: added `resetTestStatus()` to SMTP host/port onChange
 
-**Architecture gaps:** Single MCP transport, flat tool dispatch, inline styles in every component
+**Code review remediation (2026-02-24 round 6):**
+- ~~MCP `send_email` CRLF injection~~ -- Fixed: `stripCRLF` applied to recipients and subject in MCP handler
+- ~~MCP `create_draft` no account validation~~ -- Fixed: verify `account_id` exists before INSERT
+- ~~`App.tsx handleDeleteSelected` no error handling~~ -- Fixed: try/catch + `result?.success` guard
+- ~~Hardcoded indigo `rgba(59,130,246)` in Sidebar/ThreadList~~ -- Fixed: replaced with `rgba(var(--color-accent), ...)`
+- ~~ThreadList rows not keyboard accessible~~ -- Fixed: added `role="button"`, `tabIndex={0}`, `onKeyDown`
+- ~~`console.error/log` in imap.ts, smtp.ts, mcpServer.ts~~ -- Fixed: extracted shared `logDebug()` to `electron/logger.ts`, all 7 call sites migrated
 
-### Test Coverage: ~45% (10 files, 111 tests, target 70%)
+**Code review remediation (2026-02-24 round 7 — Phase 2 features):**
+- ~~Signature not DOMPurify-sanitized at send time~~ -- Fixed: `DOMPurify.sanitize(accountSignature)` before appending
+- ~~CID data: URLs not MIME-validated~~ -- Fixed: `SAFE_IMAGE_MIMES` allowlist (png/jpeg/gif/webp/bmp)
+- ~~attachments:by-cid no account ownership check~~ -- Fixed: verify email belongs to valid account
+- ~~Insert Link accepts javascript: URLs~~ -- Fixed: `https?://` scheme validation
+- ~~Unbounded signature_html size~~ -- Fixed: `slice(0, 10_000)` in accounts:add and accounts:update
+- ~~data-blocked-src URL not HTML-encoded~~ -- Fixed: `escapeAttr()` helper
+- ~~CID cap too generous (50)~~ -- Fixed: reduced to 10
+- ~~extractCids ran on unsanitized HTML~~ -- Fixed: runs on `sanitizedBodyHtml` (DOMPurify output)
+- ~~replaceCids fallback CID not escaped~~ -- Fixed: HTML-encoded in output
+- ~~extractAttachments skipped children of inline nodes~~ -- Fixed: recurse into childNodes for non-image inline
+- ~~Toolbar buttons missing type="button" and aria-label~~ -- Fixed: all 7 buttons accessible
+- ~~Forward body interpolations not entity-escaped~~ -- Fixed: `esc()` applied in App.tsx handleForward
 
-**Tested:** crypto, db, mcpServer, imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal, ReadingPane, useKeyboardShortcuts
-**Untested critical paths:** IMAP client (P1), SMTP sender (P1), ContactAutocomplete (P2), App orchestration (P2), ThemeContext (P3), OnboardingScreen (P3)
+**Architecture gaps (Phase 3 resolved):** Multi-client MCP transport (Map-based), Map tool dispatch, timing-safe auth, account ownership on categorize/suggest_reply, attachment filename sanitization, body_text truncation, HTML body 500KB cap. **Remaining:** inline styles in every component
+
+### Test Coverage: ~65% (14 files, 251 tests, target 70%)
+
+**Tested:** crypto, db, mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures), ReadingPane (CID + remote image blocking), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete
+**Untested critical paths:** IMAP client (P1), App orchestration (P2), ThemeContext (P3), OnboardingScreen (P3)
 
 ## Feature Status Summary
 
 Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [Mailspring](https://github.com/Foundry376/Mailspring).
 
-### What's Done (Phase 1 complete, Phase 2 partial -- v0.2.0-in-progress)
+### What's Done (Phase 1 complete, Phase 2 complete, Phase 3 complete -- v0.3.0)
 - Account management (add/remove/edit/test, 5 provider presets, brand icons)
 - IMAP connect + IDLE + body fetch + folder sync + reconnect with exponential backoff
 - Connection testing (10s timeout) — standalone Test Connection button + test-before-save, visual status (pass/fail/spinner)
 - Post-add account auto-selection + folder loading + inbox auto-select
 - SMTP send with CC/BCC (TLS/STARTTLS, injection-safe)
 - Full-text search (FTS5, debounced)
-- Email compose with To/CC/BCC + contact autocomplete (ARIA combobox), reply/forward prefill
+- Rich text email compose (TipTap: bold/italic/underline/lists/links) with To/CC/BCC + contact autocomplete (ARIA combobox), reply/forward prefill
+- Per-account email signatures (HTML, 10KB cap, DOMPurify-sanitized, preview in compose)
 - HTML email rendering with DOMPurify sanitization
+- Inline CID image display (Content-ID extraction, IMAP on-demand download, MIME allowlist, data: URL rendering)
+- Remote image blocking (blocked by default, privacy banner, "Load images" button, CSP defense-in-depth)
 - Reply, Forward, Delete, Star/Flag, Archive, Move-to-folder actions wired
 - Keyboard shortcuts: mod+N compose, R reply, F forward, E archive, J/K navigate, Delete, Escape
 - Contact autocomplete in To/CC/BCC (200ms debounce, auto-harvest on send, email validation)
@@ -254,20 +287,23 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - `email:new` IPC event emitted from main process
 - 4 themes + 2 layouts (persisted)
 - Premium onboarding wizard (4-step, 9 animations, WCAG 2.1, connection testing)
-- MCP server with 5 AI tools (search, read, send, draft, summary)
-- Security hardened (auth, sandbox, CSP, scoped IPC, encrypted passwords, cross-account guards)
+- MCP server with 8 AI tools (search, read, send, draft, summary, categorize, analytics, suggest_reply)
+- Multi-client MCP SSE transport (Map<sessionId, ClientSession>), connection status push, timing-safe auth
+- AI metadata: email categorization (category/priority/labels), priority badges in ThreadList, AI metadata row in ReadingPane
+- MCP connection status indicator in Sidebar (green dot + agent count)
+- OpenRouter API key management (encrypted via safeStorage, Settings "AI / API Keys" tab, eye toggle, save/clear, auto-clear feedback)
+- Security hardened (auth, sandbox, CSP, scoped IPC, encrypted passwords, cross-account guards, account ownership on MCP tools, encrypted API key storage)
 - System tray with icon
-- 111 tests across 10 files
+- File attachments: send (file picker, 25MB/file, max 10) + receive (IMAP on-demand download, SQLite BLOB cache), attachment chips in compose/reading pane/thread list, MCP send_email with attachments
+- 251 tests across 14 files
 - All packages upgraded: React 19, Electron 40, Vite 7, TypeScript 5.9, ESLint 10 (flat config)
 
 ### What's Not Done Yet (by phase)
-- **Phase 2 (Productivity):** Attachments, signatures, rich text compose, inline images
-- **Phase 3 (AI):** AI compose assistant, email categorization, AI insights, multi-client MCP, LLM summarization
+- **Phase 3 (AI):** AI compose assistant (LLM-powered reply generation using suggest_reply context)
 - **Phase 4 (Polish):** Snooze, send later, reminders, mail rules, i18n, OS notifications, auto-update, code signing
 - **Phase 5 (Quality):** 70%+ test coverage, E2E tests, CSS modules migration, perf optimization
 
 ### Stubs (UI exists, not wired)
-- ComposeModal: Format, Insert Link, Attach Files toolbar buttons
 - emailStore: isLoading/setLoading state
 
 ## Known Issues & Technical Debt
@@ -297,8 +333,8 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - [x] Emit `email:new` from main process after IMAP sync (callback pattern)
 - [x] Add DOMPurify for HTML email rendering
 - [ ] Migrate inline `<style>` to CSS modules
-- [ ] Multi-transport Map for MCP SSE connections
-- [ ] Refactor tool dispatch to Map<name, handler>
+- [x] Multi-transport Map for MCP SSE connections
+- [x] Refactor tool dispatch to Map<name, handler>
 - [ ] Evaluate SQLCipher for at-rest DB encryption
 - [x] Fix `exists` listener leak in `imap.ts`
 - [x] Self-host Outfit font (remove Google Fonts CDN)

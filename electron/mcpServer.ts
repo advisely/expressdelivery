@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
+import { logDebug } from './logger.js';
 import cors from 'cors';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -10,15 +11,20 @@ import {
     McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { getDatabase } from './db.js';
-import { smtpEngine } from './smtp.js';
-import { sanitizeFts5Query } from './utils.js';
+import { buildToolRegistry, type ToolDefinition } from './mcpTools.js';
+
+interface ClientSession {
+    server: Server;
+    transport: SSEServerTransport;
+}
 
 export class McpServerManager {
-    private server: Server;
     private app: express.Express;
     private port: number = 3000;
-    private transport: SSEServerTransport | null = null;
+    private transports: Map<string, ClientSession> = new Map();
+    private tools: Map<string, ToolDefinition>;
     private authToken: string;
+    private connectionCallback: ((count: number) => void) | null = null;
 
     constructor() {
         this.authToken = crypto.randomBytes(32).toString('hex');
@@ -26,28 +32,19 @@ export class McpServerManager {
         this.app.use(cors({ origin: false }));
         this.app.use(express.json());
 
-        this.server = new Server(
-            {
-                name: 'express-delivery',
-                version: '1.0.0',
-            },
-            {
-                capabilities: {
-                    tools: {},
-                },
-            }
-        );
+        this.tools = buildToolRegistry();
 
         this.setupAuth();
         this.setupRoutes();
-        this.setupTools();
     }
 
-    /** Bearer token authentication middleware */
+    /** Bearer token authentication middleware (timing-safe comparison) */
     private setupAuth() {
+        const expectedHeader = `Bearer ${this.authToken}`;
         this.app.use((req, res, next) => {
-            const authHeader = req.headers.authorization;
-            if (!authHeader || authHeader !== `Bearer ${this.authToken}`) {
+            const authHeader = req.headers.authorization ?? '';
+            if (authHeader.length !== expectedHeader.length ||
+                !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expectedHeader))) {
                 res.status(401).json({ error: 'Unauthorized: valid Bearer token required' });
                 return;
             }
@@ -55,205 +52,24 @@ export class McpServerManager {
         });
     }
 
-    private setupRoutes() {
-        // SSE endpoint for AI Agent connection
-        this.app.get('/sse', async (_req, res) => {
-            console.log('New MCP connection request (authenticated)');
-            this.transport = new SSEServerTransport('/message', res);
-            await this.server.connect(this.transport);
-        });
-
-        // Message endpoint to receive client tools/requests
-        this.app.post('/message', async (req, res) => {
-            if (!this.transport) {
-                res.status(400).send('SSE connection not established');
-                return;
-            }
-            await this.transport.handlePostMessage(req, res);
-        });
-    }
-
-    private setupTools() {
-        this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                {
-                    name: 'search_emails',
-                    description: 'Search for emails using a full-text query',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            query: {
-                                type: 'string',
-                                description: 'Search term',
-                            },
-                        },
-                        required: ['query'],
-                    },
-                },
-                {
-                    name: 'read_thread',
-                    description: 'Read the full thread of emails using thread_id',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            thread_id: {
-                                type: 'string',
-                                description: 'The thread ID to fetch',
-                            },
-                        },
-                        required: ['thread_id'],
-                    },
-                },
-                {
-                    name: 'send_email',
-                    description: 'Send a new email using the configured SMTP connection',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            account_id: { type: 'string' },
-                            to: {
-                                type: 'array',
-                                items: { type: 'string' }
-                            },
-                            subject: { type: 'string' },
-                            html: { type: 'string' },
-                        },
-                        required: ['account_id', 'to', 'subject', 'html'],
-                    },
-                },
-                {
-                    name: 'create_draft',
-                    description: 'Prepare a draft for the user to review in the UI before sending',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            account_id: { type: 'string' },
-                            to: {
-                                type: 'array',
-                                items: { type: 'string' }
-                            },
-                            subject: { type: 'string' },
-                            html: { type: 'string' },
-                        },
-                        required: ['account_id', 'to', 'subject', 'html'],
-                    },
-                },
-                {
-                    name: 'get_smart_summary',
-                    description: 'Leverage local index to summarize recent emails',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            account_id: { type: 'string' }
-                        },
-                        required: ['account_id']
-                    }
-                }
-            ],
+    /** Configure a Server instance with tool handlers from the shared registry */
+    private configureServer(server: Server) {
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: Array.from(this.tools.entries()).map(([name, def]) => ({
+                name,
+                description: def.description,
+                inputSchema: def.inputSchema,
+            })),
         }));
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        server.setRequestHandler(CallToolRequestSchema, async (request) => {
+            const tool = this.tools.get(request.params.name);
+            if (!tool) {
+                throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
+            }
             try {
                 const db = getDatabase();
-                if (request.params.name === 'search_emails') {
-                    const query = request.params.arguments?.query;
-                    if (typeof query !== 'string') {
-                        throw new McpError(ErrorCode.InvalidParams, 'query must be a string');
-                    }
-
-                    const sanitized = sanitizeFts5Query(query);
-                    if (!sanitized) {
-                        return {
-                            content: [{ type: 'text', text: JSON.stringify([], null, 2) }],
-                        };
-                    }
-
-                    try {
-                        const results = db.prepare(`
-                            SELECT rowid, subject, from_name, from_email, snippet
-                            FROM emails_fts
-                            WHERE emails_fts MATCH ?
-                            ORDER BY rank
-                            LIMIT 10
-                        `).all(sanitized);
-
-                        return {
-                            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-                        };
-                    } catch {
-                        return {
-                            content: [{ type: 'text', text: 'Search failed: invalid query syntax' }],
-                            isError: true,
-                        };
-                    }
-                }
-
-                if (request.params.name === 'read_thread') {
-                    const thread_id = request.params.arguments?.thread_id;
-                    if (typeof thread_id !== 'string') {
-                        throw new McpError(ErrorCode.InvalidParams, 'thread_id must be a string');
-                    }
-
-                    const results = db.prepare(`
-                        SELECT id, account_id, folder_id, thread_id, subject,
-                               from_name, from_email, to_email, date, snippet, body_text,
-                               is_read, is_flagged
-                        FROM emails WHERE thread_id = ? ORDER BY date ASC
-                    `).all(thread_id);
-
-                    return {
-                        content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-                    };
-                }
-
-                if (request.params.name === 'send_email') {
-                    const args = request.params.arguments;
-                    if (!args || typeof args.account_id !== 'string' || !Array.isArray(args.to) || typeof args.subject !== 'string' || typeof args.html !== 'string') {
-                        throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for send_email');
-                    }
-                    const success = await smtpEngine.sendEmail(
-                        args.account_id, args.to, args.subject, args.html
-                    );
-                    return {
-                        content: [{ type: 'text', text: success
-                            ? `Email sent to ${args.to.join(', ')}`
-                            : 'Failed to send email' }],
-                        isError: !success,
-                    };
-                }
-
-                if (request.params.name === 'create_draft') {
-                    const args = request.params.arguments;
-                    if (!args || typeof args.account_id !== 'string' || !Array.isArray(args.to) || typeof args.subject !== 'string' || typeof args.html !== 'string') {
-                        throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for create_draft');
-                    }
-
-                    const id = crypto.randomUUID();
-                    db.prepare(
-                        'INSERT INTO drafts (id, account_id, to_email, subject, body_html) VALUES (?, ?, ?, ?, ?)'
-                    ).run(id, args.account_id, args.to.join(', '), args.subject, args.html);
-
-                    return {
-                        content: [{ type: 'text', text: `Draft created (id: ${id}) with subject: "${args.subject}"` }]
-                    };
-                }
-
-                if (request.params.name === 'get_smart_summary') {
-                    const args = request.params.arguments;
-                    if (!args || typeof args.account_id !== 'string') {
-                        throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for get_smart_summary');
-                    }
-
-                    const recentEmails = db.prepare(
-                        `SELECT subject, snippet FROM emails WHERE account_id = ? ORDER BY date DESC LIMIT 5`
-                    ).all(args.account_id);
-
-                    return {
-                        content: [{ type: 'text', text: JSON.stringify({ summary: "Here are the recent active threads.", data: recentEmails }, null, 2) }]
-                    };
-                }
-
-                throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
+                return await tool.handler(request.params.arguments ?? {}, db);
             } catch (error: unknown) {
                 if (error instanceof McpError) throw error;
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -264,7 +80,67 @@ export class McpServerManager {
             }
         });
 
-        this.server.onerror = (error) => console.error('[MCP Error]', error);
+        server.onerror = (error) => logDebug(`[MCP Error] ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    private setupRoutes() {
+        // SSE endpoint — each connection gets its own Server + Transport pair
+        this.app.get('/sse', async (_req, res) => {
+            logDebug('New MCP connection request (authenticated)');
+
+            const server = new Server(
+                { name: 'express-delivery', version: '1.0.0' },
+                { capabilities: { tools: {} } }
+            );
+            this.configureServer(server);
+
+            const transport = new SSEServerTransport('/message', res);
+            const sessionId = transport.sessionId;
+            this.transports.set(sessionId, { server, transport });
+            logDebug(`MCP client connected: ${sessionId} (total: ${this.transports.size})`);
+            this.notifyConnectionChange();
+
+            // Clean up on disconnect
+            res.on('close', () => {
+                this.transports.delete(sessionId);
+                logDebug(`MCP client disconnected: ${sessionId} (total: ${this.transports.size})`);
+                this.notifyConnectionChange();
+            });
+
+            try {
+                await server.connect(transport);
+            } catch (err) {
+                this.transports.delete(sessionId);
+                this.notifyConnectionChange();
+                logDebug(`MCP connection failed for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+                if (!res.headersSent) res.end();
+            }
+        });
+
+        // Message endpoint — route by sessionId query param
+        this.app.post('/message', async (req, res) => {
+            const sessionId = req.query.sessionId as string;
+            const session = sessionId ? this.transports.get(sessionId) : undefined;
+            if (!session) {
+                res.status(400).send('No transport found for sessionId');
+                return;
+            }
+            await session.transport.handlePostMessage(req, res);
+        });
+    }
+
+    private notifyConnectionChange() {
+        this.connectionCallback?.(this.transports.size);
+    }
+
+    /** Set callback for connection count changes (same pattern as IMAP's setNewEmailCallback) */
+    public setConnectionCallback(cb: (count: number) => void) {
+        this.connectionCallback = cb;
+    }
+
+    /** Get the number of currently connected AI agents */
+    public getConnectedCount(): number {
+        return this.transports.size;
     }
 
     /** Get the auth token for MCP client configuration */
@@ -276,11 +152,19 @@ export class McpServerManager {
 
     public start() {
         this.httpServer = this.app.listen(this.port, '127.0.0.1', () => {
-            console.log(`[MCP Server] Listening on http://127.0.0.1:${this.port}/sse`);
+            logDebug(`[MCP Server] Listening on http://127.0.0.1:${this.port}/sse`);
         });
     }
 
     public stop() {
+        for (const [sessionId, session] of this.transports) {
+            try {
+                session.transport.close();
+            } catch {
+                logDebug(`Error closing MCP transport ${sessionId}`);
+            }
+        }
+        this.transports.clear();
         this.httpServer?.close();
         this.httpServer = null;
     }

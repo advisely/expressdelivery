@@ -1,14 +1,51 @@
-import { useState } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useEmailStore } from '../stores/emailStore';
-import type { EmailFull, EmailSummary } from '../stores/emailStore';
+import type { Attachment, EmailFull, EmailSummary } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
+import { formatFileSize } from '../lib/formatFileSize';
 
 interface ReadingPaneProps {
     onReply?: (email: EmailFull) => void;
     onForward?: (email: EmailFull) => void;
+}
+
+function extractCids(html: string): string[] {
+    const cids: string[] = [];
+    const regex = /src=["']cid:([^"']+)["']/gi;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+        cids.push(match[1]);
+    }
+    return [...new Set(cids)];
+}
+
+function replaceCids(html: string, cidMap: Record<string, string>): string {
+    return html.replace(/src=["']cid:([^"']+)["']/gi, (_full, cid: string) => {
+        const dataUrl = cidMap[cid];
+        if (dataUrl) return `src="${dataUrl}"`;
+        // HTML-encode fallback CID to prevent injection
+        const safeCid = cid.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `src="cid:${safeCid}"`;
+    });
+}
+
+const PLACEHOLDER_SVG = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E';
+
+function escapeAttr(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function processRemoteImages(html: string, block: boolean): { html: string; count: number } {
+    let count = 0;
+    if (!block) return { html, count };
+    const processed = html.replace(/<img\s([^>]*?)src=["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (_full, before: string, url: string, after: string) => {
+        count++;
+        return `<img ${before}src="${PLACEHOLDER_SVG}" data-blocked-src="${escapeAttr(url)}"${after}>`;
+    });
+    return { html: processed, count };
 }
 
 export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) => {
@@ -16,6 +53,76 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     const folders = useEmailStore(s => s.folders);
     const { setSelectedEmail, setEmails } = useEmailStore();
     const [actionError, setActionError] = useState<string | null>(null);
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
+    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+    const [cidMap, setCidMap] = useState<Record<string, string>>({});
+    const [remoteImagesBlocked, setRemoteImagesBlocked] = useState(true);
+    const [remoteImageCount, setRemoteImageCount] = useState(0);
+
+    // Reset state on email change
+    useEffect(() => {
+        setAttachments([]);
+        setCidMap({});
+        setRemoteImagesBlocked(true);
+        setRemoteImageCount(0);
+        const emailId = selectedEmail?.id;
+        if (!emailId || !selectedEmail?.has_attachments) return;
+        let cancelled = false;
+        async function loadAttachments() {
+            const result = await ipcInvoke<Attachment[]>('attachments:list', emailId);
+            if (result && !cancelled) setAttachments(result);
+        }
+        loadAttachments();
+        return () => { cancelled = true; };
+    }, [selectedEmail]);
+
+    // Sanitize body_html once for CID extraction (ensures CIDs are extracted from safe HTML)
+    const sanitizedBodyHtml = useMemo(() => {
+        if (!selectedEmail?.body_html) return null;
+        return DOMPurify.sanitize(selectedEmail.body_html, {
+            FORBID_TAGS: ['style'],
+            FORBID_ATTR: ['onerror', 'onload'],
+            ADD_URI_SAFE_ATTR: ['src'],
+        });
+    }, [selectedEmail?.body_html]);
+
+    // Resolve CID images (from sanitized HTML)
+    useEffect(() => {
+        const html = sanitizedBodyHtml;
+        const emailId = selectedEmail?.id;
+        if (!html || !emailId) return;
+        const cids = extractCids(html);
+        if (cids.length === 0) return;
+        let cancelled = false;
+        async function resolveCids() {
+            const result = await ipcInvoke<Record<string, string>>('attachments:by-cid', {
+                emailId,
+                contentIds: cids,
+            });
+            if (result && !cancelled) setCidMap(result);
+        }
+        resolveCids();
+        return () => { cancelled = true; };
+    }, [sanitizedBodyHtml, selectedEmail?.id]);
+
+    const handleDownloadAttachment = async (att: Attachment) => {
+        setDownloadingId(att.id);
+        try {
+            const result = await ipcInvoke<{
+                filename: string; mimeType: string; content: string;
+            }>('attachments:download', { attachmentId: att.id, emailId: att.email_id });
+            if (result) {
+                await ipcInvoke('attachments:save', {
+                    filename: result.filename,
+                    content: result.content,
+                });
+            }
+        } catch {
+            setActionError('Failed to download attachment');
+        } finally {
+            setDownloadingId(null);
+        }
+    };
 
     const refreshEmailList = async () => {
         const folderId = useEmailStore.getState().selectedFolderId;
@@ -82,6 +189,23 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
         }
     };
 
+    // Process HTML: sanitize -> CID replace -> remote image blocking
+    const { processedHtml, detectedRemoteCount } = useMemo(() => {
+        if (!sanitizedBodyHtml) return { processedHtml: null, detectedRemoteCount: 0 };
+        const html = replaceCids(sanitizedBodyHtml, cidMap);
+        const { html: blocked, count } = processRemoteImages(html, remoteImagesBlocked);
+        return { processedHtml: blocked, detectedRemoteCount: count };
+    }, [sanitizedBodyHtml, cidMap, remoteImagesBlocked]);
+
+    // Sync detected remote image count to state (separate from useMemo)
+    useEffect(() => {
+        setRemoteImageCount(detectedRemoteCount);
+    }, [detectedRemoteCount]);
+
+    const handleLoadRemoteImages = () => {
+        setRemoteImagesBlocked(false);
+    };
+
     if (!selectedEmail) {
         return (
             <div className="reading-pane" style={{
@@ -103,14 +227,10 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
 
     const initial = (selectedEmail.from_name || selectedEmail.from_email || '?').charAt(0).toUpperCase() || '?';
 
-    const sanitizedHtml = selectedEmail.body_html
-        ? DOMPurify.sanitize(selectedEmail.body_html, {
-              FORBID_TAGS: ['style'],
-              FORBID_ATTR: ['onerror', 'onload'],
-          })
-        : null;
-
     const movableFolders = folders.filter(f => f.id !== selectedEmail.folder_id);
+
+    // Filter out inline CID attachments from the download list
+    const downloadableAttachments = attachments.filter(a => !a.content_id);
 
     return (
         <div className="reading-pane scrollable">
@@ -204,11 +324,40 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     </div>
                 </div>
 
+                {(selectedEmail.ai_category || selectedEmail.ai_priority != null || selectedEmail.ai_labels) && (
+                    <div className="rp-ai-meta-row">
+                        {selectedEmail.ai_priority != null && selectedEmail.ai_priority >= 1 && selectedEmail.ai_priority <= 4 && (
+                            <span className={`rp-priority-badge rp-priority-${selectedEmail.ai_priority}`}>
+                                {['', 'Low', 'Normal', 'High', 'Urgent'][selectedEmail.ai_priority]}
+                            </span>
+                        )}
+                        {selectedEmail.ai_category && (
+                            <span className="rp-category-badge">{selectedEmail.ai_category}</span>
+                        )}
+                        {selectedEmail.ai_labels && (() => {
+                            try {
+                                const labels = JSON.parse(selectedEmail.ai_labels) as string[];
+                                return Array.isArray(labels) ? labels.slice(0, 5).map((label, i) => (
+                                    <span key={`${label}-${i}`} className="rp-label-badge">{label}</span>
+                                )) : null;
+                            } catch { return null; }
+                        })()}
+                    </div>
+                )}
+
+                {remoteImageCount > 0 && remoteImagesBlocked && (
+                    <div className="remote-images-banner" role="status">
+                        <ShieldAlert size={16} />
+                        <span>Remote images blocked for privacy.</span>
+                        <button className="load-images-btn" onClick={handleLoadRemoteImages}>Load images</button>
+                    </div>
+                )}
+
                 <div className="email-body">
-                    {sanitizedHtml ? (
+                    {processedHtml ? (
                         <div
                             className="email-body-html"
-                            dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+                            dangerouslySetInnerHTML={{ __html: processedHtml }}
                         />
                     ) : (
                         <div style={{ whiteSpace: 'pre-wrap' }}>
@@ -216,6 +365,36 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                         </div>
                     )}
                 </div>
+
+                {downloadableAttachments.length > 0 && (
+                    <div className="attachments-section">
+                        <div className="attachments-header">
+                            <Paperclip size={14} />
+                            <span>{downloadableAttachments.length} attachment{downloadableAttachments.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="attachments-list">
+                            {downloadableAttachments.map(att => (
+                                <button
+                                    key={att.id}
+                                    className="attachment-chip"
+                                    onClick={() => handleDownloadAttachment(att)}
+                                    disabled={downloadingId === att.id}
+                                    title={`Download ${att.filename} (${formatFileSize(att.size)})`}
+                                    aria-label={`Download attachment ${att.filename}`}
+                                >
+                                    <FileText size={14} />
+                                    <span className="attachment-name">{att.filename}</span>
+                                    <span className="attachment-size">{formatFileSize(att.size)}</span>
+                                    {downloadingId === att.id ? (
+                                        <span className="attachment-spinner" />
+                                    ) : (
+                                        <Download size={14} />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <style>{`
@@ -331,6 +510,42 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
           color: var(--text-secondary);
         }
 
+        .rp-ai-meta-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin-bottom: 16px;
+        }
+
+        .rp-priority-badge {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 2px 8px;
+          border-radius: 4px;
+        }
+
+        .rp-priority-1 { background: rgba(var(--color-text-muted), 0.1); color: var(--text-muted); }
+        .rp-priority-2 { background: rgba(var(--color-accent), 0.1); color: var(--accent-color); }
+        .rp-priority-3 { background: rgba(var(--color-flag), 0.15); color: rgb(var(--color-flag)); }
+        .rp-priority-4 { background: rgba(var(--color-danger), 0.15); color: rgb(var(--color-danger)); }
+
+        .rp-category-badge {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 2px 8px;
+          border-radius: 4px;
+          background: rgba(var(--color-accent), 0.1);
+          color: var(--accent-color);
+        }
+
+        .rp-label-badge {
+          font-size: 10px;
+          padding: 2px 6px;
+          border-radius: 4px;
+          background: var(--surface-overlay);
+          color: var(--text-secondary);
+        }
+
         .email-body {
           font-size: 15px;
           line-height: 1.6;
@@ -357,6 +572,34 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
         .email-body-html table {
           max-width: 100%;
           overflow-x: auto;
+        }
+
+        .remote-images-banner {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          margin-bottom: 16px;
+          border-radius: 8px;
+          background: rgba(var(--color-flag), 0.1);
+          border: 1px solid rgba(var(--color-flag), 0.3);
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+
+        .load-images-btn {
+          margin-left: auto;
+          padding: 4px 12px;
+          border-radius: 4px;
+          background: var(--accent-color);
+          color: white;
+          font-size: 12px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        .load-images-btn:hover {
+          background: var(--accent-hover);
         }
 
         .action-button {
@@ -408,8 +651,84 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
           to { opacity: 1; transform: translateY(0); }
         }
 
+        .attachments-section {
+          margin-top: 24px;
+          padding-top: 16px;
+          border-top: 1px solid var(--glass-border);
+        }
+
+        .attachments-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          margin-bottom: 8px;
+        }
+
+        .attachments-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .attachment-chip {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 12px;
+          border-radius: 8px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--glass-border);
+          color: var(--text-primary);
+          font-size: 13px;
+          cursor: pointer;
+          transition: background 0.15s, border-color 0.15s;
+          max-width: 280px;
+        }
+
+        .attachment-chip:hover {
+          background: var(--hover-bg);
+          border-color: var(--accent-color);
+        }
+
+        .attachment-chip:disabled {
+          opacity: 0.6;
+          cursor: wait;
+        }
+
+        .attachment-name {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 160px;
+        }
+
+        .attachment-size {
+          color: var(--text-secondary);
+          font-size: 11px;
+          white-space: nowrap;
+        }
+
+        .attachment-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid var(--glass-border);
+          border-top-color: var(--accent-color);
+          border-radius: 50%;
+          animation: attachSpin 0.6s linear infinite;
+        }
+
+        @keyframes attachSpin {
+          to { transform: rotate(360deg); }
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .move-menu {
+            animation: none;
+          }
+          .attachment-spinner {
             animation: none;
           }
         }

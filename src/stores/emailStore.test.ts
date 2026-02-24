@@ -39,6 +39,7 @@ const mockAccount: Account = {
     imap_port: null,
     smtp_host: null,
     smtp_port: null,
+    signature_html: null,
 };
 
 const mockAccount2: Account = {
@@ -50,6 +51,7 @@ const mockAccount2: Account = {
     imap_port: null,
     smtp_host: null,
     smtp_port: null,
+    signature_html: null,
 };
 
 const mockEmailFull: EmailFull = {
@@ -67,6 +69,10 @@ const mockEmailFull: EmailFull = {
     body_html: null,
     is_read: 1,
     is_flagged: 0,
+    has_attachments: 0,
+    ai_category: null,
+    ai_priority: null,
+    ai_labels: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -320,7 +326,8 @@ describe('emailStore folder and email selection', () => {
         const summary = {
             id: 'e1', thread_id: null, subject: 'Hi', from_name: null,
             from_email: null, to_email: null, date: null, snippet: null,
-            is_read: 0, is_flagged: 0,
+            is_read: 0, is_flagged: 0, has_attachments: 0,
+            ai_category: null, ai_priority: null, ai_labels: null,
         };
         useEmailStore.getState().setEmails([summary]);
         expect(useEmailStore.getState().emails).toHaveLength(1);

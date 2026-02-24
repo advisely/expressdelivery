@@ -24,6 +24,14 @@ vi.mock('lucide-react', () => ({
     Star: ({ fill }: { fill?: string }) => <div data-testid="icon-Star" data-fill={fill}>S</div>,
     Archive: () => <div data-testid="icon-Archive">A</div>,
     FolderInput: () => <div data-testid="icon-FolderInput">FI</div>,
+    Paperclip: () => <div data-testid="icon-Paperclip">P</div>,
+    Download: () => <div data-testid="icon-Download">D</div>,
+    FileText: () => <div data-testid="icon-FileText">FT</div>,
+    ShieldAlert: () => <div data-testid="icon-ShieldAlert">SA</div>,
+}));
+
+vi.mock('../lib/formatFileSize', () => ({
+    formatFileSize: (bytes: number) => `${bytes} bytes`,
 }));
 
 vi.mock('@radix-ui/react-dropdown-menu', () => ({
@@ -53,6 +61,10 @@ const mockEmail: EmailFull = {
     body_html: '<p>Hello world</p>',
     is_read: 1,
     is_flagged: 0,
+    has_attachments: 0,
+    ai_category: null,
+    ai_priority: null,
+    ai_labels: null,
 };
 
 function renderReadingPane(props: Partial<Parameters<typeof ReadingPane>[0]> = {}) {
@@ -147,10 +159,8 @@ describe('ReadingPane', () => {
     it('renders move dropdown with other folders (excludes current folder)', () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        // The mock dropdown renders inline, so menu items should appear
         expect(screen.getByText('Archive')).toBeInTheDocument();
         expect(screen.getByText('Sent')).toBeInTheDocument();
-        // Inbox should NOT appear (it's the current folder)
         const menuItems = screen.getAllByRole('menuitem');
         const inboxItem = menuItems.find(item => item.textContent === 'Inbox');
         expect(inboxItem).toBeUndefined();
@@ -170,5 +180,119 @@ describe('ReadingPane', () => {
         });
         renderReadingPane();
         expect(screen.getByText('Hello world')).toBeInTheDocument();
+    });
+
+    it('renders attachment chips when email has attachments', async () => {
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'attachments:list') {
+                return [
+                    { id: 'att1', email_id: 'email-1', filename: 'report.pdf', mime_type: 'application/pdf', size: 102400, part_number: '2', content_id: null },
+                    { id: 'att2', email_id: 'email-1', filename: 'photo.jpg', mime_type: 'image/jpeg', size: 2048000, part_number: '3', content_id: null },
+                ];
+            }
+            return null;
+        });
+        useEmailStore.setState({ selectedEmail: { ...mockEmail, has_attachments: 1 } });
+        renderReadingPane();
+        await waitFor(() => {
+            expect(screen.getByText('report.pdf')).toBeInTheDocument();
+            expect(screen.getByText('photo.jpg')).toBeInTheDocument();
+            expect(screen.getByText('2 attachments')).toBeInTheDocument();
+        });
+    });
+
+    it('does not fetch attachments when email has none', () => {
+        useEmailStore.setState({ selectedEmail: { ...mockEmail, has_attachments: 0 } });
+        renderReadingPane();
+        expect(mockIpcInvoke).not.toHaveBeenCalledWith('attachments:list', expect.anything());
+    });
+
+    // --- CID Inline Image Tests ---
+
+    it('fetches CID images when body_html contains cid: references', async () => {
+        const emailWithCid: EmailFull = {
+            ...mockEmail,
+            body_html: '<p>Hello</p><img src="cid:image001@example.com" />',
+        };
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'attachments:by-cid') {
+                return { 'image001@example.com': 'data:image/png;base64,abc123' };
+            }
+            return null;
+        });
+        useEmailStore.setState({ selectedEmail: emailWithCid });
+        renderReadingPane();
+        await waitFor(() => {
+            expect(mockIpcInvoke).toHaveBeenCalledWith('attachments:by-cid', {
+                emailId: 'email-1',
+                contentIds: ['image001@example.com'],
+            });
+        });
+    });
+
+    it('does not call attachments:by-cid when no CID references exist', () => {
+        useEmailStore.setState({ selectedEmail: mockEmail });
+        renderReadingPane();
+        expect(mockIpcInvoke).not.toHaveBeenCalledWith('attachments:by-cid', expect.anything());
+    });
+
+    it('hides CID attachments from the download list', async () => {
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'attachments:list') {
+                return [
+                    { id: 'att1', email_id: 'email-1', filename: 'report.pdf', mime_type: 'application/pdf', size: 102400, part_number: '2', content_id: null },
+                    { id: 'att-inline', email_id: 'email-1', filename: 'inline-image.png', mime_type: 'image/png', size: 5000, part_number: '3', content_id: 'cid123' },
+                ];
+            }
+            return null;
+        });
+        useEmailStore.setState({ selectedEmail: { ...mockEmail, has_attachments: 1 } });
+        renderReadingPane();
+        await waitFor(() => {
+            expect(screen.getByText('report.pdf')).toBeInTheDocument();
+            expect(screen.getByText('1 attachment')).toBeInTheDocument();
+            expect(screen.queryByText('inline-image.png')).not.toBeInTheDocument();
+        });
+    });
+
+    // --- Remote Image Blocking Tests ---
+
+    it('shows remote image blocking banner for emails with remote images', async () => {
+        const emailWithRemoteImg: EmailFull = {
+            ...mockEmail,
+            body_html: '<p>Hello</p><img src="https://example.com/tracker.png" />',
+        };
+        useEmailStore.setState({ selectedEmail: emailWithRemoteImg });
+        renderReadingPane();
+        await waitFor(() => {
+            expect(screen.getByText('Remote images blocked for privacy.')).toBeInTheDocument();
+            expect(screen.getByText('Load images')).toBeInTheDocument();
+        });
+    });
+
+    it('does not show remote image banner for data: and cid: images', () => {
+        const emailWithSafeImgs: EmailFull = {
+            ...mockEmail,
+            body_html: '<p>Hello</p><img src="data:image/png;base64,abc" />',
+        };
+        useEmailStore.setState({ selectedEmail: emailWithSafeImgs });
+        renderReadingPane();
+        expect(screen.queryByText('Remote images blocked for privacy.')).not.toBeInTheDocument();
+    });
+
+    it('clicking Load images removes the banner and restores images', async () => {
+        const emailWithRemoteImg: EmailFull = {
+            ...mockEmail,
+            body_html: '<p>Hello</p><img src="https://example.com/logo.png" />',
+        };
+        useEmailStore.setState({ selectedEmail: emailWithRemoteImg });
+        renderReadingPane();
+        await waitFor(() => {
+            expect(screen.getByText('Load images')).toBeInTheDocument();
+        });
+        fireEvent.click(screen.getByText('Load images'));
+        await waitFor(() => {
+            expect(screen.queryByText('Remote images blocked for privacy.')).not.toBeInTheDocument();
+        });
     });
 });

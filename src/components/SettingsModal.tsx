@@ -4,7 +4,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
-    CheckCircle2, XCircle, Loader
+    CheckCircle2, XCircle, Loader, Key
 } from 'lucide-react';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
@@ -50,6 +50,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [formImapPort, setFormImapPort] = useState(993);
     const [formSmtpHost, setFormSmtpHost] = useState('');
     const [formSmtpPort, setFormSmtpPort] = useState(465);
+    const [formSignature, setFormSignature] = useState('');
     const [formError, setFormError] = useState<string | null>(null);
     const [formSaving, setFormSaving] = useState(false);
     const [showServerFields, setShowServerFields] = useState(false);
@@ -59,10 +60,32 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const { layout, setLayout } = useLayout();
     const { themeName, setTheme } = useThemeStore();
 
+    // API key state
+    const [apiKey, setApiKey] = useState('');
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [apiKeySaving, setApiKeySaving] = useState(false);
+    const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+
+    // Load API key on mount
+    useEffect(() => {
+        let cancelled = false;
+        async function loadApiKey() {
+            try {
+                const key = await ipcInvoke<string | null>('apikeys:get-openrouter');
+                if (key && !cancelled) setApiKey(key);
+            } catch {
+                if (!cancelled) setApiKeyStatus('error');
+            }
+        }
+        loadApiKey();
+        return () => { cancelled = true; };
+    }, []);
+
     // Clear sensitive form state on unmount
     useEffect(() => {
         return () => {
             setFormPassword('');
+            setApiKey('');
         };
     }, []);
 
@@ -76,6 +99,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setFormImapPort(993);
         setFormSmtpHost('');
         setFormSmtpPort(465);
+        setFormSignature('');
         setFormError(null);
         setShowServerFields(false);
         setIsAddingAccount(false);
@@ -84,6 +108,33 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     };
 
     const resetTestStatus = () => { setTestStatus('idle'); };
+
+    const handleSaveApiKey = async () => {
+        setApiKeySaving(true);
+        setApiKeyStatus('idle');
+        try {
+            await ipcInvoke<{ success: boolean }>('apikeys:set-openrouter', apiKey.trim());
+            setApiKeyStatus('saved');
+            setTimeout(() => setApiKeyStatus('idle'), 3000);
+        } catch {
+            setApiKeyStatus('error');
+        } finally {
+            setApiKeySaving(false);
+        }
+    };
+
+    const handleClearApiKey = async () => {
+        setApiKeySaving(true);
+        setApiKeyStatus('idle');
+        try {
+            await ipcInvoke<{ success: boolean }>('apikeys:set-openrouter', '');
+            setApiKey('');
+        } catch {
+            setApiKeyStatus('error');
+        } finally {
+            setApiKeySaving(false);
+        }
+    };
 
     const runConnectionTest = async (email: string, password: string, host: string, port: number): Promise<boolean> => {
         setTestStatus('testing');
@@ -139,6 +190,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setFormImapPort(account.imap_port ?? 993);
         setFormSmtpHost(account.smtp_host ?? '');
         setFormSmtpPort(account.smtp_port ?? 465);
+        setFormSignature(account.signature_html ?? '');
         setFormError(null);
         setTestStatus('idle');
         const preset = PROVIDER_PRESETS.find(p => p.id === account.provider) ?? null;
@@ -163,6 +215,9 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         }
 
         try {
+            const signatureHtml = formSignature.trim()
+                ? formSignature.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '<br />')
+                : null;
             const result = await ipcInvoke<{ id: string }>('accounts:add', {
                 email: formEmail.trim(),
                 provider: selectedPreset?.id ?? 'custom',
@@ -172,6 +227,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                 imap_port: formImapPort,
                 smtp_host: finalSmtpHost,
                 smtp_port: formSmtpPort,
+                signature_html: signatureHtml,
             });
             if (result?.id) {
                 addAccount({
@@ -183,6 +239,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     imap_port: formImapPort,
                     smtp_host: finalSmtpHost,
                     smtp_port: formSmtpPort,
+                    signature_html: signatureHtml,
                 });
 
                 // Select the new account and load its folders + emails
@@ -223,6 +280,9 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         }
 
         try {
+            const signatureHtml = formSignature.trim()
+                ? formSignature.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '<br />')
+                : null;
             const payload: Record<string, unknown> = {
                 id: editingAccountId,
                 email: formEmail.trim(),
@@ -232,6 +292,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                 imap_port: formImapPort,
                 smtp_host: finalSmtpHost,
                 smtp_port: formSmtpPort,
+                signature_html: signatureHtml,
             };
             if (hasPassword) {
                 payload.password = formPassword;
@@ -246,6 +307,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                 imap_port: formImapPort,
                 smtp_host: finalSmtpHost,
                 smtp_port: formSmtpPort,
+                signature_html: signatureHtml,
             });
             resetForm();
         } catch {
@@ -302,6 +364,10 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             <Tabs.Trigger className="tab-btn" value="appearance">
                                 <Sun size={16} />
                                 <span>Appearance</span>
+                            </Tabs.Trigger>
+                            <Tabs.Trigger className="tab-btn" value="ai">
+                                <Key size={16} />
+                                <span>AI / API Keys</span>
                             </Tabs.Trigger>
                         </Tabs.List>
 
@@ -398,6 +464,18 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             placeholder="John Doe (optional)"
                                             value={formDisplayName}
                                             onChange={e => setFormDisplayName(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label" htmlFor="settings-signature">Email Signature</label>
+                                        <textarea
+                                            id="settings-signature"
+                                            className="form-input signature-textarea"
+                                            placeholder="Your email signature (plain text, optional)"
+                                            value={formSignature}
+                                            onChange={e => setFormSignature(e.target.value)}
+                                            rows={3}
                                         />
                                     </div>
 
@@ -558,6 +636,71 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         ))}
                                     </div>
                                 </div>
+                            </div>
+                        </Tabs.Content>
+
+                        <Tabs.Content className="settings-tab-panel" value="ai" forceMount>
+                            <div className="ai-keys-view">
+                                <h3 className="section-title">OpenRouter API Key</h3>
+                                <p className="apikey-description">
+                                    Required for AI-powered features. Your key is encrypted and stored locally — it never leaves your device.
+                                </p>
+
+                                <div className="form-group">
+                                    <label className="form-label" htmlFor="apikey-input">API Key</label>
+                                    <div className="apikey-input-wrapper">
+                                        <input
+                                            id="apikey-input"
+                                            className="form-input"
+                                            type={showApiKey ? 'text' : 'password'}
+                                            value={apiKey}
+                                            onChange={e => { setApiKey(e.target.value); setApiKeyStatus('idle'); }}
+                                            placeholder="sk-or-v1-..."
+                                            autoComplete="off"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="eye-toggle"
+                                            onClick={() => setShowApiKey(!showApiKey)}
+                                            aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                                        >
+                                            {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="apikey-actions" aria-live="polite">
+                                    <button
+                                        type="button"
+                                        className="primary-btn"
+                                        onClick={handleSaveApiKey}
+                                        disabled={apiKeySaving || !apiKey.trim()}
+                                    >
+                                        {apiKeySaving ? 'Saving...' : 'Save Key'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="secondary-btn"
+                                        onClick={handleClearApiKey}
+                                        disabled={apiKeySaving}
+                                    >
+                                        Clear Key
+                                    </button>
+                                    {apiKeyStatus === 'saved' && (
+                                        <span className="apikey-status apikey-saved">
+                                            <CheckCircle2 size={14} /> Key saved
+                                        </span>
+                                    )}
+                                    {apiKeyStatus === 'error' && (
+                                        <span className="apikey-status apikey-error">
+                                            <XCircle size={14} /> Failed to save
+                                        </span>
+                                    )}
+                                </div>
+
+                                <p className="apikey-hint">
+                                    Get your API key at <strong>openrouter.ai/keys</strong>
+                                </p>
                             </div>
                         </Tabs.Content>
                     </Tabs.Root>
@@ -832,6 +975,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     color: var(--text-muted);
                 }
 
+                .signature-textarea {
+                    resize: vertical;
+                    min-height: 60px;
+                    max-height: 120px;
+                    font-family: inherit;
+                    line-height: 1.4;
+                }
+
                 .password-wrapper {
                     position: relative;
                 }
@@ -1050,6 +1201,58 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     background: rgba(var(--color-accent), 0.12);
                     border-color: var(--accent-color);
                     color: var(--accent-color);
+                }
+
+                /* AI / API Keys Tab */
+                .ai-keys-view {
+                    padding: 4px 0;
+                }
+
+                .apikey-description {
+                    font-size: 13px;
+                    color: var(--text-secondary);
+                    margin-bottom: 20px;
+                    line-height: 1.5;
+                }
+
+                .apikey-input-wrapper {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .apikey-input-wrapper .form-input {
+                    flex: 1;
+                    font-family: monospace;
+                }
+
+                .apikey-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    margin-top: 16px;
+                }
+
+                .apikey-status {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+
+                .apikey-saved {
+                    color: rgb(var(--color-success));
+                }
+
+                .apikey-error {
+                    color: rgb(var(--color-danger));
+                }
+
+                .apikey-hint {
+                    margin-top: 20px;
+                    font-size: 12px;
+                    color: var(--text-muted);
                 }
 
                 @media (prefers-reduced-motion: reduce) {

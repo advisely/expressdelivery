@@ -1,5 +1,15 @@
 import { create } from 'zustand'
 
+export interface Attachment {
+    id: string
+    email_id: string
+    filename: string
+    mime_type: string
+    size: number
+    part_number: string | null
+    content_id: string | null
+}
+
 export interface EmailSummary {
     id: string
     thread_id: string | null
@@ -11,6 +21,10 @@ export interface EmailSummary {
     snippet: string | null
     is_read: number
     is_flagged: number
+    has_attachments: number
+    ai_category: string | null
+    ai_priority: number | null
+    ai_labels: string | null
 }
 
 export interface EmailFull extends EmailSummary {
@@ -29,6 +43,7 @@ export interface Account {
     imap_port: number | null
     smtp_host: string | null
     smtp_port: number | null
+    signature_html: string | null
     created_at?: string
 }
 

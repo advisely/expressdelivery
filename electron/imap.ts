@@ -1,6 +1,91 @@
 import { ImapFlow } from 'imapflow';
 import { getDatabase } from './db.js';
 import { decryptData } from './crypto.js';
+import { logDebug } from './logger.js';
+
+interface AttachmentMeta {
+    partNumber: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+    contentId: string | null;
+}
+
+interface BodyStructureNode {
+    part?: string;
+    type?: string;
+    id?: string;
+    disposition?: string;
+    dispositionParameters?: Record<string, string>;
+    parameters?: Record<string, string>;
+    size?: number;
+    childNodes?: BodyStructureNode[];
+}
+
+function sanitizeAttFilename(raw: string): string {
+    return raw
+        .replace(/[\r\n\0]/g, '')                    // strip CRLF / NUL
+        .replace(/[\u202a-\u202e\u2066-\u2069]/g, '') // strip bidi overrides
+        .replace(/[/\\]/g, '_')                       // strip path separators
+        .slice(0, 255) || 'unnamed';
+}
+
+function stripCidBrackets(cid: string): string {
+    return cid.replace(/^<|>$/g, '');
+}
+
+function extractAttachments(structure: BodyStructureNode): AttachmentMeta[] {
+    const attachments: AttachmentMeta[] = [];
+
+    function walk(node: BodyStructureNode) {
+        // Inline images with Content-ID should be captured for CID resolution
+        if (node.disposition?.toLowerCase() === 'inline') {
+            if (node.id && node.type?.startsWith('image/') && node.part) {
+                const rawName = node.dispositionParameters?.filename
+                    ?? node.parameters?.name
+                    ?? 'inline-image';
+                attachments.push({
+                    partNumber: node.part,
+                    filename: sanitizeAttFilename(rawName),
+                    mimeType: node.type,
+                    size: node.size ?? 0,
+                    contentId: stripCidBrackets(node.id),
+                });
+            }
+            // Non-image inline nodes: still recurse into children
+            if (node.childNodes) {
+                for (const child of node.childNodes) {
+                    walk(child);
+                }
+            }
+            return;
+        }
+
+        if (node.disposition?.toLowerCase() === 'attachment' ||
+            node.dispositionParameters?.filename) {
+            if (!node.part) return;
+
+            const rawName = node.dispositionParameters?.filename
+                ?? node.parameters?.name
+                ?? 'unnamed';
+            attachments.push({
+                partNumber: node.part,
+                filename: sanitizeAttFilename(rawName),
+                mimeType: node.type ?? 'application/octet-stream',
+                size: node.size ?? 0,
+                contentId: node.id ? stripCidBrackets(node.id) : null,
+            });
+        }
+        if (node.childNodes) {
+            for (const child of node.childNodes) {
+                walk(child);
+            }
+        }
+    }
+
+    walk(structure);
+    return attachments;
+}
 
 export class ImapEngine {
     private clients: Map<string, ImapFlow> = new Map();
@@ -89,7 +174,7 @@ export class ImapEngine {
             this.startIdle(accountId, 'INBOX');
             return true;
         } catch (error) {
-            console.error(`Failed to connect to IMAP for ${accountId}`, error);
+            logDebug(`Failed to connect to IMAP for ${accountId}: ${error instanceof Error ? error.message : String(error)}`);
             return false;
         }
     }
@@ -139,7 +224,7 @@ export class ImapEngine {
         try {
             await client.idle();
         } catch (err) {
-            console.error('IDLE error', err);
+            logDebug(`IDLE error: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
 
@@ -166,6 +251,13 @@ export class ImapEngine {
                 `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, subject,
                  from_name, from_email, to_email, date, snippet, body_text, is_read)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+            );
+            const insertAttStmt = db.prepare(
+                `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`
+            );
+            const markAttStmt = db.prepare(
+                'UPDATE emails SET has_attachments = 1 WHERE id = ?'
             );
 
             for await (const message of client.fetch(range, {
@@ -203,6 +295,18 @@ export class ImapEngine {
 
                 if (result.changes > 0) {
                     insertedCount++;
+
+                    // Parse attachment metadata from bodyStructure
+                    if (message.bodyStructure) {
+                        const atts = extractAttachments(message.bodyStructure as BodyStructureNode);
+                        if (atts.length > 0) {
+                            markAttStmt.run(emailId);
+                            for (const att of atts) {
+                                const attId = `${emailId}_att_${att.partNumber}`;
+                                insertAttStmt.run(attId, emailId, att.filename, att.mimeType, att.size, att.partNumber, att.contentId);
+                            }
+                        }
+                    }
                 }
 
                 if (uid > (this.lastSeenUid.get(accountId) ?? 0)) {
@@ -258,6 +362,37 @@ export class ImapEngine {
         }
     }
 
+    async downloadAttachment(
+        accountId: string,
+        emailUid: number,
+        mailbox: string,
+        partNumber: string
+    ): Promise<Buffer | null> {
+        const client = this.clients.get(accountId);
+        if (!client) throw new Error('Account not connected');
+
+        const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+        const lock = await client.getMailboxLock(mailbox);
+        try {
+            const { content } = await client.download(String(emailUid), partNumber, { uid: true });
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
+            for await (const chunk of content) {
+                const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                totalBytes += buf.length;
+                if (totalBytes > MAX_ATTACHMENT_BYTES) {
+                    throw new Error('Attachment exceeds 25MB limit');
+                }
+                chunks.push(buf);
+            }
+            return Buffer.concat(chunks);
+        } catch {
+            return null;
+        } finally {
+            lock.release();
+        }
+    }
+
     private classifyMailbox(mailbox: { specialUse?: string; path: string; name: string }): string {
         if (mailbox.specialUse) {
             const map: Record<string, string> = {
@@ -284,7 +419,7 @@ export class ImapEngine {
     private scheduleReconnect(accountId: string) {
         const count = this.retryCounts.get(accountId) ?? 0;
         if (count >= 5) {
-            console.error(`IMAP reconnect failed after 5 attempts for ${accountId}`);
+            logDebug(`IMAP reconnect failed after 5 attempts for ${accountId}`);
             this.retryCounts.delete(accountId);
             return;
         }

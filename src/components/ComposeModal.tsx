@@ -1,9 +1,23 @@
-import { useState, useEffect, useRef, type FC } from 'react';
+import { useState, useEffect, useRef, useCallback, type FC } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Send, Paperclip, Image, Type, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp } from 'lucide-react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import LinkExtension from '@tiptap/extension-link';
+import UnderlineExtension from '@tiptap/extension-underline';
+import DOMPurify from 'dompurify';
 import { useEmailStore } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
 import { ContactAutocomplete } from './ContactAutocomplete';
+import { formatFileSize } from '../lib/formatFileSize';
+
+interface ComposeAttachment {
+    id: string;
+    filename: string;
+    content: string;
+    contentType: string;
+    size: number;
+}
 
 interface ComposeModalProps {
     onClose: () => void;
@@ -19,16 +33,65 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
     const [bcc, setBcc] = useState('');
     const [showCcBcc, setShowCcBcc] = useState(false);
     const [subject, setSubject] = useState(initialSubject);
-    const [body, setBody] = useState(initialBody);
     const [sending, setSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [currentDraftId, setCurrentDraftId] = useState<string | null>(draftId ?? null);
+    const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
     const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+    const draftBodyRef = useRef(initialBody);
     const accounts = useEmailStore(s => s.accounts);
+
+    // Determine initial HTML content for editor
+    const initialHtml = initialBody.trimStart().startsWith('<') ? initialBody : (initialBody ? `<p>${initialBody.replace(/\n/g, '<br />')}</p>` : '');
+
+    const editor = useEditor({
+        extensions: [
+            StarterKit,
+            LinkExtension.configure({ openOnClick: false }),
+            UnderlineExtension,
+        ],
+        content: initialHtml,
+        onUpdate: ({ editor: ed }: { editor: { getHTML: () => string } }) => {
+            draftBodyRef.current = ed.getHTML();
+        },
+    });
+
+    const accountSignature = accounts[0]?.signature_html ?? null;
+
+    const handleAttachFiles = async () => {
+        const files = await ipcInvoke<ComposeAttachment[]>('dialog:open-file');
+        if (!files) return;
+
+        const newTotal = attachments.length + files.length;
+        if (newTotal > 10) {
+            setError(`Maximum 10 attachments allowed (currently ${attachments.length})`);
+            return;
+        }
+        const MAX_TOTAL = 25 * 1024 * 1024;
+        const existingSize = attachments.reduce((s, a) => s + a.size, 0);
+        const newSize = files.reduce((s, f) => s + f.size, 0);
+        if (existingSize + newSize > MAX_TOTAL) {
+            setError('Total attachments exceed 25MB limit');
+            return;
+        }
+        for (const file of files) {
+            if (file.size > MAX_TOTAL) {
+                setError(`${file.filename} exceeds the 25MB limit`);
+                return;
+            }
+        }
+        const withIds = files.map((f, i) => ({ ...f, id: `${Date.now()}-${i}` }));
+        setAttachments(prev => [...prev, ...withIds]);
+    };
+
+    const handleRemoveAttachment = (id: string) => {
+        setAttachments(prev => prev.filter(a => a.id !== id));
+    };
 
     // Auto-save draft every 2 seconds when content changes
     useEffect(() => {
-        if (!to.trim() && !subject.trim() && !body.trim()) return;
+        const bodyHtml = draftBodyRef.current;
+        if (!to.trim() && !subject.trim() && !bodyHtml.trim()) return;
         const accountId = accounts[0]?.id;
         if (!accountId) return;
 
@@ -39,7 +102,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 accountId,
                 to: to.trim(),
                 subject: subject.trim(),
-                bodyHtml: body,
+                bodyHtml,
                 cc: cc.trim() || undefined,
                 bcc: bcc.trim() || undefined,
             });
@@ -51,7 +114,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
         return () => {
             if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
         };
-    }, [to, cc, bcc, subject, body, accounts, currentDraftId]);
+    }, [to, cc, bcc, subject, accounts, currentDraftId]);
 
     const parseRecipients = (value: string) =>
         value.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -67,13 +130,11 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
         setSending(true);
         setError(null);
         try {
-            const escaped = body
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;')
-                .replace(/\n/g, '<br />');
+            let html = editor?.getHTML() ?? '';
+            // Append signature if present (sanitize for defense in depth)
+            if (accountSignature) {
+                html += `<hr /><div class="email-signature">${DOMPurify.sanitize(accountSignature)}</div>`;
+            }
             const recipients = parseRecipients(to);
             if (recipients.length === 0) { setError('Recipient is required'); setSending(false); return; }
             const ccList = parseRecipients(cc);
@@ -82,9 +143,16 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 accountId,
                 to: recipients,
                 subject,
-                html: `<p>${escaped}</p>`,
+                html,
                 ...(ccList.length > 0 ? { cc: ccList } : {}),
                 ...(bccList.length > 0 ? { bcc: bccList } : {}),
+                ...(attachments.length > 0 ? {
+                    attachments: attachments.map(att => ({
+                        filename: att.filename,
+                        content: att.content,
+                        contentType: att.contentType,
+                    }))
+                } : {}),
             });
             if (result?.success) {
                 if (currentDraftId && accountId) {
@@ -100,6 +168,14 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
             setSending(false);
         }
     };
+
+    const handleInsertLink = useCallback(() => {
+        if (!editor) return;
+        const url = window.prompt('Enter URL:');
+        if (url && /^https?:\/\//i.test(url)) {
+            editor.chain().focus().setLink({ href: url }).run();
+        }
+    }, [editor]);
 
     return (
         <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -172,19 +248,84 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                     )}
 
                     <div className="toolbar">
-                        <button className="toolbar-btn" title="Formatting"><Type size={16} /></button>
-                        <button className="toolbar-btn" title="Insert Link"><Image size={16} /></button>
-                        <button className="toolbar-btn" title="Attach Files"><Paperclip size={16} /></button>
+                        <button
+                            type="button"
+                            className={`toolbar-btn${editor?.isActive('bold') ? ' toolbar-btn-active' : ''}`}
+                            title="Bold"
+                            aria-label="Bold"
+                            onClick={() => editor?.chain().focus().toggleBold().run()}
+                        ><Bold size={16} /></button>
+                        <button
+                            type="button"
+                            className={`toolbar-btn${editor?.isActive('italic') ? ' toolbar-btn-active' : ''}`}
+                            title="Italic"
+                            aria-label="Italic"
+                            onClick={() => editor?.chain().focus().toggleItalic().run()}
+                        ><Italic size={16} /></button>
+                        <button
+                            type="button"
+                            className={`toolbar-btn${editor?.isActive('underline') ? ' toolbar-btn-active' : ''}`}
+                            title="Underline"
+                            aria-label="Underline"
+                            onClick={() => editor?.chain().focus().toggleUnderline().run()}
+                        ><UnderlineIcon size={16} /></button>
+                        <button
+                            type="button"
+                            className={`toolbar-btn${editor?.isActive('bulletList') ? ' toolbar-btn-active' : ''}`}
+                            title="Bullet List"
+                            aria-label="Bullet List"
+                            onClick={() => editor?.chain().focus().toggleBulletList().run()}
+                        ><List size={16} /></button>
+                        <button
+                            type="button"
+                            className={`toolbar-btn${editor?.isActive('orderedList') ? ' toolbar-btn-active' : ''}`}
+                            title="Ordered List"
+                            aria-label="Ordered List"
+                            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+                        ><ListOrdered size={16} /></button>
+                        <button
+                            type="button"
+                            className={`toolbar-btn${editor?.isActive('link') ? ' toolbar-btn-active' : ''}`}
+                            title="Insert Link"
+                            aria-label="Insert Link"
+                            onClick={handleInsertLink}
+                        ><Link size={16} /></button>
+                        <button type="button" className="toolbar-btn" title="Attach Files" aria-label="Attach Files" onClick={handleAttachFiles}><Paperclip size={16} /></button>
                     </div>
 
+                    {attachments.length > 0 && (
+                        <div className="compose-attachments">
+                            {attachments.map(att => (
+                                <div key={att.id} className="compose-attachment-chip">
+                                    <Paperclip size={12} />
+                                    <span className="compose-att-name">{att.filename}</span>
+                                    <span className="compose-att-size">{formatFileSize(att.size)}</span>
+                                    <button
+                                        className="compose-att-remove"
+                                        onClick={() => handleRemoveAttachment(att.id)}
+                                        aria-label={`Remove ${att.filename}`}
+                                        title="Remove attachment"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="editor-area">
-                        <textarea
-                            className="rich-text-stub"
-                            placeholder="Write your beautiful email here..."
-                            value={body}
-                            onChange={e => setBody(e.target.value)}
-                        />
+                        <EditorContent editor={editor} className="tiptap-editor" data-testid="compose-editor" />
                     </div>
+
+                    {accountSignature && (
+                        <div className="signature-preview">
+                            <hr className="signature-divider" />
+                            <div
+                                className="signature-content"
+                                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(accountSignature) }}
+                            />
+                        </div>
+                    )}
 
                     <div className="compose-modal__footer">
                         <button className="send-btn" onClick={handleSend} disabled={sending}>
@@ -323,23 +464,62 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                     color: var(--text-primary);
                 }
 
+                .toolbar-btn-active {
+                    background: rgba(var(--color-accent), 0.15);
+                    color: var(--accent-color);
+                }
+
                 .editor-area {
                     flex: 1;
                     display: flex;
                     flex-direction: column;
+                    overflow-y: auto;
                 }
 
-                .rich-text-stub {
+                .tiptap-editor {
                     flex: 1;
-                    background: transparent;
-                    border: none;
-                    color: var(--text-primary);
                     padding: 16px;
                     font-size: 15px;
                     font-family: inherit;
-                    resize: none;
-                    outline: none;
                     line-height: 1.6;
+                    min-height: 200px;
+                    color: var(--text-primary);
+                }
+
+                .tiptap-editor .tiptap {
+                    outline: none;
+                    min-height: 180px;
+                }
+
+                .tiptap-editor .tiptap p {
+                    margin: 0 0 0.5em;
+                }
+
+                .tiptap-editor .tiptap a {
+                    color: var(--accent-color);
+                    text-decoration: underline;
+                }
+
+                .tiptap-editor .tiptap ul,
+                .tiptap-editor .tiptap ol {
+                    padding-left: 1.5em;
+                    margin: 0.5em 0;
+                }
+
+                .signature-preview {
+                    padding: 0 16px 8px;
+                    font-size: 13px;
+                    color: var(--text-secondary);
+                }
+
+                .signature-divider {
+                    border: none;
+                    border-top: 1px solid var(--glass-border);
+                    margin: 0 0 8px;
+                }
+
+                .signature-content {
+                    line-height: 1.4;
                 }
 
                 .compose-modal__footer {
@@ -378,6 +558,53 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 @keyframes composeFadeIn {
                     from { opacity: 0; }
                     to { opacity: 1; }
+                }
+
+                .compose-attachments {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 6px;
+                    padding: 8px 16px;
+                    border-bottom: 1px solid var(--glass-border);
+                }
+
+                .compose-attachment-chip {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 4px 8px;
+                    border-radius: 6px;
+                    background: var(--bg-secondary);
+                    border: 1px solid var(--glass-border);
+                    font-size: 12px;
+                    color: var(--text-primary);
+                    max-width: 240px;
+                }
+
+                .compose-att-name {
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 140px;
+                }
+
+                .compose-att-size {
+                    color: var(--text-secondary);
+                    font-size: 11px;
+                    white-space: nowrap;
+                }
+
+                .compose-att-remove {
+                    padding: 2px;
+                    border-radius: 4px;
+                    color: var(--text-secondary);
+                    display: flex;
+                    align-items: center;
+                }
+
+                .compose-att-remove:hover {
+                    background: var(--close-hover-bg);
+                    color: rgb(var(--color-danger));
                 }
 
                 @media (prefers-reduced-motion: reduce) {

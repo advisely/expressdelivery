@@ -52,7 +52,7 @@ Last updated: 2026-02-24
 | Reply to email | Yes | Yes | **Done** | Pre-fills To, Subject ("Re:"), quoted body |
 | Forward email | Yes | Yes | **Done** | Pre-fills Subject ("Fwd:"), forwarded message body |
 | CC / BCC fields | Yes | Yes | **Done** | Collapsible CC/BCC toggle in ComposeModal |
-| File attachments | Yes | No | **Stub** | Paperclip button rendered in compose toolbar, not wired |
+| File attachments | Yes | Yes | **Done** | Send + receive attachments, IMAP on-demand download, SQLite BLOB cache, file picker, attachment chips in compose + reading pane + thread list, 25MB/file limit, max 10 per email |
 | Inline images | Yes | No | **Planned** | No image handling |
 | Signature editor | Yes | No | **Planned** | No signature management |
 | Quick reply templates | Yes | No | **Planned** | |
@@ -93,8 +93,8 @@ Last updated: 2026-02-24
 |---------|-----------|----------------|--------|-------|
 | HTML email display | Yes | Yes | **Done** | ReadingPane renders body_html with DOMPurify sanitization, falls back to body_text |
 | Safe HTML rendering | Yes | Yes | **Done** | DOMPurify.sanitize() strips scripts, iframes, event handlers |
-| Inline image display | Yes | No | **Planned** | |
-| Remote image blocking | Yes | No | **Planned** | |
+| Inline image display | Yes | Yes | **Done** | CID resolution via `attachments:by-cid` IPC, MIME allowlist, data: URL rendering |
+| Remote image blocking | Yes | Yes | **Done** | Blocked by default, privacy banner, "Load images" button, CSP defense-in-depth |
 
 ### Productivity Features
 
@@ -117,10 +117,14 @@ Last updated: 2026-02-24
 | AI read thread | No | Yes | **Done** | read_thread MCP tool |
 | AI send email | No | Yes | **Done** | send_email MCP tool, wired to SMTP |
 | AI create draft | No | Yes | **Done** | create_draft MCP tool, inserts to drafts table |
-| AI smart summary | No | Yes | **Done** | get_smart_summary MCP tool (last 5 emails per account) |
-| AI compose assistant | No | No | **Planned** | LLM-powered reply suggestions, tone adjustment |
-| AI email categorization | No | No | **Planned** | Auto-label, priority scoring |
-| Multi-client MCP transport | No | No | **Planned** | Currently single SSEServerTransport instance |
+| AI smart summary | No | Yes | **Done** | get_smart_summary MCP tool (rich: recent 20 emails, unread/flagged counts, high-priority, folder dist., drafts) |
+| AI email categorization | No | Yes | **Done** | categorize_email MCP tool (category, priority 1-4, labels; account ownership enforced) |
+| AI email analytics | No | Yes | **Done** | get_email_analytics MCP tool (volume, top senders, folder dist., busiest hours, category/priority breakdown) |
+| AI suggest reply | No | Yes | **Done** | suggest_reply MCP tool (email + thread + sender history + account context, body truncated to 2KB) |
+| AI compose assistant | No | No | **Planned** | LLM-powered reply generation using suggest_reply context |
+| Multi-client MCP transport | No | Yes | **Done** | Map<sessionId, ClientSession> with per-connection Server instances |
+| AI metadata in UI | No | Yes | **Done** | Priority badges (ThreadList + ReadingPane), category pills, label badges, AI status indicator in Sidebar |
+| MCP connection status | No | Yes | **Done** | Real-time AI agent count in Sidebar (green dot + label, push via mcp:status event) |
 
 ### Security & Privacy
 
@@ -139,9 +143,9 @@ Last updated: 2026-02-24
 
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Mailbox insights | Yes (Pro) | No | **Planned** | AI-powered via MCP tools |
-| Optimal send time | Yes (Pro) | No | **Planned** | |
-| Email activity breakdown | Yes (Pro) | No | **Planned** | |
+| Mailbox insights | Yes (Pro) | Yes | **Done** | get_email_analytics MCP tool (volume, senders, folders, hours, categories) |
+| Optimal send time | Yes (Pro) | No | **Planned** | busiest_hours data available via analytics tool |
+| Email activity breakdown | Yes (Pro) | Yes | **Done** | get_email_analytics returns per-day, per-folder, per-sender, per-hour breakdown |
 
 ### Build & Distribution
 
@@ -158,8 +162,8 @@ Last updated: 2026-02-24
 
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Unit tests | Yes | Yes | **Partial** | 10 files, 111 tests, ~45% coverage |
-| Integration tests | Yes | No | **Planned** | IMAP/SMTP not tested |
+| Unit tests | Yes | Yes | **Partial** | 14 files, 251 tests, ~65% coverage |
+| Integration tests | Yes | No | **Planned** | IMAP client not tested (SMTP unit-tested) |
 | E2E tests | Yes | No | **Planned** | No Playwright/Spectron |
 | Coverage thresholds | Unknown | No | **Planned** | @vitest/coverage-v8 not configured |
 
@@ -195,24 +199,29 @@ Make the app pleasant and efficient for power users.
 - [x] Keyboard shortcuts (mod+N compose, R reply, F forward, E archive, J/K navigate, Delete, Escape)
 - [x] Contact autocomplete in To/CC/BCC fields (ARIA combobox, 200ms debounced IPC, keyboard nav)
 - [x] Draft auto-save + draft resume (2s debounce, CC/BCC, delete on send, draftId prop)
-- [ ] File attachment support (compose + display)
-- [ ] Email signature editor + per-account signatures
-- [ ] Rich text compose (HTML editor)
-- [ ] Inline image display in reading pane
-- [ ] Remote image blocking with click-to-load
+- [x] File attachment support (send + receive, IMAP on-demand download, SQLite BLOB cache, 25MB/file, max 10)
+- [x] Email signature editor + per-account signatures (HTML, 10KB cap, DOMPurify-sanitized preview, appended at send)
+- [x] Rich text compose (TipTap: bold/italic/underline/lists/links toolbar, `editor.getHTML()`)
+- [x] Inline image display in reading pane (CID extraction, IMAP on-demand download, SAFE_IMAGE_MIMES allowlist)
+- [x] Remote image blocking with click-to-load (blocked by default, ShieldAlert banner, CSP `img-src https:` fallback)
 - [x] Archive action (IMAP MOVE + DB update, cross-account guard)
 - [x] Move messages between folders (Radix DropdownMenu, IMAP MOVE, cross-account guard)
 - [x] ComposeModal floating card redesign (solid bg, matches SettingsModal)
 
-### Phase 3: AI-Powered Features (v0.3.0)
+### Phase 3: AI-Powered Features (v0.3.0) -- COMPLETE
 Leverage MCP integration as the key differentiator vs Mailspring.
 
-- [ ] AI compose assistant (reply suggestions, tone adjustment)
-- [ ] AI email categorization and priority scoring
-- [ ] AI-powered mailbox insights and analytics
-- [ ] Multi-client MCP transport (Map-based)
-- [ ] Refactor tool dispatch to Map<name, handler>
-- [ ] Smart summary improvements (actual LLM summarization vs hardcoded)
+- [x] MCP infrastructure refactor: tool handlers extracted to `mcpTools.ts`, Map-based dispatch, multi-client SSE
+- [x] Database migration 6: ai_category, ai_priority, ai_labels columns on emails table
+- [x] `categorize_email` MCP tool: AI agents write category/priority/labels back to DB (account ownership enforced)
+- [x] `get_email_analytics` MCP tool: mailbox analytics (volume, top senders, folders, busiest hours, category/priority breakdown)
+- [x] `suggest_reply` MCP tool: structured context for reply generation (email + thread + sender history + account, body truncated 2KB)
+- [x] Enhanced `get_smart_summary`: rich data (recent 20 emails, unread/flagged, high-priority, folder distribution, pending drafts)
+- [x] Enhanced `search_emails`: JOIN to emails table, returns AI metadata, limit 20
+- [x] UI: priority badges in ThreadList (! / !!), category pills, AI metadata row in ReadingPane (priority label, category, labels)
+- [x] UI: MCP connection status indicator in Sidebar (green dot + agent count, push event)
+- [x] Security: timing-safe bearer token comparison, account ownership checks, body_text truncation, attachment filename sanitization, HTML body 500KB cap
+- [x] 39 new tests in mcpTools.test.ts, 7 in mcpServer.test.ts (total: 251 tests across 14 files)
 
 ### Phase 4: Polish & Distribution (v0.4.0)
 Production-ready release.
@@ -246,7 +255,7 @@ Ship-ready with full test coverage and performance.
 
 ## What ExpressDelivery Has That Mailspring Doesn't
 
-1. **MCP/AI Integration** -- 5 AI-accessible tools via Model Context Protocol. No other desktop email client offers this. AI agents can search, read, send, draft, and summarize emails.
+1. **MCP/AI Integration** -- 8 AI-accessible tools via Model Context Protocol (search, read, send, draft, summary, categorize, analytics, suggest reply). Multi-client SSE with real-time connection status. No other desktop email client offers this.
 2. **Modern React + Zustand** -- Mailspring uses older React class components + Flux stores. ExpressDelivery uses hooks, Zustand, and Radix UI primitives.
 3. **Glassmorphism Design** -- Premium visual design with backdrop blur, floating organic shapes, gradient animations.
 4. **Premium Onboarding** -- 4-step animated wizard with provider presets, brand colors, 9 CSS animations, WCAG 2.1 accessibility.
@@ -258,10 +267,10 @@ Ship-ready with full test coverage and performance.
 1. ~~**Full IMAP sync**~~ -- Done: body fetch, all folders, reconnect, connection testing
 2. ~~**HTML email rendering**~~ -- Done: DOMPurify sanitization
 3. ~~**Reply/Forward/Delete**~~ -- Done: wired to ComposeModal + IPC
-4. **Rich text compose** -- HTML editor with formatting toolbar (Phase 2)
-5. **Attachments** -- Send and display file attachments (Phase 2)
-6. **Keyboard shortcuts** -- Power user productivity (Phase 2)
-7. **Contact autocomplete** -- Address book integration (Phase 2)
+4. ~~**Rich text compose**~~ -- Done: TipTap editor with formatting toolbar
+5. ~~**Attachments**~~ -- Done: send + receive, IMAP on-demand, BLOB cache, file picker, attachment chips
+6. ~~**Keyboard shortcuts**~~ -- Done: mod+N, R, F, E, J/K, Delete, Escape
+7. ~~**Contact autocomplete**~~ -- Done: ARIA combobox, debounced search, auto-harvest
 8. **Snooze/Send Later/Reminders** -- Productivity features (Phase 4)
 9. **Localization** -- Multi-language support (Phase 4)
 10. **Auto-update + Code signing** -- Distribution ready (Phase 4)
