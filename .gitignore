@@ -9,8 +9,37 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-electron
 dist-ssr
+release
 *.local
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Database
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Debug/crash logs
+debug_startup.log
+crash.log
+
+# Build artifacts
+*.exe
+*.AppImage
+*.dmg
+*.blockmap
+
+# TypeScript incremental build
+tsconfig.node.tsbuildinfo
+*.tsbuildinfo
+
+# Claude Code session data
+.claude/
 
 # Editor directories and files
 .vscode/*
