@@ -25,6 +25,13 @@ export function getDatabase(): DatabaseType {
     return db;
 }
 
+export function closeDatabase() {
+    if (db) {
+        db.close();
+        db = null;
+    }
+}
+
 function setupSchema(db: DatabaseType) {
     db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
@@ -32,6 +39,11 @@ function setupSchema(db: DatabaseType) {
       email TEXT UNIQUE NOT NULL,
       provider TEXT NOT NULL,
       password_encrypted TEXT,
+      display_name TEXT,
+      imap_host TEXT,
+      imap_port INTEGER DEFAULT 993,
+      smtp_host TEXT,
+      smtp_port INTEGER DEFAULT 465,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -98,5 +110,62 @@ function setupSchema(db: DatabaseType) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS drafts (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      to_email TEXT NOT NULL,
+      subject TEXT,
+      body_html TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    );
   `);
+
+    runMigrations(db);
+}
+
+function runMigrations(db: DatabaseType) {
+    db.transaction(() => {
+        const versionRow = db.prepare(
+            "SELECT value FROM settings WHERE key = 'schema_version'"
+        ).get() as { value: string } | undefined;
+
+        let version = versionRow ? parseInt(versionRow.value, 10) : 0;
+
+        // Migration 1: Add IMAP/SMTP columns to accounts (for pre-existing DBs)
+        if (version < 1) {
+            const columns = db.prepare(
+                "SELECT name FROM pragma_table_info('accounts')"
+            ).all() as { name: string }[];
+            const colNames = new Set(columns.map(c => c.name));
+
+            if (!colNames.has('imap_host')) {
+                db.exec("ALTER TABLE accounts ADD COLUMN imap_host TEXT");
+                db.exec("ALTER TABLE accounts ADD COLUMN imap_port INTEGER DEFAULT 993");
+                db.exec("ALTER TABLE accounts ADD COLUMN smtp_host TEXT");
+                db.exec("ALTER TABLE accounts ADD COLUMN smtp_port INTEGER DEFAULT 465");
+                db.exec("ALTER TABLE accounts ADD COLUMN display_name TEXT");
+            }
+            version = 1;
+        }
+
+        // Migration 2: Add cc/bcc columns to drafts
+        if (version < 2) {
+            const draftCols = db.prepare("SELECT name FROM pragma_table_info('drafts')").all() as { name: string }[];
+            const draftColNames = new Set(draftCols.map(c => c.name));
+            if (!draftColNames.has('cc')) {
+                db.exec("ALTER TABLE drafts ADD COLUMN cc TEXT");
+            }
+            if (!draftColNames.has('bcc')) {
+                db.exec("ALTER TABLE drafts ADD COLUMN bcc TEXT");
+            }
+            version = 2;
+        }
+
+        db.prepare(
+            "INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        ).run(String(version));
+    })();
 }

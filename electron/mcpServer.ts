@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -9,16 +10,20 @@ import {
     McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { getDatabase } from './db.js';
+import { smtpEngine } from './smtp.js';
+import { sanitizeFts5Query } from './utils.js';
 
 export class McpServerManager {
     private server: Server;
     private app: express.Express;
     private port: number = 3000;
     private transport: SSEServerTransport | null = null;
+    private authToken: string;
 
     constructor() {
+        this.authToken = crypto.randomBytes(32).toString('hex');
         this.app = express();
-        this.app.use(cors());
+        this.app.use(cors({ origin: false }));
         this.app.use(express.json());
 
         this.server = new Server(
@@ -33,14 +38,27 @@ export class McpServerManager {
             }
         );
 
+        this.setupAuth();
         this.setupRoutes();
         this.setupTools();
+    }
+
+    /** Bearer token authentication middleware */
+    private setupAuth() {
+        this.app.use((req, res, next) => {
+            const authHeader = req.headers.authorization;
+            if (!authHeader || authHeader !== `Bearer ${this.authToken}`) {
+                res.status(401).json({ error: 'Unauthorized: valid Bearer token required' });
+                return;
+            }
+            next();
+        });
     }
 
     private setupRoutes() {
         // SSE endpoint for AI Agent connection
         this.app.get('/sse', async (_req, res) => {
-            console.log('New MCP connection request');
+            console.log('New MCP connection request (authenticated)');
             this.transport = new SSEServerTransport('/message', res);
             await this.server.connect(this.transport);
         });
@@ -143,18 +161,31 @@ export class McpServerManager {
                         throw new McpError(ErrorCode.InvalidParams, 'query must be a string');
                     }
 
-                    // SQLite FTS5 query
-                    const results = db.prepare(`
-            SELECT rowid, subject, from_name, from_email, snippet 
-            FROM emails_fts 
-            WHERE emails_fts MATCH ? 
-            ORDER BY rank 
-            LIMIT 10
-          `).all(query);
+                    const sanitized = sanitizeFts5Query(query);
+                    if (!sanitized) {
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify([], null, 2) }],
+                        };
+                    }
 
-                    return {
-                        content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-                    };
+                    try {
+                        const results = db.prepare(`
+                            SELECT rowid, subject, from_name, from_email, snippet
+                            FROM emails_fts
+                            WHERE emails_fts MATCH ?
+                            ORDER BY rank
+                            LIMIT 10
+                        `).all(sanitized);
+
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+                        };
+                    } catch {
+                        return {
+                            content: [{ type: 'text', text: 'Search failed: invalid query syntax' }],
+                            isError: true,
+                        };
+                    }
                 }
 
                 if (request.params.name === 'read_thread') {
@@ -164,8 +195,11 @@ export class McpServerManager {
                     }
 
                     const results = db.prepare(`
-            SELECT * FROM emails WHERE thread_id = ? ORDER BY date ASC
-          `).all(thread_id);
+                        SELECT id, account_id, folder_id, thread_id, subject,
+                               from_name, from_email, to_email, date, snippet, body_text,
+                               is_read, is_flagged
+                        FROM emails WHERE thread_id = ? ORDER BY date ASC
+                    `).all(thread_id);
 
                     return {
                         content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
@@ -177,10 +211,14 @@ export class McpServerManager {
                     if (!args || typeof args.account_id !== 'string' || !Array.isArray(args.to) || typeof args.subject !== 'string' || typeof args.html !== 'string') {
                         throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for send_email');
                     }
-                    // In a real app, this would call smtpEngine.sendEmail
-                    // For now, we simulate success
+                    const success = await smtpEngine.sendEmail(
+                        args.account_id, args.to, args.subject, args.html
+                    );
                     return {
-                        content: [{ type: 'text', text: `Successfully simulated sending email to ${args.to.join(', ')}` }]
+                        content: [{ type: 'text', text: success
+                            ? `Email sent to ${args.to.join(', ')}`
+                            : 'Failed to send email' }],
+                        isError: !success,
                     };
                 }
 
@@ -190,9 +228,13 @@ export class McpServerManager {
                         throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for create_draft');
                     }
 
-                    // Simulation of preparing a draft struct in DB or App State
+                    const id = crypto.randomUUID();
+                    db.prepare(
+                        'INSERT INTO drafts (id, account_id, to_email, subject, body_html) VALUES (?, ?, ?, ?, ?)'
+                    ).run(id, args.account_id, args.to.join(', '), args.subject, args.html);
+
                     return {
-                        content: [{ type: 'text', text: `Draft created successfully with subject: "${args.subject}"` }]
+                        content: [{ type: 'text', text: `Draft created (id: ${id}) with subject: "${args.subject}"` }]
                     };
                 }
 
@@ -202,8 +244,9 @@ export class McpServerManager {
                         throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for get_smart_summary');
                     }
 
-                    // Simulation of AI summarization local index chunk
-                    const recentEmails = db.prepare(`SELECT subject, snippet FROM emails WHERE account_id = ? ORDER BY date DESC LIMIT 5`).all(args.account_id);
+                    const recentEmails = db.prepare(
+                        `SELECT subject, snippet FROM emails WHERE account_id = ? ORDER BY date DESC LIMIT 5`
+                    ).all(args.account_id);
 
                     return {
                         content: [{ type: 'text', text: JSON.stringify({ summary: "Here are the recent active threads.", data: recentEmails }, null, 2) }]
@@ -212,6 +255,7 @@ export class McpServerManager {
 
                 throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
             } catch (error: unknown) {
+                if (error instanceof McpError) throw error;
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 return {
                     content: [{ type: 'text', text: `Error executing tool: ${errorMessage}` }],
@@ -223,10 +267,22 @@ export class McpServerManager {
         this.server.onerror = (error) => console.error('[MCP Error]', error);
     }
 
+    /** Get the auth token for MCP client configuration */
+    public getAuthToken(): string {
+        return this.authToken;
+    }
+
+    private httpServer: ReturnType<typeof this.app.listen> | null = null;
+
     public start() {
-        this.app.listen(this.port, () => {
-            console.log(`[MCP Server] Listening on http://localhost:${this.port}/sse`);
+        this.httpServer = this.app.listen(this.port, '127.0.0.1', () => {
+            console.log(`[MCP Server] Listening on http://127.0.0.1:${this.port}/sse`);
         });
+    }
+
+    public stop() {
+        this.httpServer?.close();
+        this.httpServer = null;
     }
 }
 

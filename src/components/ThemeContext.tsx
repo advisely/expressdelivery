@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
 import { useThemeStore } from '../stores/themeStore';
+import type { LayoutMode } from '../stores/themeStore';
 
-export type Layout = 'vertical' | 'horizontal';
+export type Layout = LayoutMode;
 
 interface LayoutContextType {
     layout: Layout;
@@ -11,8 +12,7 @@ interface LayoutContextType {
 const LayoutContext = createContext<LayoutContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { themeName } = useThemeStore();
-    const [layout, setLayout] = useState<Layout>('vertical');
+    const { themeName, layout, setLayout } = useThemeStore();
 
     useEffect(() => {
         const root = window.document.documentElement;
@@ -22,7 +22,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             root.classList.add(`theme-${themeName}`);
         }
 
-        // Apply layout class
         root.classList.remove('layout-vertical', 'layout-horizontal');
         root.classList.add(`layout-${layout}`);
 

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type ThemeName = 'light' | 'cream' | 'midnight' | 'forest'
+export type LayoutMode = 'vertical' | 'horizontal'
 
 export interface ThemeConfig {
     name: ThemeName
@@ -23,7 +24,9 @@ export function isDarkTheme(themeName: ThemeName): boolean {
 
 interface ThemeState {
     themeName: ThemeName
+    layout: LayoutMode
     setTheme: (name: ThemeName) => void
+    setLayout: (layout: LayoutMode) => void
     cycleTheme: () => void
 }
 
@@ -31,8 +34,10 @@ export const useThemeStore = create<ThemeState>()(
     persist(
         (set) => ({
             themeName: 'light',
+            layout: 'vertical',
 
             setTheme: (themeName) => set({ themeName }),
+            setLayout: (layout) => set({ layout }),
 
             cycleTheme: () =>
                 set((state) => {
@@ -40,6 +45,6 @@ export const useThemeStore = create<ThemeState>()(
                     return { themeName: THEMES[(idx + 1) % THEMES.length].name }
                 }),
         }),
-        { name: 'app-theme' } // localStorage key
+        { name: 'app-theme' }
     )
 )

@@ -1,4 +1,41 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* Self-hosted Outfit font */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/Outfit-Light.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Outfit-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/Outfit-Medium.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/Outfit-SemiBold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Outfit-Bold.ttf') format('truetype');
+}
 
 /* ===== THEME VARIABLES ===== */
 
@@ -16,12 +53,32 @@
   --color-text-inverse: 255 255 255;
   --color-accent: 79 70 229;
   --color-accent-hover: 67 56 202;
+  --color-danger: 239 68 68;
+  --color-success: 34 197 94;
+  --color-flag: 245 158 11;
 
   --sidebar-width: 260px;
   --thread-list-width: 360px;
 
+  /* Alias variables used by component inline styles */
+  --bg-primary: rgb(var(--color-bg-primary));
+  --bg-secondary: rgb(var(--color-bg-secondary));
+  --bg-tertiary: rgb(var(--color-bg-tertiary));
+  --bg-elevated: rgb(var(--color-bg-elevated));
+  --text-primary: rgb(var(--color-text-primary));
+  --text-secondary: rgb(var(--color-text-secondary));
+  --text-muted: rgb(var(--color-text-muted));
+  --text-inverse: rgb(var(--color-text-inverse));
+  --accent-color: rgb(var(--color-accent));
+  --accent-hover: rgb(var(--color-accent-hover));
+
   --glass-bg: rgba(var(--color-bg-primary), 0.85);
   --glass-border: rgba(var(--color-border), 0.5);
+  --hover-bg: rgba(var(--color-text-primary), 0.06);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --surface-overlay: rgba(var(--color-text-primary), 0.04);
+  --surface-inset: rgba(var(--color-text-primary), 0.08);
+  --close-hover-bg: rgba(var(--color-text-primary), 0.12);
 
   font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
@@ -47,6 +104,23 @@
   --color-text-inverse: 253 246 227;
   --color-accent: 181 137 0;
   --color-accent-hover: 203 159 22;
+  --bg-primary: rgb(var(--color-bg-primary));
+  --bg-secondary: rgb(var(--color-bg-secondary));
+  --bg-tertiary: rgb(var(--color-bg-tertiary));
+  --bg-elevated: rgb(var(--color-bg-elevated));
+  --text-primary: rgb(var(--color-text-primary));
+  --text-secondary: rgb(var(--color-text-secondary));
+  --text-muted: rgb(var(--color-text-muted));
+  --text-inverse: rgb(var(--color-text-inverse));
+  --accent-color: rgb(var(--color-accent));
+  --accent-hover: rgb(var(--color-accent-hover));
+  --glass-bg: rgba(var(--color-bg-primary), 0.85);
+  --glass-border: rgba(var(--color-border), 0.5);
+  --hover-bg: rgba(var(--color-text-primary), 0.06);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --surface-overlay: rgba(var(--color-text-primary), 0.04);
+  --surface-inset: rgba(var(--color-text-primary), 0.08);
+  --close-hover-bg: rgba(var(--color-text-primary), 0.12);
   color-scheme: light;
 }
 
@@ -63,6 +137,23 @@
   --color-text-inverse: 17 24 39;
   --color-accent: 99 102 241;
   --color-accent-hover: 129 140 248;
+  --bg-primary: rgb(var(--color-bg-primary));
+  --bg-secondary: rgb(var(--color-bg-secondary));
+  --bg-tertiary: rgb(var(--color-bg-tertiary));
+  --bg-elevated: rgb(var(--color-bg-elevated));
+  --text-primary: rgb(var(--color-text-primary));
+  --text-secondary: rgb(var(--color-text-secondary));
+  --text-muted: rgb(var(--color-text-muted));
+  --text-inverse: rgb(var(--color-text-inverse));
+  --accent-color: rgb(var(--color-accent));
+  --accent-hover: rgb(var(--color-accent-hover));
+  --glass-bg: rgba(var(--color-bg-primary), 0.85);
+  --glass-border: rgba(var(--color-border), 0.5);
+  --hover-bg: rgba(var(--color-text-primary), 0.06);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --surface-overlay: rgba(var(--color-text-primary), 0.04);
+  --surface-inset: rgba(var(--color-text-primary), 0.08);
+  --close-hover-bg: rgba(var(--color-text-primary), 0.12);
   color-scheme: dark;
 }
 
@@ -79,6 +170,23 @@
   --color-text-inverse: 24 32 28;
   --color-accent: 52 211 153;
   --color-accent-hover: 110 231 183;
+  --bg-primary: rgb(var(--color-bg-primary));
+  --bg-secondary: rgb(var(--color-bg-secondary));
+  --bg-tertiary: rgb(var(--color-bg-tertiary));
+  --bg-elevated: rgb(var(--color-bg-elevated));
+  --text-primary: rgb(var(--color-text-primary));
+  --text-secondary: rgb(var(--color-text-secondary));
+  --text-muted: rgb(var(--color-text-muted));
+  --text-inverse: rgb(var(--color-text-inverse));
+  --accent-color: rgb(var(--color-accent));
+  --accent-hover: rgb(var(--color-accent-hover));
+  --glass-bg: rgba(var(--color-bg-primary), 0.85);
+  --glass-border: rgba(var(--color-border), 0.5);
+  --hover-bg: rgba(var(--color-text-primary), 0.06);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --surface-overlay: rgba(var(--color-text-primary), 0.04);
+  --surface-inset: rgba(var(--color-text-primary), 0.08);
+  --close-hover-bg: rgba(var(--color-text-primary), 0.12);
   color-scheme: dark;
 }
 

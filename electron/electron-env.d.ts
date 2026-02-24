@@ -22,6 +22,11 @@ declare namespace NodeJS {
 }
 
 // Used in Renderer process, expose in `preload.ts`
+interface ElectronAPI {
+  invoke(channel: string, ...args: unknown[]): Promise<unknown>
+  on(channel: string, callback: (...args: unknown[]) => void): () => void
+}
+
 interface Window {
-  ipcRenderer: import('electron').IpcRenderer
+  electronAPI: ElectronAPI
 }

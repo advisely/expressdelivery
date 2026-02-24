@@ -1,8 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SettingsModal } from './SettingsModal';
 import { ThemeProvider } from './ThemeContext';
 import { useThemeStore } from '../stores/themeStore';
+import { ipcInvoke } from '../lib/ipc';
+
+// Hoist IPC mock so it is available before module imports resolve
+vi.mock('../lib/ipc', () => ({
+    ipcInvoke: vi.fn(),
+}));
 
 // Mock lucide icons to avoid SVGs cluttering snapshots and dom queries
 vi.mock('lucide-react', () => ({
@@ -11,74 +17,80 @@ vi.mock('lucide-react', () => ({
     Monitor: () => <div data-testid="icon-Monitor">M</div>,
     Moon: () => <div data-testid="icon-Moon">N</div>,
     Sun: () => <div data-testid="icon-Sun">S</div>,
-    MonitorPlay: () => <div data-testid="icon-MonitorPlay">MP</div>,
     Droplets: () => <div data-testid="icon-Droplets">D</div>,
+    Mail: () => <div data-testid="icon-Mail">Ma</div>,
+    Plus: () => <div data-testid="icon-Plus">+</div>,
+    Trash2: () => <div data-testid="icon-Trash2">T</div>,
+    Eye: () => <div data-testid="icon-Eye">E</div>,
+    EyeOff: () => <div data-testid="icon-EyeOff">EO</div>,
+    Server: () => <div data-testid="icon-Server">Sv</div>,
+    CheckCircle2: () => <div data-testid="icon-CheckCircle2">CC</div>,
+    XCircle: () => <div data-testid="icon-XCircle">XC</div>,
+    Loader: () => <div data-testid="icon-Loader">Lo</div>,
 }));
 
-describe('SettingsModal Integration Tests', () => {
-    it('renders all customized themes and pane layouts correctly', () => {
-        render(
-            <ThemeProvider>
-                <SettingsModal onClose={() => { }} />
-            </ThemeProvider>
-        );
+const mockIpcInvoke = vi.mocked(ipcInvoke);
 
-        // Verify themes from Zustand store are mapped
+function renderSettings(onClose = () => { }) {
+    return render(
+        <ThemeProvider>
+            <SettingsModal onClose={onClose} />
+        </ThemeProvider>
+    );
+}
+
+function switchToAppearanceTab() {
+    const appearanceTab = screen.getByRole('tab', { name: /appearance/i });
+    fireEvent.click(appearanceTab);
+}
+
+describe('SettingsModal Integration Tests', () => {
+    beforeEach(() => {
+        // Clear all mock state (calls, instances, Once queues) and reset to a safe default.
+        // This prevents Once-queue bleed between tests when running the full suite.
+        vi.clearAllMocks();
+        mockIpcInvoke.mockResolvedValue(null);
+    });
+
+    it('renders all customized themes and pane layouts correctly', () => {
+        renderSettings();
+        switchToAppearanceTab();
+
         expect(screen.getByText('Light')).toBeInTheDocument();
         expect(screen.getByText('Cream')).toBeInTheDocument();
         expect(screen.getByText('Midnight')).toBeInTheDocument();
         expect(screen.getByText('Forest')).toBeInTheDocument();
 
-        // Verify Application Layout Options
         expect(screen.getByText('Vertical Split (3-Pane)')).toBeInTheDocument();
         expect(screen.getByText('Horizontal Split')).toBeInTheDocument();
     });
 
     it('updates global Zustand store when new themes are clicked', () => {
-        // Reset state
         useThemeStore.setState({ themeName: 'light' });
 
-        render(
-            <ThemeProvider>
-                <SettingsModal onClose={() => { }} />
-            </ThemeProvider>
-        );
+        renderSettings();
+        switchToAppearanceTab();
 
-        const midnightBtn = screen.getByText('Midnight');
-        fireEvent.click(midnightBtn);
-
-        // Verify Zustand state updated via the button press
+        fireEvent.click(screen.getByText('Midnight'));
         expect(useThemeStore.getState().themeName).toBe('midnight');
 
-        const forestBtn = screen.getByText('Forest');
-        fireEvent.click(forestBtn);
+        fireEvent.click(screen.getByText('Forest'));
         expect(useThemeStore.getState().themeName).toBe('forest');
     });
 
-    it('triggers onClose when close icon is hit', () => {
+    it('triggers onClose when close button is clicked', () => {
         const mockClose = vi.fn();
-        const { container } = render(
-            <ThemeProvider>
-                <SettingsModal onClose={mockClose} />
-            </ThemeProvider>
-        );
+        renderSettings(mockClose);
 
-        const closeBtn = container.querySelector('.close-btn');
-        expect(closeBtn).not.toBeNull();
-
-        fireEvent.click(closeBtn!);
+        fireEvent.click(screen.getByLabelText('Close settings'));
         expect(mockClose).toHaveBeenCalledTimes(1);
     });
 
-    it('applies the active class only to the selected options', () => {
-        // Light theme by default
+    it('applies the active class only to the selected theme and layout options', () => {
         useThemeStore.setState({ themeName: 'light' });
 
-        render(
-            <ThemeProvider>
-                <SettingsModal onClose={() => { }} />
-            </ThemeProvider>
-        );
+        renderSettings();
+        switchToAppearanceTab();
 
         const lightBtn = screen.getByText('Light').closest('button');
         const midnightBtn = screen.getByText('Midnight').closest('button');
@@ -86,17 +98,199 @@ describe('SettingsModal Integration Tests', () => {
         expect(lightBtn).toHaveClass('active');
         expect(midnightBtn).not.toHaveClass('active');
 
-        // Layouts
         const verticalBtn = screen.getByText('Vertical Split (3-Pane)').closest('button');
         const horizontalBtn = screen.getByText('Horizontal Split').closest('button');
 
-        // Vertical split is standard default in ThemeProvider logic
         expect(verticalBtn).toHaveClass('active');
         expect(horizontalBtn).not.toHaveClass('active');
 
-        // Switch layout
         fireEvent.click(horizontalBtn!);
         expect(verticalBtn).not.toHaveClass('active');
         expect(horizontalBtn).toHaveClass('active');
+    });
+
+    it('renders accounts tab with add account button', () => {
+        renderSettings();
+
+        expect(screen.getByText('Email Accounts')).toBeInTheDocument();
+        expect(screen.getByText('Add Account')).toBeInTheDocument();
+    });
+
+    it('shows add account form when Add Account is clicked', () => {
+        renderSettings();
+
+        fireEvent.click(screen.getByText('Add Account'));
+        expect(screen.getByText('Add Account', { selector: 'h3' })).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
+        expect(screen.getByText('Gmail')).toBeInTheDocument();
+    });
+
+    it('uses Radix tabs with proper data-state attributes', () => {
+        renderSettings();
+
+        const accountsTab = screen.getByRole('tab', { name: /accounts/i });
+        const appearanceTab = screen.getByRole('tab', { name: /appearance/i });
+
+        expect(accountsTab).toHaveAttribute('data-state', 'active');
+        expect(appearanceTab).toHaveAttribute('data-state', 'inactive');
+    });
+
+    it('associates form labels with inputs via htmlFor/id', () => {
+        renderSettings();
+
+        fireEvent.click(screen.getByText('Add Account'));
+
+        // Click a provider first to show the form
+        fireEvent.click(screen.getByText('Gmail'));
+
+        expect(screen.getByLabelText('Email Address')).toBeInTheDocument();
+        expect(screen.getByLabelText('Display Name')).toBeInTheDocument();
+        expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    });
+
+    it('shows Test Connection button in account form', () => {
+        renderSettings();
+
+        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('Gmail'));
+
+        const testBtn = screen.getByText('Test Connection', { selector: 'button.test-btn span' });
+        expect(testBtn).toBeInTheDocument();
+    });
+
+    it('disables Test Connection button when email or password is empty', () => {
+        renderSettings();
+
+        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('Gmail'));
+
+        const testBtn = screen.getByText('Test Connection').closest('button');
+        expect(testBtn).toBeDisabled();
+
+        // Fill email but not password — still disabled
+        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'test@gmail.com' } });
+        expect(testBtn).toBeDisabled();
+
+        // Fill password too — now enabled
+        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+        expect(testBtn).not.toBeDisabled();
+    });
+
+    it('shows error with role="alert" on validation failure', () => {
+        renderSettings();
+
+        fireEvent.click(screen.getByText('Add Account'));
+
+        // Click Gmail provider
+        fireEvent.click(screen.getByText('Gmail'));
+
+        // Submit without filling fields — button text is now "Test & Add Account"
+        fireEvent.click(screen.getByText('Test & Add Account', { selector: 'button.primary-btn' }));
+
+        const alert = screen.getByRole('alert');
+        expect(alert).toBeInTheDocument();
+        expect(alert).toHaveTextContent('Email address is required');
+    });
+
+    // --- New tests for Test Connection feature ---
+
+    it('resets test status to idle when a credential field changes after a successful test', async () => {
+        // Arrange: connection test returns success
+        mockIpcInvoke.mockResolvedValueOnce({ success: true });
+
+        renderSettings();
+        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('Gmail'));
+
+        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'user@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
+
+        const testBtn = screen.getByText('Test Connection').closest('button')!;
+
+        // Run the test — button label should update to "Connected"
+        fireEvent.click(testBtn);
+        await waitFor(() =>
+            expect(screen.getByText('Connected')).toBeInTheDocument()
+        );
+
+        // Primary button should now be "Add Account" (test already passed)
+        expect(screen.getByText('Add Account', { selector: 'button.primary-btn' })).toBeInTheDocument();
+
+        // Change the email — status must revert to idle
+        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'other@gmail.com' } });
+
+        // Button label reverts to "Test Connection"
+        expect(screen.getByText('Test Connection')).toBeInTheDocument();
+        // Primary button reverts to requiring a fresh test
+        expect(screen.getByText('Test & Add Account', { selector: 'button.primary-btn' })).toBeInTheDocument();
+    });
+
+    it('shows inline error and Failed label when the IPC call itself throws (network failure)', async () => {
+        // Arrange: simulate a hard IPC-layer rejection (not a { success: false } response)
+        mockIpcInvoke.mockRejectedValueOnce(new Error('IPC channel closed'));
+
+        renderSettings();
+        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('Gmail'));
+
+        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'user@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
+
+        fireEvent.click(screen.getByText('Test Connection').closest('button')!);
+
+        await waitFor(() =>
+            expect(screen.getByRole('alert')).toBeInTheDocument()
+        );
+
+        expect(screen.getByRole('alert')).toHaveTextContent(
+            'Connection test failed. Check your credentials and server settings.'
+        );
+        // The button span should now read "Failed"
+        expect(screen.getByText('Failed')).toBeInTheDocument();
+    });
+
+    it('skips the connection test on submit when the standalone test already passed', async () => {
+        // First call: standalone test button -> success
+        // Second call: accounts:add -> new account id
+        // Third call: folders:list -> empty list (post-add flow)
+        // A second accounts:test must NOT occur
+        mockIpcInvoke
+            .mockResolvedValueOnce({ success: true })    // accounts:test
+            .mockResolvedValueOnce({ id: 'new-acc-id' }) // accounts:add
+            .mockResolvedValueOnce([]);                  // folders:list (post-add flow)
+
+        renderSettings();
+        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('Gmail'));
+
+        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'user@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
+
+        // Run the standalone test
+        fireEvent.click(screen.getByText('Test Connection').closest('button')!);
+        await waitFor(() => expect(screen.getByText('Connected')).toBeInTheDocument());
+
+        // Primary button label must confirm the test is no longer required
+        expect(screen.getByText('Add Account', { selector: 'button.primary-btn' })).toBeInTheDocument();
+
+        // Submit the form
+        fireEvent.click(screen.getByText('Add Account', { selector: 'button.primary-btn' }));
+
+        // Wait for the form to reset (back to account list view)
+        await waitFor(() =>
+            expect(screen.getByText('Email Accounts')).toBeInTheDocument()
+        );
+
+        // The first IPC call must be accounts:test, the second accounts:add
+        // — NOT a second accounts:test call
+        expect(mockIpcInvoke).toHaveBeenNthCalledWith(
+            1, 'accounts:test', expect.objectContaining({ email: 'user@gmail.com' })
+        );
+        expect(mockIpcInvoke).toHaveBeenNthCalledWith(
+            2, 'accounts:add', expect.objectContaining({ email: 'user@gmail.com' })
+        );
+        // Verify accounts:test was invoked exactly once across the whole flow
+        const testCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'accounts:test');
+        expect(testCalls).toHaveLength(1);
     });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { initDatabase, getDatabase } from './db';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 describe('Local SQLite Database Engine', () => {
@@ -8,7 +9,7 @@ describe('Local SQLite Database Engine', () => {
 
     beforeAll(() => {
         // Remove old test db if it exists
-        const testDbPath = path.join('/tmp', 'expressdelivery.sqlite');
+        const testDbPath = path.join(os.tmpdir(), 'expressdelivery.sqlite');
         if (fs.existsSync(testDbPath)) {
             fs.unlinkSync(testDbPath);
         }

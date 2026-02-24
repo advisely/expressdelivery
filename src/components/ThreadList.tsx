@@ -1,34 +1,61 @@
-import React from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { Search } from 'lucide-react';
-
-const mockThreads = [
-    {
-        id: 1,
-        sender: 'GitHub',
-        subject: '[expressdelivery] Action Required',
-        snippet: 'You have a new mention in the PR #42...',
-        date: '10:42 AM',
-        unread: true,
-    },
-    {
-        id: 2,
-        sender: 'Vite Team',
-        subject: 'Release 5.0 is out!',
-        snippet: 'Read about the new features in Vite 5.0...',
-        date: 'Yesterday',
-        unread: false,
-    },
-    {
-        id: 3,
-        sender: 'Alice Cooper',
-        subject: 'Project Sync',
-        snippet: 'Hey, are we still on for the sync tomorrow?',
-        date: 'Oct 12',
-        unread: false,
-    },
-];
+import { useEmailStore } from '../stores/emailStore';
+import type { EmailSummary, EmailFull } from '../stores/emailStore';
+import { ipcInvoke, ipcOn } from '../lib/ipc';
 
 export const ThreadList: React.FC = () => {
+    const emails = useEmailStore(s => s.emails);
+    const selectedFolderId = useEmailStore(s => s.selectedFolderId);
+    const selectedEmailId = useEmailStore(s => s.selectedEmailId);
+    const searchQuery = useEmailStore(s => s.searchQuery);
+    const setSearchQuery = useEmailStore(s => s.setSearchQuery);
+    const setEmails = useEmailStore(s => s.setEmails);
+    const selectEmail = useEmailStore(s => s.selectEmail);
+    const setSelectedEmail = useEmailStore(s => s.setSelectedEmail);
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+    useEffect(() => {
+        return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+    }, []);
+
+    useEffect(() => {
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        if (!selectedFolderId) return;
+        ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
+            .then(result => { if (result) setEmails(result); });
+    }, [selectedFolderId, setEmails]);
+
+    useEffect(() => {
+        const cleanup = ipcOn('email:new', () => {
+            if (selectedFolderId) {
+                ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
+                    .then(result => { if (result) setEmails(result); });
+            }
+        });
+        return () => { cleanup?.(); };
+    }, [selectedFolderId, setEmails]);
+
+    const handleSearch = useCallback((query: string) => {
+        setSearchQuery(query);
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = setTimeout(async () => {
+            if (query.trim().length > 1) {
+                const results = await ipcInvoke<EmailSummary[]>('emails:search', query);
+                if (results) setEmails(results);
+            } else if (selectedFolderId) {
+                const result = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
+                if (result) setEmails(result);
+            }
+        }, 300);
+    }, [selectedFolderId, setEmails, setSearchQuery]);
+
+    const handleSelectEmail = useCallback(async (emailId: string) => {
+        selectEmail(emailId);
+        const full = await ipcInvoke<EmailFull>('emails:read', emailId);
+        if (full) setSelectedEmail(full);
+    }, [selectEmail, setSelectedEmail]);
+
     return (
         <div className="thread-list scrollable">
             <div className="thread-list-header glass">
@@ -38,20 +65,31 @@ export const ThreadList: React.FC = () => {
                         type="text"
                         placeholder="Search emails..."
                         className="search-input"
+                        value={searchQuery}
+                        onChange={(e) => handleSearch(e.target.value)}
                     />
                 </div>
             </div>
 
             <div className="thread-items animate-fade-in">
-                {mockThreads.map((thread) => (
-                    <div key={thread.id} className={`thread-item ${thread.unread ? 'unread' : ''}`}>
+                {emails.length === 0 && (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
+                        {selectedFolderId ? 'No emails in this folder' : 'Select a folder'}
+                    </div>
+                )}
+                {emails.map((thread) => (
+                    <div
+                        key={thread.id}
+                        className={`thread-item ${!thread.is_read ? 'unread' : ''} ${selectedEmailId === thread.id ? 'selected' : ''}`}
+                        onClick={() => handleSelectEmail(thread.id)}
+                    >
                         <div className="thread-item-header">
-                            <span className="sender">{thread.sender}</span>
-                            <span className="date">{thread.date}</span>
+                            <span className="sender">{thread.from_name || thread.from_email}</span>
+                            <span className="date">{thread.date ? new Date(thread.date).toLocaleDateString() : ''}</span>
                         </div>
                         <div className="subject">{thread.subject}</div>
                         <div className="snippet">{thread.snippet}</div>
-                        {thread.unread && <div className="unread-dot" />}
+                        {!thread.is_read && <div className="unread-dot" />}
                     </div>
                 ))}
             </div>
@@ -110,7 +148,12 @@ export const ThreadList: React.FC = () => {
         }
 
         .thread-item:hover {
-          background: rgba(255, 255, 255, 0.02);
+          background: var(--hover-bg-subtle);
+        }
+
+        .thread-item.selected {
+          background: rgba(59, 130, 246, 0.08);
+          border-left: 3px solid var(--accent-color);
         }
 
         .thread-item.unread .sender {

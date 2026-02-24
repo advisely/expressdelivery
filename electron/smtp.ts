@@ -3,21 +3,32 @@ import { getDatabase } from './db.js';
 import { decryptData } from './crypto.js';
 
 export class SmtpEngine {
-    /**
-     * Send an email using an account's configured SMTP details.
-     */
-    async sendEmail(accountId: string, to: string | string[], subject: string, html: string): Promise<boolean> {
+    async sendEmail(
+        accountId: string,
+        to: string | string[],
+        subject: string,
+        html: string,
+        cc?: string | string[],
+        bcc?: string | string[]
+    ): Promise<boolean> {
         const db = getDatabase();
-        const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId) as Record<string, unknown>;
+        const account = db.prepare(
+            'SELECT id, email, password_encrypted, provider, display_name, smtp_host, smtp_port FROM accounts WHERE id = ?'
+        ).get(accountId) as Record<string, unknown>;
 
         if (!account) throw new Error('Account not found');
 
+        if (!account.password_encrypted) throw new Error('No password stored for account');
         const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
 
+        const host = (account.smtp_host as string) ||
+            (account.provider === 'gmail' ? 'smtp.gmail.com' : 'smtp.example.com');
+        const port = (account.smtp_port as number) || 465;
+
         const transporter = nodemailer.createTransport({
-            host: account.provider === 'gmail' ? 'smtp.gmail.com' : 'smtp.example.com',
-            port: 465,
-            secure: true,
+            host,
+            port,
+            secure: port === 465,
             auth: {
                 user: account.email as string,
                 pass: password,
@@ -25,14 +36,19 @@ export class SmtpEngine {
         });
 
         try {
-            const info = await transporter.sendMail({
-                from: `"${(account.name as string) || (account.email as string)}" <${account.email as string}>`,
+            const displayName = (account.display_name as string) || (account.email as string);
+            await transporter.sendMail({
+                from: {
+                    name: displayName,
+                    address: account.email as string,
+                },
                 to: Array.isArray(to) ? to.join(', ') : to,
+                cc: cc ? (Array.isArray(cc) ? cc.join(', ') : cc) : undefined,
+                bcc: bcc ? (Array.isArray(bcc) ? bcc.join(', ') : bcc) : undefined,
                 subject,
                 html,
             });
 
-            console.log('Message sent: %s', info.messageId);
             return true;
         } catch (error) {
             console.error('Error sending email:', error);

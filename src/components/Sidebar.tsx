@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Inbox,
   Send,
@@ -6,15 +6,27 @@ import {
   Archive,
   Trash2,
   Settings,
-  Plus
+  Plus,
+  ChevronDown
 } from 'lucide-react';
+import { useEmailStore } from '../stores/emailStore';
+import { getProviderIcon } from '../lib/providerIcons';
+import { ipcInvoke } from '../lib/ipc';
 
-const navItems = [
-  { icon: Inbox, label: 'Inbox', count: 12, active: true },
-  { icon: Send, label: 'Sent', count: 0 },
-  { icon: FileText, label: 'Drafts', count: 3 },
-  { icon: Archive, label: 'Archive', count: 0 },
-  { icon: Trash2, label: 'Trash', count: 0 },
+const FOLDER_ICONS: Record<string, React.ElementType> = {
+  inbox: Inbox,
+  sent: Send,
+  drafts: FileText,
+  archive: Archive,
+  trash: Trash2,
+};
+
+const DEFAULT_NAV = [
+  { icon: Inbox, label: 'Inbox' },
+  { icon: Send, label: 'Sent' },
+  { icon: FileText, label: 'Drafts' },
+  { icon: Archive, label: 'Archive' },
+  { icon: Trash2, label: 'Trash' },
 ];
 
 interface SidebarProps {
@@ -23,16 +35,75 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
+  const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount } = useEmailStore();
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+
+  const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
+
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    let cancelled = false;
+    async function loadCounts() {
+      const result = await ipcInvoke<Array<{ folder_id: string; count: number }>>('folders:unread-counts', selectedAccountId);
+      if (result && !cancelled) {
+        const counts: Record<string, number> = {};
+        for (const row of result) {
+          counts[row.folder_id] = row.count;
+        }
+        setUnreadCounts(counts);
+      }
+    }
+    loadCounts();
+
+    const api = (window as unknown as { electronAPI?: { on: (ch: string, cb: (...args: unknown[]) => void) => () => void } }).electronAPI;
+    const unsub = api?.on('email:new', () => { loadCounts(); });
+
+    return () => { cancelled = true; unsub?.(); };
+  }, [selectedAccountId]);
+
   return (
     <aside className="sidebar glass">
       <div className="sidebar-header">
-        <div className="account-selector">
-          <div className="avatar">A</div>
-          <div className="account-info">
-            <span className="account-name">Personal</span>
-            <span className="account-email">alex@example.com</span>
+        <button
+          className="account-selector"
+          onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
+          aria-expanded={accounts.length > 1 ? showAccountPicker : undefined}
+          aria-label="Switch account"
+        >
+          <div className="avatar-icon">
+            {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
           </div>
-        </div>
+          <div className="account-info">
+            <span className="account-name">{activeAccount?.display_name ?? 'Personal'}</span>
+            <span className="account-email">{activeAccount?.email ?? 'No account'}</span>
+          </div>
+          {accounts.length > 1 && <ChevronDown size={14} className="account-chevron" />}
+        </button>
+
+        {showAccountPicker && accounts.length > 1 && (
+          <div className="account-picker">
+            {accounts.map(acc => {
+              const AccIcon = getProviderIcon(acc.provider);
+              return (
+                <button
+                  key={acc.id}
+                  className={`account-picker-item ${acc.id === selectedAccountId ? 'active' : ''}`}
+                  onClick={() => {
+                    selectAccount(acc.id);
+                    setShowAccountPicker(false);
+                  }}
+                >
+                  <div className="avatar-icon-sm"><AccIcon size={16} /></div>
+                  <div className="account-info">
+                    <span className="account-name">{acc.display_name ?? acc.email}</span>
+                    <span className="account-email">{acc.email}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="compose-wrapper">
@@ -43,18 +114,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
       </div>
 
       <nav className="sidebar-nav">
-        {navItems.map((item) => (
-          <button
-            key={item.label}
-            className={`nav-item ${item.active ? 'active' : ''}`}
-          >
-            <item.icon size={18} className="nav-icon" />
-            <span className="nav-label">{item.label}</span>
-            {item.count > 0 && (
-              <span className="nav-badge">{item.count}</span>
-            )}
-          </button>
-        ))}
+        {folders.length > 0
+          ? folders.map((folder) => {
+              const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
+              const count = unreadCounts[folder.id];
+              return (
+                <button
+                  key={folder.id}
+                  className={`nav-item ${selectedFolderId === folder.id ? 'active' : ''}`}
+                  onClick={() => selectFolder(folder.id)}
+                >
+                  <Icon size={18} className="nav-icon" />
+                  <span className="nav-label">{folder.name}</span>
+                  {count != null && count > 0 && (
+                    <span className="nav-badge">{count > 99 ? '99+' : count}</span>
+                  )}
+                </button>
+              );
+            })
+          : DEFAULT_NAV.map((item) => (
+              <button key={item.label} className="nav-item">
+                <item.icon size={18} className="nav-icon" />
+                <span className="nav-label">{item.label}</span>
+              </button>
+            ))
+        }
       </nav>
 
       <div className="sidebar-footer">
@@ -72,11 +156,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
           flex-direction: column;
           border-right: 1px solid var(--glass-border);
         }
-        
+
         .sidebar-header {
           padding: 20px 16px;
         }
-        
+
         .account-selector {
           display: flex;
           align-items: center;
@@ -85,37 +169,93 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
           border-radius: 8px;
           cursor: pointer;
           transition: background 0.2s ease;
-        }
-        
-        .account-selector:hover {
-          background: rgba(255, 255, 255, 0.05);
+          width: 100%;
+          text-align: left;
         }
 
-        .avatar {
+        .account-selector:hover {
+          background: var(--hover-bg);
+        }
+
+        .avatar-icon {
           width: 32px;
           height: 32px;
-          border-radius: 50%;
-          background: var(--accent-color);
-          color: white;
+          border-radius: 8px;
+          background: var(--surface-overlay);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-weight: 600;
+          flex-shrink: 0;
+        }
+
+        .avatar-icon-sm {
+          width: 24px;
+          height: 24px;
+          border-radius: 6px;
+          background: var(--surface-overlay);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
         }
 
         .account-info {
           display: flex;
           flex-direction: column;
+          overflow: hidden;
+          flex: 1;
+          min-width: 0;
         }
 
         .account-name {
           font-weight: 500;
           font-size: 14px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .account-email {
           font-size: 12px;
           color: var(--text-secondary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .account-chevron {
+          color: var(--text-secondary);
+          flex-shrink: 0;
+        }
+
+        .account-picker {
+          margin-top: 4px;
+          padding: 4px;
+          border-radius: 8px;
+          background: var(--surface-overlay);
+          border: 1px solid var(--glass-border);
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .account-picker-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px;
+          border-radius: 6px;
+          width: 100%;
+          text-align: left;
+          color: var(--text-primary);
+        }
+
+        .account-picker-item:hover {
+          background: var(--hover-bg);
+        }
+
+        .account-picker-item.active {
+          background: rgba(59, 130, 246, 0.1);
         }
 
         .compose-wrapper {
@@ -159,7 +299,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
         }
 
         .nav-item:hover {
-          background: rgba(255, 255, 255, 0.05);
+          background: var(--hover-bg);
           color: var(--text-primary);
         }
 

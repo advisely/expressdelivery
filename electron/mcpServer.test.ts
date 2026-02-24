@@ -4,6 +4,15 @@ import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 // eslint-disable-next-line no-var, @typescript-eslint/no-explicit-any
 var mockRequestHandler: (req: any) => Promise<{ content: { text: string }[], isError?: boolean }>;
 
+vi.mock('node:crypto', () => ({
+    default: {
+        randomBytes: vi.fn(() => ({
+            toString: vi.fn(() => 'test-token-abc123')
+        })),
+        randomUUID: vi.fn(() => 'test-draft-uuid'),
+    }
+}));
+
 vi.mock('express', () => {
     const expressMock = (vi.fn(() => ({
         use: vi.fn(),
@@ -14,7 +23,7 @@ vi.mock('express', () => {
     expressMock.json = vi.fn();
     return { default: expressMock };
 });
-vi.mock('cors', () => ({ default: vi.fn() }));
+vi.mock('cors', () => ({ default: vi.fn(() => vi.fn()) }));
 
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
     Server: class {
@@ -28,12 +37,27 @@ vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
 }));
 
 const mockDbAll = vi.fn();
+const mockDbRun = vi.fn();
 vi.mock('./db.js', () => ({
     getDatabase: vi.fn(() => ({
         prepare: vi.fn(() => ({
-            all: mockDbAll
+            all: mockDbAll,
+            run: mockDbRun,
         }))
     }))
+}));
+
+// eslint-disable-next-line no-var, @typescript-eslint/no-explicit-any
+var mockSendEmail: any;
+mockSendEmail = vi.fn().mockResolvedValue(true);
+vi.mock('./smtp.js', () => ({
+    smtpEngine: {
+        sendEmail: (...args: unknown[]) => mockSendEmail(...args),
+    },
+}));
+
+vi.mock('./utils.js', () => ({
+    sanitizeFts5Query: (raw: string) => raw,
 }));
 
 // Import after mocks are initialized
@@ -77,14 +101,12 @@ describe('MCP Server Integration Tools', () => {
     });
 
     it('should return error for invalid arguments', async () => {
-        const response = await mockRequestHandler({
+        await expect(mockRequestHandler({
             params: {
                 name: 'search_emails',
                 arguments: {}
             }
-        });
-        expect(response.isError).toBe(true);
-        expect(response.content[0].text).toContain('query must be a string');
+        })).rejects.toThrow('query must be a string');
     });
 
     it('should handle get_smart_summary and fetch latest emails', async () => {
@@ -101,7 +123,9 @@ describe('MCP Server Integration Tools', () => {
         expect(response.content[0].text).toContain('Urgent');
     });
 
-    it('should simulate sending an email via send_email', async () => {
+    it('should send an email via send_email using SMTP engine', async () => {
+        mockSendEmail.mockResolvedValue(true);
+
         const response = await mockRequestHandler({
             params: {
                 name: 'send_email',
@@ -114,18 +138,16 @@ describe('MCP Server Integration Tools', () => {
             }
         });
 
-        expect(response.isError).toBeUndefined();
-        expect(response.content[0].text).toContain('Successfully simulated sending email to test@example.com');
+        expect(response.isError).toBeFalsy();
+        expect(response.content[0].text).toContain('Email sent to test@example.com');
+        expect(mockSendEmail).toHaveBeenCalledWith('acc1', ['test@example.com'], 'Hi', '<p>Hi</p>');
     });
 
     it('should reject unknown tool names', async () => {
-        const response = await mockRequestHandler({
+        await expect(mockRequestHandler({
             params: {
                 name: 'unknown_fake_tool'
             }
-        });
-
-        expect(response.isError).toBe(true);
-        expect(response.content[0].text).toContain('Unknown tool: unknown_fake_tool');
+        })).rejects.toThrow('Unknown tool: unknown_fake_tool');
     });
 });
