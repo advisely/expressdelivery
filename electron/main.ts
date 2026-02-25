@@ -385,15 +385,47 @@ function registerIpcHandlers() {
     ).all(threadId);
   });
 
-  ipcMain.handle('emails:read', (_event, emailId: string) => {
+  ipcMain.handle('emails:read', async (_event, emailId: string) => {
     db.prepare('UPDATE emails SET is_read = 1 WHERE id = ?').run(emailId);
-    return db.prepare(
+
+    const email = db.prepare(
       `SELECT id, account_id, folder_id, thread_id, subject,
               from_name, from_email, to_email, date, snippet,
               body_text, body_html, is_read, is_flagged, has_attachments,
               ai_category, ai_priority, ai_labels
        FROM emails WHERE id = ?`
-    ).get(emailId);
+    ).get(emailId) as Record<string, unknown> | undefined;
+    if (!email) return null;
+
+    // Mark as read on IMAP server
+    const uidStr = emailId.includes('_') ? emailId.split('_').pop() : emailId;
+    const uid = parseInt(uidStr ?? '0', 10);
+    if (uid > 0) {
+      const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id as string) as { path: string } | undefined;
+      if (folder) {
+        imapEngine.markAsRead(email.account_id as string, uid, folder.path.replace(/^\//, '')).catch(() => {});
+      }
+    }
+
+    // On-demand body fetch: if body_html is null, try to download it from IMAP
+    if (email.body_html === null || email.body_html === undefined) {
+      const uidForFetch = uid;
+      if (uidForFetch > 0) {
+        const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id as string) as { path: string } | undefined;
+        if (folder) {
+          const mailbox = folder.path.replace(/^\//, '');
+          try {
+            const html = await imapEngine.downloadPart(email.account_id as string, uidForFetch, mailbox, '2');
+            if (html && html.includes('<')) {
+              db.prepare('UPDATE emails SET body_html = ? WHERE id = ?').run(html, emailId);
+              email.body_html = html;
+            }
+          } catch { /* best effort */ }
+        }
+      }
+    }
+
+    return email;
   });
 
   ipcMain.handle('emails:search', (_event, query: string) => {
@@ -470,8 +502,86 @@ function registerIpcHandlers() {
     return { success };
   });
 
-  ipcMain.handle('emails:delete', (_event, emailId: string) => {
-    db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
+  ipcMain.handle('emails:delete', async (_event, emailId: string) => {
+    const email = db.prepare(
+      'SELECT id, account_id, folder_id FROM emails WHERE id = ?'
+    ).get(emailId) as { id: string; account_id: string; folder_id: string } | undefined;
+    if (!email) return { success: false };
+
+    // Check if already in Trash — permanent delete
+    const currentFolder = db.prepare(
+      'SELECT type, path FROM folders WHERE id = ?'
+    ).get(email.folder_id) as { type: string; path: string } | undefined;
+
+    if (currentFolder?.type === 'trash') {
+      // Permanent delete from Trash: delete on IMAP server + local DB
+      const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
+      const uid = parseInt(uidStr ?? '0', 10);
+      if (uid > 0) {
+        await imapEngine.deleteMessage(email.account_id, uid, currentFolder.path.replace(/^\//, '')).catch(() => {});
+      }
+      db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
+      return { success: true };
+    }
+
+    // Move to Trash folder
+    const trashFolder = db.prepare(
+      "SELECT id, path FROM folders WHERE account_id = ? AND type = 'trash'"
+    ).get(email.account_id) as { id: string; path: string } | undefined;
+
+    if (!trashFolder) {
+      // No trash folder found — fallback to permanent delete
+      db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
+      return { success: true };
+    }
+
+    const sourceFolder = db.prepare(
+      'SELECT path FROM folders WHERE id = ?'
+    ).get(email.folder_id) as { path: string } | undefined;
+
+    const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
+    const uid = parseInt(uidStr ?? '0', 10);
+
+    if (uid > 0 && sourceFolder) {
+      const moved = await imapEngine.moveMessage(
+        email.account_id, uid,
+        sourceFolder.path.replace(/^\//, ''),
+        trashFolder.path.replace(/^\//, '')
+      );
+      if (moved) {
+        db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(trashFolder.id, emailId);
+        return { success: true };
+      }
+    }
+
+    // IMAP move failed — fallback to local-only move
+    db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(trashFolder.id, emailId);
+    return { success: true };
+  });
+
+  ipcMain.handle('emails:purge-trash', async (_event, accountId: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+
+    const trashFolder = db.prepare(
+      "SELECT id, path FROM folders WHERE account_id = ? AND type = 'trash'"
+    ).get(accountId) as { id: string; path: string } | undefined;
+    if (!trashFolder) return { success: false, error: 'No trash folder found' };
+
+    // Delete all emails in trash on IMAP server
+    const trashEmails = db.prepare(
+      'SELECT id FROM emails WHERE folder_id = ?'
+    ).all(trashFolder.id) as Array<{ id: string }>;
+
+    for (const email of trashEmails) {
+      const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
+      const uid = parseInt(uidStr ?? '0', 10);
+      if (uid > 0) {
+        await imapEngine.deleteMessage(accountId, uid, trashFolder.path.replace(/^\//, '')).catch(() => {});
+      }
+    }
+
+    // Delete all trash emails from local DB
+    db.prepare('DELETE FROM emails WHERE folder_id = ?').run(trashFolder.id);
     return { success: true };
   });
 
@@ -537,8 +647,8 @@ function registerIpcHandlers() {
     const moved = await imapEngine.moveMessage(
       email.account_id,
       uid,
-      sourceFolder.path,
-      archiveFolder.path
+      sourceFolder.path.replace(/^\//, ''),
+      archiveFolder.path.replace(/^\//, '')
     );
     if (moved) {
       db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(archiveFolder.id, email.id);
@@ -570,8 +680,8 @@ function registerIpcHandlers() {
     const moved = await imapEngine.moveMessage(
       email.account_id,
       uid,
-      sourceFolder.path,
-      destFolder.path
+      sourceFolder.path.replace(/^\//, ''),
+      destFolder.path.replace(/^\//, '')
     );
     if (moved) {
       db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(destFolder.id, email.id);

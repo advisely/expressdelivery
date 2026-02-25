@@ -13,7 +13,9 @@
     "mcpConnected": "MCP verbunden",
     "mcpDisconnected": "MCP getrennt",
     "unread_one": "{{count}} ungelesen",
-    "unread_other": "{{count}} ungelesen"
+    "unread_other": "{{count}} ungelesen",
+    "emptyTrash": "Papierkorb leeren",
+    "emptyTrashConfirm": "Alle E-Mails im Papierkorb endgültig löschen?"
   },
   "threadList": {
     "search": "E-Mails suchen...",

@@ -207,3 +207,38 @@
 .mcp-label {
   font-size: 12px;
 }
+
+/* Trash folder row — houses the folder button + purge button side by side */
+.nav-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The folder button inside a row shrinks to leave room for the purge button */
+.nav-item-trash {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Small destructive purge button that only appears next to the Trash folder */
+.purge-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.nav-item-row:hover .purge-btn {
+  opacity: 1;
+}
+
+.purge-btn:hover {
+  color: rgb(var(--color-danger));
+  background: rgba(var(--color-danger), 0.1);
+}

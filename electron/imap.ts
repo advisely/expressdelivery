@@ -35,6 +35,37 @@ function stripCidBrackets(cid: string): string {
     return cid.replace(/^<|>$/g, '');
 }
 
+interface MimePartInfo {
+    textPart: string | null;
+    htmlPart: string | null;
+}
+
+function findTextParts(structure: BodyStructureNode): MimePartInfo {
+    const result: MimePartInfo = { textPart: null, htmlPart: null };
+
+    function walk(node: BodyStructureNode) {
+        // Skip attachments
+        if (node.disposition?.toLowerCase() === 'attachment') return;
+
+        const type = (node.type || '').toLowerCase();
+
+        if (type === 'text/html' && node.part && !result.htmlPart) {
+            result.htmlPart = node.part;
+        } else if (type === 'text/plain' && node.part && !result.textPart) {
+            result.textPart = node.part;
+        }
+
+        if (node.childNodes) {
+            for (const child of node.childNodes) {
+                walk(child);
+            }
+        }
+    }
+
+    walk(structure);
+    return result;
+}
+
 function extractAttachments(structure: BodyStructureNode): AttachmentMeta[] {
     const attachments: AttachmentMeta[] = [];
 
@@ -250,8 +281,8 @@ export class ImapEngine {
         try {
             const insertStmt = db.prepare(
                 `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
-                 from_name, from_email, to_email, date, snippet, body_text, is_read)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
             );
             const insertAttStmt = db.prepare(
                 `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
@@ -265,7 +296,6 @@ export class ImapEngine {
                 envelope: true,
                 bodyStructure: true,
                 uid: true,
-                bodyParts: ['1'],  // First MIME part (usually text/plain)
             })) {
                 const uid = message.uid;
                 if (lastUid > 0 && uid <= lastUid) continue;
@@ -274,11 +304,32 @@ export class ImapEngine {
                 const env = message.envelope;
                 if (!env) continue;
 
+                // Determine text/html MIME parts from bodyStructure
                 let bodyText = '';
-                if (message.bodyParts) {
-                    const part = message.bodyParts.get('1');
-                    if (part) {
-                        bodyText = part.toString();
+                let bodyHtml: string | null = null;
+                if (message.bodyStructure) {
+                    const parts = findTextParts(message.bodyStructure as BodyStructureNode);
+                    // Download HTML part (auto-decodes base64/quoted-printable)
+                    if (parts.htmlPart) {
+                        try {
+                            const { content: htmlContent } = await client.download(String(uid), parts.htmlPart, { uid: true });
+                            const htmlChunks: Buffer[] = [];
+                            for await (const chunk of htmlContent) {
+                                htmlChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                            }
+                            bodyHtml = Buffer.concat(htmlChunks).toString('utf-8');
+                        } catch { /* ignore download errors */ }
+                    }
+                    // Download text part
+                    if (parts.textPart) {
+                        try {
+                            const { content: textContent } = await client.download(String(uid), parts.textPart, { uid: true });
+                            const textChunks: Buffer[] = [];
+                            for await (const chunk of textContent) {
+                                textChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                            }
+                            bodyText = Buffer.concat(textChunks).toString('utf-8');
+                        } catch { /* ignore download errors */ }
                     }
                 }
 
@@ -302,6 +353,7 @@ export class ImapEngine {
                     env.date?.toISOString() ?? new Date().toISOString(),
                     (env.subject ?? '').slice(0, 100),
                     bodyText,
+                    bodyHtml,
                 );
 
                 if (result.changes > 0) {
@@ -402,6 +454,66 @@ export class ImapEngine {
             return Buffer.concat(chunks);
         } catch {
             return null;
+        } finally {
+            lock.release();
+        }
+    }
+
+    async downloadPart(
+        accountId: string,
+        emailUid: number,
+        mailbox: string,
+        partNumber: string
+    ): Promise<string | null> {
+        const client = this.clients.get(accountId);
+        if (!client) return null;
+
+        const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
+        const lock = await client.getMailboxLock(mailbox);
+        try {
+            const { content } = await client.download(String(emailUid), partNumber, { uid: true });
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
+            for await (const chunk of content) {
+                const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                totalBytes += buf.length;
+                if (totalBytes > MAX_BODY_BYTES) break;
+                chunks.push(buf);
+            }
+            return Buffer.concat(chunks).toString('utf-8');
+        } catch {
+            return null;
+        } finally {
+            lock.release();
+        }
+    }
+
+    async markAsRead(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+
+        const lock = await client.getMailboxLock(mailbox);
+        try {
+            await client.messageFlagsAdd(String(emailUid), ['\\Seen'], { uid: true });
+            return true;
+        } catch {
+            return false;
+        } finally {
+            lock.release();
+        }
+    }
+
+    async deleteMessage(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+
+        const lock = await client.getMailboxLock(mailbox);
+        try {
+            await client.messageFlagsAdd(String(emailUid), ['\\Deleted'], { uid: true });
+            await client.messageDelete(String(emailUid), { uid: true });
+            return true;
+        } catch {
+            return false;
         } finally {
             lock.release();
         }

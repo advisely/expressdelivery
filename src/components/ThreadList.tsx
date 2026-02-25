@@ -104,9 +104,14 @@ export const ThreadList: React.FC = () => {
 
     const handleSelectEmail = useCallback(async (emailId: string) => {
         selectEmail(emailId);
+        // Optimistic mark-as-read update so the unread dot disappears immediately
+        const target = emails.find(e => e.id === emailId);
+        if (target && !target.is_read) {
+            setEmails(emails.map(e => e.id === emailId ? { ...e, is_read: 1 } : e));
+        }
         const full = await ipcInvoke<EmailFull>('emails:read', emailId);
         if (full) setSelectedEmail(full);
-    }, [selectEmail, setSelectedEmail]);
+    }, [emails, selectEmail, setEmails, setSelectedEmail]);
 
     return (
         <div className={`${styles['thread-list']} scrollable`}>

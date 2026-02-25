@@ -13,7 +13,9 @@
     "mcpConnected": "MCP conectado",
     "mcpDisconnected": "MCP desconectado",
     "unread_one": "{{count}} sin leer",
-    "unread_other": "{{count}} sin leer"
+    "unread_other": "{{count}} sin leer",
+    "emptyTrash": "Vaciar papelera",
+    "emptyTrashConfirm": "¿Eliminar permanentemente todos los correos de la papelera?"
   },
   "threadList": {
     "search": "Buscar correos...",

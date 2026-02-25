@@ -13,7 +13,9 @@
     "mcpConnected": "MCP connected",
     "mcpDisconnected": "MCP disconnected",
     "unread_one": "{{count}} unread",
-    "unread_other": "{{count}} unread"
+    "unread_other": "{{count}} unread",
+    "emptyTrash": "Empty Trash",
+    "emptyTrashConfirm": "Permanently delete all emails in Trash?"
   },
   "threadList": {
     "search": "Search emails...",

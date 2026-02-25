@@ -13,7 +13,9 @@
     "mcpConnected": "MCP connecté",
     "mcpDisconnected": "MCP déconnecté",
     "unread_one": "{{count}} non lu",
-    "unread_other": "{{count}} non lus"
+    "unread_other": "{{count}} non lus",
+    "emptyTrash": "Vider la corbeille",
+    "emptyTrashConfirm": "Supprimer définitivement tous les e-mails de la corbeille ?"
   },
   "threadList": {
     "search": "Rechercher des e-mails...",

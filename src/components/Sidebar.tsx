@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Inbox,
   Send,
@@ -50,6 +50,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const [unifiedUnreadCount, setUnifiedUnreadCount] = useState(0);
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
+
+  const handlePurgeTrash = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedAccountId) return;
+    if (!window.confirm(t('sidebar.emptyTrashConfirm'))) return;
+    await ipcInvoke('emails:purge-trash', selectedAccountId);
+  }, [selectedAccountId, t]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -174,18 +181,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
           ? folders.map((folder) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               const count = unreadCounts[folder.id];
+              const isTrash = folder.type === 'trash';
               return (
-                <button
-                  key={folder.id}
-                  className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
-                  onClick={() => selectFolder(folder.id)}
-                >
-                  <Icon size={18} className={styles['nav-icon']} />
-                  <span className={styles['nav-label']}>{folder.name}</span>
-                  {count != null && count > 0 && (
-                    <span className={styles['nav-badge']}>{count > 99 ? '99+' : count}</span>
+                <div key={folder.id} className={styles['nav-item-row']}>
+                  <button
+                    className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${isTrash ? styles['nav-item-trash'] : ''}`}
+                    onClick={() => selectFolder(folder.id)}
+                  >
+                    <Icon size={18} className={styles['nav-icon']} />
+                    <span className={styles['nav-label']}>{folder.name}</span>
+                    {count != null && count > 0 && (
+                      <span className={styles['nav-badge']}>{count > 99 ? '99+' : count}</span>
+                    )}
+                  </button>
+                  {isTrash && (
+                    <button
+                      className={styles['purge-btn']}
+                      onClick={handlePurgeTrash}
+                      title={t('sidebar.emptyTrash')}
+                      aria-label={t('sidebar.emptyTrash')}
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   )}
-                </button>
+                </div>
               );
             })
           : DEFAULT_NAV.map((item) => (

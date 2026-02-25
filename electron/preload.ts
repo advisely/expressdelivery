@@ -17,6 +17,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'emails:thread',
   'emails:search',
   'emails:delete',
+  'emails:purge-trash',
   'emails:toggle-flag',
   'email:send',
   'folders:list',
