@@ -9,7 +9,8 @@ import {
   Plus,
   ChevronDown,
   Clock,
-  CalendarClock
+  CalendarClock,
+  Layers
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
@@ -46,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const [mcpCount, setMcpCount] = useState(0);
   const [snoozedCount, setSnoozedCount] = useState(0);
   const [scheduledCount, setScheduledCount] = useState(0);
+  const [unifiedUnreadCount, setUnifiedUnreadCount] = useState(0);
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
 
@@ -62,13 +64,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
         setUnreadCounts(counts);
       }
     }
+    async function loadUnifiedCount() {
+      const result = await ipcInvoke<{ count: number }>('folders:unified-unread-count');
+      if (result && !cancelled) setUnifiedUnreadCount(result.count);
+    }
     loadCounts();
+    loadUnifiedCount();
 
     const api = (window as unknown as { electronAPI?: { on: (ch: string, cb: (...args: unknown[]) => void) => () => void } }).electronAPI;
-    const unsub = api?.on('email:new', () => { loadCounts(); });
+    const unsub = api?.on('email:new', () => { loadCounts(); loadUnifiedCount(); });
 
     return () => { cancelled = true; unsub?.(); };
   }, [selectedAccountId]);
+
+  // Unified inbox unread count (only relevant with 2+ accounts)
+  useEffect(() => {
+    if (accounts.length < 2) return;
+    let cancelled = false;
+    async function loadUnifiedCount() {
+      const result = await ipcInvoke<{ count: number }>('folders:unified-unread-count');
+      if (result && !cancelled) setUnifiedUnreadCount(result.count);
+    }
+    loadUnifiedCount();
+    return () => { cancelled = true; };
+  }, [accounts.length]);
 
   // Snoozed & scheduled counts
   useEffect(() => {
@@ -176,6 +195,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
               </button>
             ))
         }
+        {accounts.length >= 2 && (
+          <button
+            className={`${styles['nav-item']} ${selectedFolderId === '__unified' ? styles['active'] : ''}`}
+            onClick={() => selectFolder('__unified')}
+          >
+            <Layers size={18} className={styles['nav-icon']} />
+            <span className={styles['nav-label']}>{t('sidebar.allInboxes')}</span>
+            {unifiedUnreadCount > 0 && (
+              <span className={styles['nav-badge']}>{unifiedUnreadCount > 99 ? '99+' : unifiedUnreadCount}</span>
+            )}
+          </button>
+        )}
         {snoozedCount > 0 && (
           <button className={`${styles['nav-item']} ${selectedFolderId === '__snoozed' ? styles['active'] : ''}`} onClick={() => selectFolder('__snoozed')}>
             <Clock size={18} className={styles['nav-icon']} />

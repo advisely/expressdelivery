@@ -42,7 +42,14 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect }) => (
                 <span className={styles['date']}>{thread.date ? new Date(thread.date).toLocaleDateString() : ''}</span>
             </span>
         </div>
-        <div className={styles['subject']}>{thread.subject}</div>
+        <div className={styles['subject']}>
+            {thread.subject}
+            {thread.thread_count != null && thread.thread_count > 1 && (
+                <span className={styles['thread-badge']} aria-label={`${thread.thread_count} messages in thread`}>
+                    {thread.thread_count}
+                </span>
+            )}
+        </div>
         <div className={styles['snippet']}>{thread.snippet}</div>
         {!thread.is_read && <div className={styles['unread-dot']} />}
     </div>

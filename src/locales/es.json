@@ -7,6 +7,7 @@
   "sidebar": {
     "compose": "Redactar",
     "settings": "Ajustes",
+    "allInboxes": "Todas las bandejas",
     "snoozed": "Pospuestos",
     "scheduled": "Programados",
     "mcpConnected": "MCP conectado",
@@ -73,7 +74,10 @@
     "fileExceedsSize": "{{filename}} supera el límite de 25 MB",
     "removeAttachment": "Eliminar {{filename}}",
     "enterUrl": "Ingrese la URL:",
-    "scheduleLabel": "Programar envío para:"
+    "scheduleLabel": "Programar envío para:",
+    "sendingIn": "Enviando en {{seconds}}s...",
+    "undoSend": "Deshacer",
+    "insertTemplate": "Insertar plantilla"
   },
   "settings": {
     "title": "Ajustes",
@@ -122,7 +126,21 @@
     "updateRule": "Actualizar",
     "ruleNameRequired": "El nombre es obligatorio",
     "ruleValueRequired": "El valor es obligatorio",
-    "ruleSaveFailed": "Error al guardar"
+    "ruleSaveFailed": "Error al guardar",
+    "undoSendDelay": "Retraso de deshacer",
+    "undoSendOff": "Desactivado",
+    "undoSendSeconds": "{{seconds}}s",
+    "edit": "Editar",
+    "templates": "Plantillas",
+    "manageTemplates": "Gestionar plantillas",
+    "addTemplate": "Nueva plantilla",
+    "templateName": "Nombre de plantilla",
+    "templateNamePlaceholder": "ej. Respuesta de agradecimiento",
+    "templateBody": "Cuerpo de plantilla",
+    "templateBodyPlaceholder": "Escribe tu plantilla aquí...",
+    "templateNameRequired": "El nombre es obligatorio",
+    "templateBodyRequired": "El cuerpo es obligatorio",
+    "templateSaveFailed": "Error al guardar"
   },
   "onboarding": {
     "welcome": "Bienvenido a ExpressDelivery",

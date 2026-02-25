@@ -101,6 +101,8 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     center: true,
+    show: false,
+    backgroundColor: '#ffffff',
     icon: path.join(process.env.VITE_PUBLIC, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -109,6 +111,10 @@ function createWindow() {
       sandbox: true,
       devTools: !!VITE_DEV_SERVER_URL,
     },
+  })
+
+  win.once('ready-to-show', () => {
+    win?.show();
   })
 
   // Use the app icon for the system tray; fall back to a transparent 1x1 buffer
@@ -185,6 +191,29 @@ app.on('activate', () => {
 function registerIpcHandlers() {
   const db = getDatabase();
 
+  // Combined startup handler: accounts + folders + inbox emails in one round-trip
+  ipcMain.handle('startup:load', () => {
+    const accounts = db.prepare(
+      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
+    ).all() as Array<{ id: string }>;
+    if (accounts.length === 0) return { accounts, folders: [], emails: [] };
+    const firstAccountId = accounts[0].id;
+    const folders = db.prepare(
+      'SELECT id, name, path, type FROM folders WHERE account_id = ?'
+    ).all(firstAccountId) as Array<{ id: string; type: string }>;
+    const inbox = folders.find(f => f.type === 'inbox');
+    const emails = inbox
+      ? db.prepare(
+        `SELECT id, thread_id, subject, from_name, from_email, to_email,
+                date, snippet, is_read, is_flagged, has_attachments,
+                ai_category, ai_priority, ai_labels
+         FROM emails WHERE folder_id = ? AND (is_snoozed = 0 OR is_snoozed IS NULL)
+         ORDER BY date DESC LIMIT 50`
+      ).all(inbox.id)
+      : [];
+    return { accounts, folders, emails, selectedAccountId: firstAccountId, selectedFolderId: inbox?.id ?? null };
+  });
+
   ipcMain.handle('accounts:list', () => {
     return db.prepare(
       'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
@@ -192,9 +221,25 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('accounts:test', async (_event, params: {
-    email: string; password: string; imap_host: string; imap_port: number;
+    email: string; password?: string; imap_host: string; imap_port: number;
+    account_id?: string;
   }) => {
-    return imapEngine.testConnection(params);
+    let password = params.password ?? '';
+    // When editing an existing account without re-entering password, decrypt stored password
+    if (!password && params.account_id) {
+      const row = db.prepare(
+        'SELECT password_encrypted FROM accounts WHERE id = ?'
+      ).get(params.account_id) as { password_encrypted: string } | undefined;
+      if (!row) return { success: false, error: 'Account not found' };
+      password = decryptData(Buffer.from(row.password_encrypted, 'base64'));
+    }
+    if (!password) return { success: false, error: 'Password is required' };
+    return imapEngine.testConnection({
+      email: params.email,
+      password,
+      imap_host: params.imap_host,
+      imap_port: params.imap_port,
+    });
   });
 
   ipcMain.handle('accounts:add', async (_event, account: {
@@ -284,6 +329,18 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:list', (_event, folderId: string) => {
+    // Virtual folder: unified inbox (all accounts)
+    if (folderId === '__unified') {
+      return db.prepare(
+        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+                e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels
+         FROM emails e
+         INNER JOIN folders f ON e.folder_id = f.id
+         WHERE f.type = 'inbox' AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)
+         ORDER BY e.date DESC LIMIT 50`
+      ).all();
+    }
     // Virtual folder: snoozed emails
     if (folderId === '__snoozed') {
       return db.prepare(
@@ -308,11 +365,24 @@ function registerIpcHandlers() {
       ).all();
     }
     return db.prepare(
-      `SELECT id, thread_id, subject, from_name, from_email, to_email,
-              date, snippet, is_read, is_flagged, has_attachments,
-              ai_category, ai_priority, ai_labels
-       FROM emails WHERE folder_id = ? AND (is_snoozed = 0 OR is_snoozed IS NULL) ORDER BY date DESC LIMIT 50`
-    ).all(folderId);
+      `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+              e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+              e.ai_category, e.ai_priority, e.ai_labels,
+              (SELECT COUNT(*) FROM emails e2 WHERE e2.thread_id = e.thread_id AND e2.folder_id = ?) AS thread_count
+       FROM emails e
+       WHERE e.folder_id = ? AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)
+       AND e.id = (SELECT e3.id FROM emails e3 WHERE e3.thread_id = e.thread_id AND e3.folder_id = ? ORDER BY e3.date DESC LIMIT 1)
+       ORDER BY e.date DESC LIMIT 50`
+    ).all(folderId, folderId, folderId);
+  });
+
+  ipcMain.handle('emails:thread', (_event, threadId: string) => {
+    return db.prepare(
+      `SELECT id, thread_id, message_id, subject, from_name, from_email, to_email,
+              date, snippet, body_text, body_html, is_read, is_flagged, has_attachments,
+              ai_category, ai_priority, ai_labels, account_id, folder_id
+       FROM emails WHERE thread_id = ? ORDER BY date ASC`
+    ).all(threadId);
   });
 
   ipcMain.handle('emails:read', (_event, emailId: string) => {
@@ -416,6 +486,14 @@ function registerIpcHandlers() {
     ).all(accountId);
   });
 
+  ipcMain.handle('folders:unified-unread-count', () => {
+    return db.prepare(
+      `SELECT COUNT(*) as count FROM emails e
+       INNER JOIN folders f ON e.folder_id = f.id
+       WHERE f.type = 'inbox' AND e.is_read = 0 AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)`
+    ).get();
+  });
+
   const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key']);
   ipcMain.handle('settings:get', (_event, key: string) => {
     if (BLOCKED_SETTINGS_GET_KEYS.has(key)) return null;
@@ -423,7 +501,7 @@ function registerIpcHandlers() {
     return row?.value ?? null;
   });
 
-  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale']);
+  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay']);
   ipcMain.handle('settings:set', (_event, key: string, value: string) => {
     if (!ALLOWED_SETTINGS_KEYS.has(key)) {
       throw new Error(`Setting key not allowed: ${key}`);
@@ -1058,6 +1136,31 @@ function registerIpcHandlers() {
     return db.prepare(query).all(params.accountId, value);
   });
 
+  // --- Reply templates handlers ---
+  ipcMain.handle('templates:list', () => {
+    return db.prepare('SELECT id, name, body_html, sort_order, created_at FROM reply_templates ORDER BY sort_order ASC, created_at DESC').all();
+  });
+
+  ipcMain.handle('templates:create', (_event, params: { name: string; body_html: string }) => {
+    if (!params?.name?.trim()) throw new Error('Template name is required');
+    if (!params?.body_html?.trim()) throw new Error('Template body is required');
+    const id = crypto.randomUUID();
+    db.prepare('INSERT INTO reply_templates (id, name, body_html) VALUES (?, ?, ?)').run(id, params.name.trim(), params.body_html.slice(0, 10_000));
+    return { id };
+  });
+
+  ipcMain.handle('templates:update', (_event, params: { id: string; name: string; body_html: string }) => {
+    if (!params?.id) throw new Error('Template ID is required');
+    if (!params?.name?.trim()) throw new Error('Template name is required');
+    db.prepare('UPDATE reply_templates SET name = ?, body_html = ? WHERE id = ?').run(params.name.trim(), params.body_html.slice(0, 10_000), params.id);
+    return { success: true };
+  });
+
+  ipcMain.handle('templates:delete', (_event, templateId: string) => {
+    db.prepare('DELETE FROM reply_templates WHERE id = ?').run(templateId);
+    return { success: true };
+  });
+
   // --- MCP connection status handler ---
   ipcMain.handle('mcp:connected-count', () => {
     return { count: mcpServer.getConnectedCount() };
@@ -1113,21 +1216,15 @@ app.whenReady().then(() => {
     logDebug(`[ERROR] IPC handler registration failed: ${e.message}\n${e.stack}`);
   }
 
-  logDebug('Starting MCP server...');
+  // Create window FIRST so user sees UI immediately
+  logDebug('Creating main window...');
   try {
-    mcpServer.start();
-    logDebug('MCP server started successfully.');
+    createWindow();
+    logDebug('Main window created successfully.');
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
-    logDebug(`[ERROR] MCP server start failed: ${e.message}\n${e.stack}`);
+    logDebug(`[ERROR] Window creation failed: ${e.message}\n${e.stack}`);
   }
-
-  // Wire up MCP connection status push to renderer
-  mcpServer.setConnectionCallback((count) => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('mcp:status', { connectedAgents: count });
-    }
-  });
 
   // Wire up email:new IPC event from IMAP sync
   imapEngine.setNewEmailCallback((accountId, folderId, count) => {
@@ -1139,7 +1236,18 @@ app.whenReady().then(() => {
     }
   });
 
-  // Start scheduler engine for snooze/send-later/reminders
+  // Defer non-critical services to after window creation
+  try {
+    mcpServer.start();
+    mcpServer.setConnectionCallback((count) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('mcp:status', { connectedAgents: count });
+      }
+    });
+  } catch (err: unknown) {
+    logDebug(`[ERROR] MCP server start failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   schedulerEngine.setCallbacks({
     onSnoozeRestore: (_emailId, accountId, folderId) => {
       if (win && !win.isDestroyed()) {
@@ -1164,19 +1272,8 @@ app.whenReady().then(() => {
   });
   try {
     schedulerEngine.start();
-    logDebug('Scheduler engine started successfully.');
   } catch (err: unknown) {
-    const e = err instanceof Error ? err : new Error(String(err));
-    logDebug(`[ERROR] Scheduler start failed: ${e.message}`);
-  }
-
-  logDebug('Creating main window...');
-  try {
-    createWindow();
-    logDebug('Main window created successfully.');
-  } catch (err: unknown) {
-    const e = err instanceof Error ? err : new Error(String(err));
-    logDebug(`[ERROR] Window creation failed: ${e.message}\n${e.stack}`);
+    logDebug(`[ERROR] Scheduler start failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Initialize auto-updater (only in production)
@@ -1189,14 +1286,12 @@ app.whenReady().then(() => {
         }
       });
       checkForUpdates().catch(() => { /* silent */ });
-      logDebug('Auto-updater initialized.');
     } catch (err: unknown) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      logDebug(`[WARN] Auto-updater init failed: ${e.message}`);
+      logDebug(`[WARN] Auto-updater init failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  // Connect saved accounts and sync folders on startup
+  // Connect saved accounts and sync folders + inbox on startup (non-blocking)
   try {
     const db = getDatabase();
     const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
@@ -1204,7 +1299,11 @@ app.whenReady().then(() => {
       imapEngine.connectAccount(account.id)
         .then(async (connected) => {
           if (connected) {
-            await imapEngine.listAndSyncFolders(account.id);
+            const folders = await imapEngine.listAndSyncFolders(account.id);
+            const inbox = folders.find(f => f.type === 'inbox');
+            if (inbox) {
+              await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
+            }
           }
         })
         .catch((err) => {
@@ -1212,8 +1311,7 @@ app.whenReady().then(() => {
         });
     }
   } catch (err: unknown) {
-    const e = err instanceof Error ? err : new Error(String(err));
-    logDebug(`[ERROR] Startup IMAP sync failed: ${e.message}`);
+    logDebug(`[ERROR] Startup IMAP sync failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }).catch((err) => {
   logDebug(`[ERROR] app.whenReady() rejected: ${err.message}\n${err.stack}`);

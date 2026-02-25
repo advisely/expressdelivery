@@ -7,6 +7,7 @@
   "sidebar": {
     "compose": "Nouveau",
     "settings": "Paramètres",
+    "allInboxes": "Toutes les boîtes",
     "snoozed": "En attente",
     "scheduled": "Planifiés",
     "mcpConnected": "MCP connecté",
@@ -73,7 +74,10 @@
     "fileExceedsSize": "{{filename}} dépasse la limite de 25 Mo",
     "removeAttachment": "Supprimer {{filename}}",
     "enterUrl": "Entrez l'URL :",
-    "scheduleLabel": "Planifier l'envoi pour :"
+    "scheduleLabel": "Planifier l'envoi pour :",
+    "sendingIn": "Envoi dans {{seconds}}s...",
+    "undoSend": "Annuler",
+    "insertTemplate": "Insérer un modèle"
   },
   "settings": {
     "title": "Paramètres",
@@ -122,7 +126,21 @@
     "updateRule": "Mettre à jour",
     "ruleNameRequired": "Le nom est requis",
     "ruleValueRequired": "La valeur est requise",
-    "ruleSaveFailed": "Échec de l'enregistrement"
+    "ruleSaveFailed": "Échec de l'enregistrement",
+    "undoSendDelay": "Délai d'annulation",
+    "undoSendOff": "Désactivé",
+    "undoSendSeconds": "{{seconds}}s",
+    "edit": "Modifier",
+    "templates": "Modèles",
+    "manageTemplates": "Gérer les modèles",
+    "addTemplate": "Nouveau modèle",
+    "templateName": "Nom du modèle",
+    "templateNamePlaceholder": "ex. Réponse de remerciement",
+    "templateBody": "Corps du modèle",
+    "templateBodyPlaceholder": "Tapez votre modèle ici...",
+    "templateNameRequired": "Le nom du modèle est requis",
+    "templateBodyRequired": "Le corps du modèle est requis",
+    "templateSaveFailed": "Échec de la sauvegarde"
   },
   "onboarding": {
     "welcome": "Bienvenue sur ExpressDelivery",

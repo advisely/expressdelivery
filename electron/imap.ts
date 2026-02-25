@@ -249,9 +249,9 @@ export class ImapEngine {
         const lock = await client.getMailboxLock(mailbox);
         try {
             const insertStmt = db.prepare(
-                `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, subject,
+                `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
                  from_name, from_email, to_email, date, snippet, body_text, is_read)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
             );
             const insertAttStmt = db.prepare(
                 `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
@@ -282,9 +282,19 @@ export class ImapEngine {
                     }
                 }
 
+                // Compute thread_id: inherit from parent via In-Reply-To, otherwise use own messageId
+                const messageId = env.messageId ?? emailId;
+                let threadId = messageId;
+                if (env.inReplyTo) {
+                    const parent = db.prepare(
+                        'SELECT thread_id FROM emails WHERE message_id = ?'
+                    ).get(env.inReplyTo) as { thread_id: string } | undefined;
+                    if (parent?.thread_id) threadId = parent.thread_id;
+                }
+
                 const result = insertStmt.run(
                     emailId, accountId, folder.id,
-                    env.messageId ?? emailId,
+                    threadId, messageId,
                     env.subject ?? '(no subject)',
                     env.from?.[0]?.name ?? '',
                     env.from?.[0]?.address ?? '',

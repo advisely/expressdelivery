@@ -75,6 +75,20 @@ function renderApp() {
     return render(<App />);
 }
 
+/** Render App with accounts pre-loaded (startup:load resolves with accounts) */
+async function renderAppWithAccounts() {
+    mockIpcInvoke
+        .mockResolvedValueOnce({
+            accounts: mockAccounts, folders: [], emails: [],
+            selectedAccountId: 'a1', selectedFolderId: null,
+        })              // startup:load
+        .mockResolvedValueOnce(null)   // settings:get (undo_send_delay)
+        .mockResolvedValueOnce([]);    // folders:list (triggered by selectedAccountId change)
+    let result: ReturnType<typeof render>;
+    await act(async () => { result = render(<App />); });
+    return result!;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -82,7 +96,8 @@ function renderApp() {
 describe('App', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockIpcInvoke.mockResolvedValue(null);
+        // Default: startup:load returns empty (triggers onboarding)
+        mockIpcInvoke.mockResolvedValue({ accounts: [], folders: [], emails: [], selectedAccountId: null, selectedFolderId: null });
         mockIpcOn.mockReturnValue(vi.fn());
         // Reset email store to empty (no accounts = onboarding)
         useEmailStore.setState({
@@ -97,14 +112,13 @@ describe('App', () => {
         });
     });
 
-    it('renders OnboardingScreen when no accounts exist', () => {
-        renderApp();
+    it('renders OnboardingScreen when no accounts exist', async () => {
+        await act(async () => { renderApp(); });
         expect(screen.getByTestId('onboarding')).toBeInTheDocument();
     });
 
-    it('renders main layout when accounts exist', () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-        renderApp();
+    it('renders main layout when accounts exist', async () => {
+        await renderAppWithAccounts();
         expect(screen.getByTestId('sidebar')).toBeInTheDocument();
         expect(screen.getByTestId('threadlist')).toBeInTheDocument();
         expect(screen.getByTestId('readingpane')).toBeInTheDocument();
@@ -112,62 +126,66 @@ describe('App', () => {
     });
 
     it('opens ComposeModal when compose button is clicked', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-        renderApp();
+        await renderAppWithAccounts();
         await userEvent.click(screen.getByTestId('compose-btn'));
-        expect(screen.getByTestId('compose-modal')).toBeInTheDocument();
+        expect(await screen.findByTestId('compose-modal')).toBeInTheDocument();
     });
 
     it('closes ComposeModal when onClose is called', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-        renderApp();
+        await renderAppWithAccounts();
         await userEvent.click(screen.getByTestId('compose-btn'));
-        expect(screen.getByTestId('compose-modal')).toBeInTheDocument();
+        expect(await screen.findByTestId('compose-modal')).toBeInTheDocument();
         await userEvent.click(screen.getByText('Close'));
         expect(screen.queryByTestId('compose-modal')).not.toBeInTheDocument();
     });
 
     it('opens SettingsModal when settings button is clicked', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-        renderApp();
+        await renderAppWithAccounts();
         await userEvent.click(screen.getByTestId('settings-btn'));
-        expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+        expect(await screen.findByTestId('settings-modal')).toBeInTheDocument();
     });
 
-    it('loads accounts on mount via IPC', async () => {
-        mockIpcInvoke.mockResolvedValueOnce(mockAccounts);
+    it('loads accounts on mount via IPC (startup:load)', async () => {
+        mockIpcInvoke.mockResolvedValueOnce({
+            accounts: mockAccounts,
+            folders: [],
+            emails: [],
+            selectedAccountId: null,
+            selectedFolderId: null,
+        });
         await act(async () => { renderApp(); });
-        expect(mockIpcInvoke).toHaveBeenCalledWith('accounts:list');
+        expect(mockIpcInvoke).toHaveBeenCalledWith('startup:load');
     });
 
     it('loads folders when selectedAccountId changes', async () => {
-        mockIpcInvoke.mockResolvedValue(null);
-        useEmailStore.setState({ accounts: mockAccounts, selectedAccountId: 'a1' });
-        await act(async () => { renderApp(); });
+        await renderAppWithAccounts();
         expect(mockIpcInvoke).toHaveBeenCalledWith('folders:list', 'a1');
     });
 
     it('shows toast on reminder:due IPC event', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
         vi.useFakeTimers();
 
-        // Capture the reminder:due listener
         let reminderCallback: ((...args: unknown[]) => void) | null = null;
         mockIpcOn.mockImplementation((channel: string, cb: (...args: unknown[]) => void) => {
             if (channel === 'reminder:due') reminderCallback = cb;
             return vi.fn();
         });
 
-        renderApp();
+        mockIpcInvoke
+            .mockResolvedValueOnce({
+                accounts: mockAccounts, folders: [], emails: [],
+                selectedAccountId: 'a1', selectedFolderId: null,
+            })
+            .mockResolvedValueOnce(null)   // settings:get
+            .mockResolvedValueOnce([]);    // folders:list
+        await act(async () => { renderApp(); });
 
-        // Simulate reminder event
         act(() => {
             reminderCallback?.({ subject: 'Follow up', emailId: 'e1' });
         });
 
         expect(screen.getByRole('alert')).toHaveTextContent('toast.reminderSubject');
 
-        // Auto-dismiss after 8 seconds
         act(() => { vi.advanceTimersByTime(9000); });
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
@@ -175,45 +193,39 @@ describe('App', () => {
     });
 
     it('shows toast on scheduled:sent event', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-
         let sentCallback: ((...args: unknown[]) => void) | null = null;
         mockIpcOn.mockImplementation((channel: string, cb: (...args: unknown[]) => void) => {
             if (channel === 'scheduled:sent') sentCallback = cb;
             return vi.fn();
         });
 
-        renderApp();
+        await renderAppWithAccounts();
 
         act(() => { sentCallback?.({ scheduledId: 's1' }); });
         expect(screen.getByRole('alert')).toHaveTextContent('toast.scheduledSent');
     });
 
     it('shows toast on scheduled:failed event', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-
         let failedCallback: ((...args: unknown[]) => void) | null = null;
         mockIpcOn.mockImplementation((channel: string, cb: (...args: unknown[]) => void) => {
             if (channel === 'scheduled:failed') failedCallback = cb;
             return vi.fn();
         });
 
-        renderApp();
+        await renderAppWithAccounts();
 
         act(() => { failedCallback?.({ error: 'Connection timeout' }); });
         expect(screen.getByRole('alert')).toHaveTextContent('toast.scheduledFailed');
     });
 
     it('dismisses toast when close button is clicked', async () => {
-        useEmailStore.setState({ accounts: mockAccounts });
-
         let sentCallback: ((...args: unknown[]) => void) | null = null;
         mockIpcOn.mockImplementation((channel: string, cb: (...args: unknown[]) => void) => {
             if (channel === 'scheduled:sent') sentCallback = cb;
             return vi.fn();
         });
 
-        renderApp();
+        await renderAppWithAccounts();
         act(() => { sentCallback?.({ scheduledId: 's1' }); });
         expect(screen.getByRole('alert')).toBeInTheDocument();
 

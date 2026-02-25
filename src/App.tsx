@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef, Component } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ThreadList } from './components/ThreadList';
 import { ReadingPane } from './components/ReadingPane';
-import { ComposeModal } from './components/ComposeModal';
-import { SettingsModal } from './components/SettingsModal';
+const ComposeModal = lazy(() => import('./components/ComposeModal').then(m => ({ default: m.ComposeModal })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useEmailStore } from './stores/emailStore';
@@ -12,6 +12,7 @@ import type { Account, EmailFull, EmailSummary, Folder } from './stores/emailSto
 import { useTranslation } from 'react-i18next';
 import { ipcInvoke, ipcOn } from './lib/ipc';
 import { useKeyboardShortcuts } from './lib/useKeyboardShortcuts';
+import type { SendPayload } from './components/ComposeModal';
 import './index.css';
 import appStyles from './components/App.module.css';
 
@@ -47,15 +48,26 @@ interface ComposeState {
   draftId?: string;
 }
 
+interface PendingSend {
+  payload: SendPayload;
+  timerId: ReturnType<typeof setTimeout>;
+  countdown: number;
+}
+
 function App() {
   const { t } = useTranslation();
   const [composeState, setComposeState] = useState<ComposeState | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const { accounts, setAccounts, setFolders, selectAccount, setSelectedEmail, selectEmail, setEmails } = useEmailStore();
+  const { accounts, setAccounts, setFolders, selectAccount, selectFolder, setSelectedEmail, selectEmail, setEmails } = useEmailStore();
   const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
+  const [startupReady, setStartupReady] = useState(false);
   const [toast, setToast] = useState<{ message: string; emailId?: string } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const [undoSendDelay, setUndoSendDelay] = useState(5);
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   const isModalOpen = composeState !== null || isSettingsOpen;
 
@@ -114,20 +126,68 @@ function App() {
     }
   }, [setAccounts, selectAccount]);
 
+  // Single IPC call at startup: accounts + folders + inbox emails in one round-trip
   useEffect(() => {
-    loadAccounts();
-  }, [loadAccounts]);
+    let cancelled = false;
+    async function startupLoad() {
+      const result = await ipcInvoke<{
+        accounts: Account[]; folders: Folder[]; emails: EmailSummary[];
+        selectedAccountId: string | null; selectedFolderId: string | null;
+      }>('startup:load');
+      if (!result || cancelled) return;
+      if (result.accounts.length > 0) {
+        setAccounts(result.accounts);
+        selectAccount(result.selectedAccountId ?? result.accounts[0].id);
+        setFolders(result.folders);
+        if (result.selectedFolderId) selectFolder(result.selectedFolderId);
+        if (result.emails.length > 0) setEmails(result.emails);
+      }
+      // Fade out and remove the HTML splash screen
+      if (!cancelled) {
+        setStartupReady(true);
+        const splash = document.getElementById('splash');
+        if (splash) {
+          splash.classList.add('fade-out');
+          setTimeout(() => splash.remove(), 300);
+        }
+      }
+    }
+    startupLoad();
+    return () => { cancelled = true; };
+  }, [setAccounts, selectAccount, setFolders, selectFolder, setEmails]);
 
+  // Load undo send delay setting
+  useEffect(() => {
+    ipcInvoke<string | null>('settings:get', 'undo_send_delay').then(val => {
+      if (val !== null) setUndoSendDelay(Number(val) || 5);
+    });
+  }, []);
+
+  // Clean up pending send timers on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingSend) {
+        clearTimeout(pendingSend.timerId);
+        clearInterval(countdownRef.current);
+      }
+    };
+  }, [pendingSend]);
+
+  // Reload folders when account changes (after initial startup)
   useEffect(() => {
     if (!selectedAccountId) return;
     let cancelled = false;
     async function loadFolders() {
       const folders = await ipcInvoke<Folder[]>('folders:list', selectedAccountId);
-      if (folders && !cancelled) setFolders(folders);
+      if (Array.isArray(folders) && !cancelled) {
+        setFolders(folders);
+        const inbox = folders.find((f: Folder) => f.type === 'inbox');
+        if (inbox) selectFolder(inbox.id);
+      }
     }
     loadFolders();
     return () => { cancelled = true; };
-  }, [selectedAccountId, setFolders]);
+  }, [selectedAccountId, setFolders, selectFolder]);
 
   const handleReply = useCallback((email: EmailFull) => {
     const subject = email.subject?.startsWith('Re:') ? email.subject : `Re: ${email.subject ?? ''}`;
@@ -205,6 +265,49 @@ function App() {
     }
   }, [setSelectedEmail, setEmails]);
 
+  const handleSendPending = useCallback((payload: SendPayload) => {
+    const ipcPayload = {
+      accountId: payload.accountId,
+      to: payload.to,
+      subject: payload.subject,
+      html: payload.body,
+      ...(payload.cc ? { cc: payload.cc } : {}),
+      ...(payload.bcc ? { bcc: payload.bcc } : {}),
+      ...(payload.attachments ? { attachments: payload.attachments } : {}),
+    };
+
+    if (undoSendDelay === 0) {
+      ipcInvoke('email:send', ipcPayload);
+      return;
+    }
+
+    let remaining = undoSendDelay;
+    const timerId = setTimeout(() => {
+      clearInterval(countdownRef.current);
+      setPendingSend(null);
+      ipcInvoke('email:send', ipcPayload);
+    }, undoSendDelay * 1000);
+
+    countdownRef.current = setInterval(() => {
+      remaining--;
+      setPendingSend(prev => prev ? { ...prev, countdown: remaining } : null);
+    }, 1000);
+
+    setPendingSend({ payload, timerId, countdown: undoSendDelay });
+  }, [undoSendDelay]);
+
+  const handleUndoSend = useCallback(() => {
+    if (!pendingSend) return;
+    clearTimeout(pendingSend.timerId);
+    clearInterval(countdownRef.current);
+    setComposeState({
+      to: pendingSend.payload.to.join(', '),
+      subject: pendingSend.payload.subject,
+      body: pendingSend.payload.body,
+    });
+    setPendingSend(null);
+  }, [pendingSend]);
+
   const shortcuts = useMemo(() => ({
     'mod+n': () => setComposeState({ to: '', subject: '', body: '' }),
     'mod+,': () => setIsSettingsOpen(true),
@@ -229,6 +332,9 @@ function App() {
 
   useKeyboardShortcuts(shortcuts, !isModalOpen);
 
+  // Show nothing while startup:load is in flight (HTML splash is visible)
+  if (!startupReady) return null;
+
   if (accounts.length === 0) {
     return (
       <ErrorBoundary>
@@ -250,18 +356,30 @@ function App() {
           <ReadingPane onReply={handleReply} onForward={handleForward} />
         </div>
 
-        {composeState !== null && (
-          <ComposeModal
-            onClose={() => setComposeState(null)}
-            initialTo={composeState.to}
-            initialSubject={composeState.subject}
-            initialBody={composeState.body}
-            draftId={composeState.draftId}
-          />
-        )}
+        <Suspense fallback={null}>
+          {composeState !== null && (
+            <ComposeModal
+              onClose={() => setComposeState(null)}
+              onSendPending={handleSendPending}
+              initialTo={composeState.to}
+              initialSubject={composeState.subject}
+              initialBody={composeState.body}
+              draftId={composeState.draftId}
+            />
+          )}
 
-        {isSettingsOpen && (
-          <SettingsModal onClose={() => setIsSettingsOpen(false)} />
+          {isSettingsOpen && (
+            <SettingsModal onClose={() => setIsSettingsOpen(false)} />
+          )}
+        </Suspense>
+
+        {pendingSend && (
+          <div className={appStyles['toast-notification']} role="alert" aria-live="polite">
+            <span>{t('compose.sendingIn', { seconds: pendingSend.countdown })}</span>
+            <button className={appStyles['toast-action']} onClick={handleUndoSend}>
+              {t('compose.undoSend')}
+            </button>
+          </div>
         )}
 
         {toast && (

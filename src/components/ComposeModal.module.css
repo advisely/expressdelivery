@@ -308,6 +308,39 @@
     color: rgb(var(--color-danger));
 }
 
+.template-picker {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    min-width: 200px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 4px;
+    margin-top: 4px;
+}
+
+.template-option {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    color: rgb(var(--color-text-primary));
+    font-size: 13px;
+    text-align: left;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.template-option:hover {
+    background: var(--hover-bg);
+}
+
 /* Keyframes must be global so the animation name is available to portal elements */
 :global {
     @keyframes overlayFadeIn {

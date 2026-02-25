@@ -7,6 +7,7 @@
   "sidebar": {
     "compose": "Compose",
     "settings": "Settings",
+    "allInboxes": "All Inboxes",
     "snoozed": "Snoozed",
     "scheduled": "Scheduled",
     "mcpConnected": "MCP connected",
@@ -73,7 +74,10 @@
     "fileExceedsSize": "{{filename}} exceeds the 25MB limit",
     "removeAttachment": "Remove {{filename}}",
     "enterUrl": "Enter URL:",
-    "scheduleLabel": "Schedule send for:"
+    "scheduleLabel": "Schedule send for:",
+    "sendingIn": "Sending in {{seconds}}s...",
+    "undoSend": "Undo",
+    "insertTemplate": "Insert Template"
   },
   "settings": {
     "title": "Settings",
@@ -122,7 +126,21 @@
     "updateRule": "Update Rule",
     "ruleNameRequired": "Rule name is required",
     "ruleValueRequired": "Match value is required",
-    "ruleSaveFailed": "Failed to save rule"
+    "ruleSaveFailed": "Failed to save rule",
+    "undoSendDelay": "Undo send delay",
+    "undoSendOff": "Off",
+    "undoSendSeconds": "{{seconds}}s",
+    "edit": "Edit",
+    "templates": "Templates",
+    "manageTemplates": "Manage Templates",
+    "addTemplate": "New Template",
+    "templateName": "Template Name",
+    "templateNamePlaceholder": "e.g. Thank you reply",
+    "templateBody": "Template Body",
+    "templateBodyPlaceholder": "Type your template text here...",
+    "templateNameRequired": "Template name is required",
+    "templateBodyRequired": "Template body is required",
+    "templateSaveFailed": "Failed to save template"
   },
   "onboarding": {
     "welcome": "Welcome to ExpressDelivery",

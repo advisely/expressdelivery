@@ -54,6 +54,7 @@ vi.mock('lucide-react', () => ({
     ChevronDown: () => <div data-testid="icon-ChevronDown">CD</div>,
     ChevronUp: () => <div data-testid="icon-ChevronUp">CU</div>,
     CalendarClock: () => <div data-testid="icon-CalendarClock">CC</div>,
+    FileText: () => <div data-testid="icon-FileText">Ft</div>,
 }));
 
 vi.mock('@radix-ui/react-dropdown-menu', () => ({
@@ -157,7 +158,8 @@ describe('ComposeModal', () => {
     });
 
     it('calls email:send IPC with correct params on successful send', async () => {
-        mockIpcInvoke.mockResolvedValueOnce({ success: true });
+        mockIpcInvoke.mockResolvedValueOnce(null); // templates:list (on mount)
+        mockIpcInvoke.mockResolvedValueOnce({ success: true }); // email:send
         const onClose = vi.fn();
         mockEditorContent = '<p>Hello world</p>';
         renderCompose({ onClose });

@@ -13,6 +13,7 @@ export interface Attachment {
 export interface EmailSummary {
     id: string
     thread_id: string | null
+    message_id?: string | null
     subject: string | null
     from_name: string | null
     from_email: string | null
@@ -25,6 +26,7 @@ export interface EmailSummary {
     ai_category: string | null
     ai_priority: number | null
     ai_labels: string | null
+    thread_count?: number
 }
 
 export interface EmailFull extends EmailSummary {

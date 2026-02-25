@@ -42,6 +42,23 @@
   color: var(--text-primary);
 }
 
+.toast-action {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toast-notification {
     animation: none !important;

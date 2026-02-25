@@ -50,6 +50,12 @@ function createCallbacks(): SchedulerCallbacks {
     };
 }
 
+/** Start scheduler and advance past the deferred first tick (2s timeout) */
+async function startAndTick(s: SchedulerEngine): Promise<void> {
+    s.start();
+    await vi.advanceTimersByTimeAsync(2000);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -77,12 +83,14 @@ describe('SchedulerEngine', () => {
     // -----------------------------------------------------------------------
 
     describe('lifecycle', () => {
-        it('start() begins polling and ticks immediately', () => {
+        it('start() begins polling and ticks after deferred startup', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
             scheduler.start();
 
-            // tick() was called immediately (queries ran)
+            // tick() is deferred by 2s to avoid blocking startup
+            expect(mockDbAll).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(2000);
             expect(mockDbAll).toHaveBeenCalled();
         });
 
@@ -103,7 +111,7 @@ describe('SchedulerEngine', () => {
             clearIntervalSpy.mockRestore();
         });
 
-        it('setCallbacks() stores callbacks for use in tick', () => {
+        it('setCallbacks() stores callbacks for use in tick', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
 
@@ -111,7 +119,7 @@ describe('SchedulerEngine', () => {
             mockDbAll.mockReturnValueOnce([
                 { id: 's1', email_id: 'e1', account_id: 'a1', original_folder_id: 'f1' },
             ]);
-            scheduler.start();
+            await startAndTick(scheduler);
             expect(cbs.onSnoozeRestore).toHaveBeenCalledWith('e1', 'a1', 'f1');
         });
     });
@@ -121,7 +129,7 @@ describe('SchedulerEngine', () => {
     // -----------------------------------------------------------------------
 
     describe('processSnoozedEmails', () => {
-        it('restores due snoozed emails and calls onSnoozeRestore', () => {
+        it('restores due snoozed emails and calls onSnoozeRestore', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
 
@@ -132,7 +140,7 @@ describe('SchedulerEngine', () => {
                 ])
                 .mockReturnValue([]); // scheduled sends + reminders return empty
 
-            scheduler.start();
+            await startAndTick(scheduler);
 
             // transaction called for each snoozed email
             expect(mockTransaction).toHaveBeenCalledTimes(2);
@@ -141,7 +149,7 @@ describe('SchedulerEngine', () => {
             expect(cbs.onSnoozeRestore).toHaveBeenCalledWith('e2', 'a1', 'f2');
         });
 
-        it('updates email is_snoozed and snoozed_emails restored flag via DB', () => {
+        it('updates email is_snoozed and snoozed_emails restored flag via DB', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
 
@@ -151,21 +159,21 @@ describe('SchedulerEngine', () => {
                 ])
                 .mockReturnValue([]);
 
-            scheduler.start();
+            await startAndTick(scheduler);
 
             // db.prepare().run() called inside the transaction
             expect(mockDbRun).toHaveBeenCalled();
         });
 
-        it('is a no-op when no snoozed emails are due', () => {
+        it('is a no-op when no snoozed emails are due', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
             mockDbAll.mockReturnValue([]);
-            scheduler.start();
+            await startAndTick(scheduler);
             expect(cbs.onSnoozeRestore).not.toHaveBeenCalled();
         });
 
-        it('works without callbacks set (no crash)', () => {
+        it('works without callbacks set (no crash)', async () => {
             mockDbAll
                 .mockReturnValueOnce([
                     { id: 's1', email_id: 'e1', account_id: 'a1', original_folder_id: 'f1' },
@@ -173,7 +181,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValue([]);
 
             // No callbacks set — should not throw
-            expect(() => scheduler.start()).not.toThrow();
+            await startAndTick(scheduler);
         });
 
         it('continues processing even if snooze throws', async () => {
@@ -186,9 +194,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([]) // scheduled sends
                 .mockReturnValueOnce([{ id: 'r1', email_id: 'e1', account_id: 'a1', subject: 'Test', from_email: 'x@y.com' }]);
 
-            scheduler.start();
-            // tick() is async — let scheduled sends complete before checking reminders
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             // Reminder still processed despite snooze error
             expect(cbs.onReminderDue).toHaveBeenCalledWith('e1', 'a1', 'Test', 'x@y.com');
@@ -222,9 +228,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([scheduledRow]) // scheduled
                 .mockReturnValue([]); // reminders
 
-            scheduler.start();
-            // Let async scheduled sends complete
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(mockSendEmail).toHaveBeenCalledWith(
                 'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
@@ -243,8 +247,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([rowWithCcBcc])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(mockSendEmail).toHaveBeenCalledWith(
                 'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
@@ -263,8 +266,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([rowWithAtt])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(mockSendEmail).toHaveBeenCalledWith(
                 'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
@@ -282,8 +284,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([rowBadJson])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             // Still sends (attachments = undefined)
             expect(mockSendEmail).toHaveBeenCalledWith(
@@ -302,8 +303,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([rowWithDraft])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             // Transaction was called for the success path
             expect(mockTransaction).toHaveBeenCalled();
@@ -321,8 +321,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([rowHighRetry])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'SMTP send returned false');
         });
@@ -338,8 +337,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([rowHighRetry])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'Connection refused');
         });
@@ -361,15 +359,13 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([row1, row2])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(order).toEqual(['first@test.com', 'second@test.com']);
         });
 
         it('is a no-op when no scheduled sends are due', async () => {
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
             expect(mockSendEmail).not.toHaveBeenCalled();
         });
     });
@@ -396,8 +392,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([{ ...scheduledRow, retry_count: 0 }])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             // No failure callback when retrying
             expect(cbs.onScheduledSendResult).not.toHaveBeenCalled();
@@ -414,8 +409,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([{ ...scheduledRow, retry_count: 2 }])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'SMTP send returned false');
         });
@@ -430,8 +424,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([{ ...scheduledRow, retry_count: 2 }])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'Auth failed');
         });
@@ -446,8 +439,7 @@ describe('SchedulerEngine', () => {
                 .mockReturnValueOnce([{ ...scheduledRow, retry_count: 2 }])
                 .mockReturnValue([]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'string error');
         });
@@ -469,8 +461,7 @@ describe('SchedulerEngine', () => {
                     { id: 'r1', email_id: 'e1', account_id: 'a1', subject: 'Meeting', from_email: 'boss@co.com' },
                 ]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(mockTransaction).toHaveBeenCalled();
             expect(cbs.onReminderDue).toHaveBeenCalledWith('e1', 'a1', 'Meeting', 'boss@co.com');
@@ -487,8 +478,7 @@ describe('SchedulerEngine', () => {
                     { id: 'r1', email_id: 'e1', account_id: 'a1', subject: null, from_email: null },
                 ]);
 
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
 
             expect(cbs.onReminderDue).toHaveBeenCalledWith('e1', 'a1', '(no subject)', 'Unknown');
         });
@@ -497,8 +487,7 @@ describe('SchedulerEngine', () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
             mockDbAll.mockReturnValue([]);
-            scheduler.start();
-            await vi.advanceTimersByTimeAsync(0);
+            await startAndTick(scheduler);
             expect(cbs.onReminderDue).not.toHaveBeenCalled();
         });
     });

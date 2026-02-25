@@ -65,6 +65,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     const [remoteImageCount, setRemoteImageCount] = useState(0);
     const [snoozeOpen, setSnoozeOpen] = useState(false);
     const [reminderOpen, setReminderOpen] = useState(false);
+    const [threadEmails, setThreadEmails] = useState<EmailFull[]>([]);
 
     // Reset state on email change
     useEffect(() => {
@@ -82,6 +83,18 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
         loadAttachments();
         return () => { cancelled = true; };
     }, [selectedEmail]);
+
+    // Fetch thread messages when a threaded email is selected
+    useEffect(() => {
+        setThreadEmails([]);
+        const threadId = selectedEmail?.thread_id;
+        if (!threadId) return;
+        let cancelled = false;
+        ipcInvoke<EmailFull[]>('emails:thread', threadId).then(result => {
+            if (!cancelled && result && result.length > 1) setThreadEmails(result);
+        });
+        return () => { cancelled = true; };
+    }, [selectedEmail?.id, selectedEmail?.thread_id]);
 
     // Sanitize body_html once for CID extraction (ensures CIDs are extracted from safe HTML)
     const sanitizedBodyHtml = useMemo(() => {
@@ -413,18 +426,46 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     </div>
                 )}
 
-                <div className={styles['email-body']}>
-                    {processedHtml ? (
-                        <div
-                            className={styles['email-body-html']}
-                            dangerouslySetInnerHTML={{ __html: processedHtml }}
-                        />
-                    ) : (
-                        <div style={{ whiteSpace: 'pre-wrap' }}>
-                            {selectedEmail.body_text || '(no content)'}
-                        </div>
-                    )}
-                </div>
+                {threadEmails.length > 1 ? (
+                    <div className={styles['thread-conversation']}>
+                        {threadEmails.map((te, i) => (
+                            <div
+                                key={te.id}
+                                className={styles['thread-message']}
+                                style={i > 0 ? { borderTop: '1px solid var(--glass-border)' } : undefined}
+                            >
+                                <div className={styles['thread-message-header']}>
+                                    <strong>{te.from_name || te.from_email}</strong>
+                                    <span className={styles['thread-message-date']}>
+                                        {te.date ? new Date(te.date).toLocaleString() : ''}
+                                    </span>
+                                </div>
+                                <div
+                                    className={styles['email-body']}
+                                    dangerouslySetInnerHTML={{
+                                        __html: DOMPurify.sanitize(te.body_html || te.body_text || '', {
+                                            FORBID_TAGS: ['style'],
+                                            FORBID_ATTR: ['onerror', 'onload'],
+                                        }),
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className={styles['email-body']}>
+                        {processedHtml ? (
+                            <div
+                                className={styles['email-body-html']}
+                                dangerouslySetInnerHTML={{ __html: processedHtml }}
+                            />
+                        ) : (
+                            <div style={{ whiteSpace: 'pre-wrap' }}>
+                                {selectedEmail.body_text || '(no content)'}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {downloadableAttachments.length > 0 && (
                     <div className={styles['attachments-section']}>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type FC } from 'react';
 import styles from './ComposeModal.module.css';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp, CalendarClock } from 'lucide-react';
+import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp, CalendarClock, FileText } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -23,15 +23,26 @@ interface ComposeAttachment {
     size: number;
 }
 
+export interface SendPayload {
+    to: string[];
+    subject: string;
+    body: string;
+    cc?: string[];
+    bcc?: string[];
+    accountId: string;
+    attachments?: Array<{ filename: string; content: string; contentType: string }>;
+}
+
 interface ComposeModalProps {
     onClose: () => void;
+    onSendPending?: (payload: SendPayload) => void;
     initialTo?: string;
     initialSubject?: string;
     initialBody?: string;
     draftId?: string;
 }
 
-export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', initialSubject = '', initialBody = '', draftId }) => {
+export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, initialTo = '', initialSubject = '', initialBody = '', draftId }) => {
     const { t } = useTranslation();
     const [to, setTo] = useState(initialTo);
     const [cc, setCc] = useState('');
@@ -43,6 +54,8 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
     const [currentDraftId, setCurrentDraftId] = useState<string | null>(draftId ?? null);
     const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
     const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+    const [templates, setTemplates] = useState<Array<{ id: string; name: string; body_html: string }>>([]);
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
     const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const draftBodyRef = useRef(initialBody);
     const accounts = useEmailStore(s => s.accounts);
@@ -122,6 +135,12 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
         };
     }, [to, cc, bcc, subject, accounts, currentDraftId]);
 
+    // Load reply templates on mount
+    useEffect(() => {
+        ipcInvoke<Array<{ id: string; name: string; body_html: string }>>('templates:list')
+            .then(result => { if (result) setTemplates(result); });
+    }, []);
+
     const parseRecipients = (value: string) =>
         value.split(',').map(s => s.trim()).filter(s => s.length > 0);
 
@@ -145,11 +164,11 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
             if (recipients.length === 0) { setError(t('compose.recipientRequired')); setSending(false); return; }
             const ccList = parseRecipients(cc);
             const bccList = parseRecipients(bcc);
-            const result = await ipcInvoke<{ success: boolean }>('email:send', {
+            const payload: SendPayload = {
                 accountId,
                 to: recipients,
                 subject,
-                html,
+                body: html,
                 ...(ccList.length > 0 ? { cc: ccList } : {}),
                 ...(bccList.length > 0 ? { bcc: bccList } : {}),
                 ...(attachments.length > 0 ? {
@@ -159,14 +178,33 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                         contentType: att.contentType,
                     }))
                 } : {}),
-            });
-            if (result?.success) {
+            };
+
+            if (onSendPending) {
+                // Delegate to parent for undo-send timer logic
                 if (currentDraftId && accountId) {
                     await ipcInvoke('drafts:delete', { draftId: currentDraftId, accountId });
                 }
+                onSendPending(payload);
                 onClose();
             } else {
-                setError(t('compose.sendFailed'));
+                const result = await ipcInvoke<{ success: boolean }>('email:send', {
+                    accountId: payload.accountId,
+                    to: payload.to,
+                    subject: payload.subject,
+                    html: payload.body,
+                    ...(payload.cc ? { cc: payload.cc } : {}),
+                    ...(payload.bcc ? { bcc: payload.bcc } : {}),
+                    ...(payload.attachments ? { attachments: payload.attachments } : {}),
+                });
+                if (result?.success) {
+                    if (currentDraftId && accountId) {
+                        await ipcInvoke('drafts:delete', { draftId: currentDraftId, accountId });
+                    }
+                    onClose();
+                } else {
+                    setError(t('compose.sendFailed'));
+                }
             }
         } catch {
             setError(t('compose.sendError'));
@@ -348,6 +386,34 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                             onClick={handleInsertLink}
                         ><Link size={16} /></button>
                         <button type="button" className={styles['toolbar-btn']} title={t('compose.attachFiles')} aria-label={t('compose.attachFiles')} onClick={handleAttachFiles}><Paperclip size={16} /></button>
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowTemplatePicker(!showTemplatePicker)}
+                                aria-label={t('compose.insertTemplate')}
+                                title={t('compose.insertTemplate')}
+                                disabled={templates.length === 0}
+                                className={styles['toolbar-btn']}
+                            >
+                                <FileText size={16} />
+                            </button>
+                            {showTemplatePicker && templates.length > 0 && (
+                                <div className={styles['template-picker']}>
+                                    {templates.map(tpl => (
+                                        <button
+                                            key={tpl.id}
+                                            className={styles['template-option']}
+                                            onClick={() => {
+                                                editor?.chain().focus().insertContent(tpl.body_html).run();
+                                                setShowTemplatePicker(false);
+                                            }}
+                                        >
+                                            {tpl.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {attachments.length > 0 && (

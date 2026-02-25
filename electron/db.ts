@@ -307,6 +307,34 @@ function runMigrations(db: DatabaseType) {
             version = 7;
         }
 
+        // Migration 8: Reply templates
+        if (version < 8) {
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS reply_templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    body_html TEXT NOT NULL,
+                    sort_order INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            version = 8;
+        }
+
+        // Migration 9: Email threading — message_id column + thread indexes
+        if (version < 9) {
+            const emailCols9 = db.prepare("SELECT name FROM pragma_table_info('emails')").all() as { name: string }[];
+            const emailColNames9 = new Set(emailCols9.map(c => c.name));
+            if (!emailColNames9.has('message_id')) {
+                db.exec(`ALTER TABLE emails ADD COLUMN message_id TEXT`);
+            }
+            db.exec(`CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)`);
+            db.exec(`CREATE INDEX IF NOT EXISTS idx_emails_thread_id ON emails(thread_id)`);
+            // Backfill: set message_id = thread_id for existing emails
+            db.exec(`UPDATE emails SET message_id = thread_id WHERE message_id IS NULL`);
+            version = 9;
+        }
+
         db.prepare(
             "INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         ).run(String(version));

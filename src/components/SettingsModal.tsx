@@ -5,7 +5,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
-    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil
+    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText
 } from 'lucide-react';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
@@ -88,6 +88,16 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [editingRule, setEditingRule] = useState<Partial<MailRule> | null>(null);
     const [ruleError, setRuleError] = useState<string | null>(null);
 
+    // Reply templates state
+    interface ReplyTemplate {
+        id: string;
+        name: string;
+        body_html: string;
+    }
+    const [templateList, setTemplateList] = useState<ReplyTemplate[]>([]);
+    const [editingTemplate, setEditingTemplate] = useState<ReplyTemplate | null>(null);
+    const [templateError, setTemplateError] = useState<string | null>(null);
+
     // Load API key and notification settings on mount
     useEffect(() => {
         let cancelled = false;
@@ -128,6 +138,38 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         loadRules();
         return () => { cancelled = true; };
     }, [rulesAccountId]);
+
+    // Load reply templates on mount
+    useEffect(() => {
+        let cancelled = false;
+        ipcInvoke<ReplyTemplate[]>('templates:list')
+            .then(result => { if (result && !cancelled) setTemplateList(result); });
+        return () => { cancelled = true; };
+    }, []);
+
+    const handleSaveTemplate = async () => {
+        if (!editingTemplate) return;
+        setTemplateError(null);
+        if (!editingTemplate.name.trim()) { setTemplateError(t('settings.templateNameRequired')); return; }
+        if (!editingTemplate.body_html.trim()) { setTemplateError(t('settings.templateBodyRequired')); return; }
+        try {
+            if (editingTemplate.id) {
+                await ipcInvoke('templates:update', { id: editingTemplate.id, name: editingTemplate.name, body_html: editingTemplate.body_html });
+            } else {
+                await ipcInvoke('templates:create', { name: editingTemplate.name, body_html: editingTemplate.body_html });
+            }
+            const result = await ipcInvoke<ReplyTemplate[]>('templates:list');
+            if (result) setTemplateList(result);
+            setEditingTemplate(null);
+        } catch {
+            setTemplateError(t('settings.templateSaveFailed'));
+        }
+    };
+
+    const handleDeleteTemplate = async (id: string) => {
+        await ipcInvoke('templates:delete', id);
+        setTemplateList(prev => prev.filter(tpl => tpl.id !== id));
+    };
 
     const resetForm = () => {
         setSelectedPreset(null);
@@ -246,12 +288,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setTestStatus('testing');
         setFormError(null);
         try {
-            const testResult = await ipcInvoke<{ success: boolean; error?: string }>('accounts:test', {
+            const payload: Record<string, unknown> = {
                 email: email.trim(),
-                password,
+                password: password || undefined,
                 imap_host: host,
                 imap_port: port,
-            });
+            };
+            if (editingAccountId) payload.account_id = editingAccountId;
+            const testResult = await ipcInvoke<{ success: boolean; error?: string }>('accounts:test', payload);
             if (testResult && !testResult.success) {
                 setTestStatus('failed');
                 setFormError(testResult.error ?? 'Connection test failed. Check your credentials and server settings.');
@@ -268,7 +312,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
     const handleTestConnection = async () => {
         const finalImapHost = formImapHost || selectedPreset?.imapHost || '';
-        if (!formEmail.trim() || !formPassword.trim() || !finalImapHost) {
+        if (!formEmail.trim() || (!formPassword.trim() && !isEditing) || !finalImapHost) {
             setFormError('Fill in email, password, and server settings before testing');
             return;
         }
@@ -483,6 +527,10 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <Filter size={16} />
                                 <span>{t('settings.rules')}</span>
                             </Tabs.Trigger>
+                            <Tabs.Trigger className={styles['tab-btn']} value="templates">
+                                <FileText size={16} />
+                                <span>{t('settings.templates')}</span>
+                            </Tabs.Trigger>
                         </Tabs.List>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="accounts" forceMount>
@@ -688,7 +736,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         <button
                                             className={`${styles['test-btn']} ${testStatus === 'passed' ? styles['test-passed'] : ''} ${testStatus === 'failed' ? styles['test-failed'] : ''}`}
                                             onClick={handleTestConnection}
-                                            disabled={testStatus === 'testing' || !formEmail.trim() || !formPassword.trim()}
+                                            disabled={testStatus === 'testing' || !formEmail.trim() || (!formPassword.trim() && !isEditing)}
                                             type="button"
                                         >
                                             {testStatus === 'testing' && <Loader size={14} className={styles['test-spin']} />}
@@ -999,6 +1047,77 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </Tabs.Content>
+
+                        <Tabs.Content className={styles['settings-tab-panel']} value="templates" forceMount>
+                            <div className={styles['rules-view']}>
+                                <h3 className={styles['section-title']}>{t('settings.manageTemplates')}</h3>
+
+                                {templateList.map(tpl => (
+                                    <div key={tpl.id} className={styles['rule-item']}>
+                                        <div className={styles['rule-item-info']}>
+                                            <div className={styles['rule-item-text']}>
+                                                <span className={styles['rule-name']}>{tpl.name}</span>
+                                            </div>
+                                        </div>
+                                        <div className={styles['rule-item-actions']}>
+                                            <button
+                                                className={styles['icon-btn']}
+                                                onClick={() => setEditingTemplate(tpl)}
+                                                aria-label={t('settings.edit')}
+                                            >
+                                                <Pencil size={14} />
+                                            </button>
+                                            <button
+                                                className={`${styles['icon-btn']} ${styles['icon-btn-danger']}`}
+                                                onClick={() => handleDeleteTemplate(tpl.id)}
+                                                aria-label={t('settings.delete')}
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                <button
+                                    className={styles['secondary-btn']}
+                                    onClick={() => setEditingTemplate({ id: '', name: '', body_html: '' })}
+                                    style={{ marginTop: '12px' }}
+                                >
+                                    <Plus size={14} /> {t('settings.addTemplate')}
+                                </button>
+
+                                {editingTemplate && (
+                                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div className={styles['form-group']}>
+                                            <label className={styles['form-label']} htmlFor="template-name">{t('settings.templateName')}</label>
+                                            <input
+                                                id="template-name"
+                                                className={styles['form-input']}
+                                                value={editingTemplate.name}
+                                                onChange={e => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                                                placeholder={t('settings.templateNamePlaceholder')}
+                                            />
+                                        </div>
+                                        <div className={styles['form-group']}>
+                                            <label className={styles['form-label']} htmlFor="template-body">{t('settings.templateBody')}</label>
+                                            <textarea
+                                                id="template-body"
+                                                className={styles['form-input']}
+                                                value={editingTemplate.body_html}
+                                                onChange={e => setEditingTemplate({ ...editingTemplate, body_html: e.target.value })}
+                                                rows={4}
+                                                placeholder={t('settings.templateBodyPlaceholder')}
+                                            />
+                                        </div>
+                                        {templateError && <p className={styles['form-error']} role="alert">{templateError}</p>}
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button className={styles['primary-btn']} onClick={handleSaveTemplate}>{t('settings.save')}</button>
+                                            <button className={styles['secondary-btn']} onClick={() => { setEditingTemplate(null); setTemplateError(null); }}>{t('settings.cancel')}</button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </Tabs.Content>
                     </Tabs.Root>

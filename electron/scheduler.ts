@@ -52,8 +52,8 @@ export class SchedulerEngine {
     if (this.intervalId) return;
     logDebug('Scheduler engine starting...');
     this.intervalId = setInterval(() => this.tick(), POLL_INTERVAL_MS);
-    // Tick immediately on start to process anything due from before app launch
-    this.tick();
+    // Defer first tick to avoid blocking startup
+    setTimeout(() => this.tick(), 2000);
   }
 
   stop(): void {

@@ -7,6 +7,7 @@
   "sidebar": {
     "compose": "Verfassen",
     "settings": "Einstellungen",
+    "allInboxes": "Alle Posteingänge",
     "snoozed": "Zurückgestellt",
     "scheduled": "Geplant",
     "mcpConnected": "MCP verbunden",
@@ -73,7 +74,10 @@
     "fileExceedsSize": "{{filename}} überschreitet das 25-MB-Limit",
     "removeAttachment": "{{filename}} entfernen",
     "enterUrl": "URL eingeben:",
-    "scheduleLabel": "Senden planen für:"
+    "scheduleLabel": "Senden planen für:",
+    "sendingIn": "Senden in {{seconds}}s...",
+    "undoSend": "Rückgängig",
+    "insertTemplate": "Vorlage einfügen"
   },
   "settings": {
     "title": "Einstellungen",
@@ -122,7 +126,21 @@
     "updateRule": "Aktualisieren",
     "ruleNameRequired": "Name erforderlich",
     "ruleValueRequired": "Wert erforderlich",
-    "ruleSaveFailed": "Speichern fehlgeschlagen"
+    "ruleSaveFailed": "Speichern fehlgeschlagen",
+    "undoSendDelay": "Senden-Rückgängig-Verzögerung",
+    "undoSendOff": "Aus",
+    "undoSendSeconds": "{{seconds}}s",
+    "edit": "Bearbeiten",
+    "templates": "Vorlagen",
+    "manageTemplates": "Vorlagen verwalten",
+    "addTemplate": "Neue Vorlage",
+    "templateName": "Vorlagenname",
+    "templateNamePlaceholder": "z.B. Dankesantwort",
+    "templateBody": "Vorlagentext",
+    "templateBodyPlaceholder": "Geben Sie Ihren Vorlagentext ein...",
+    "templateNameRequired": "Vorlagenname ist erforderlich",
+    "templateBodyRequired": "Vorlagentext ist erforderlich",
+    "templateSaveFailed": "Speichern fehlgeschlagen"
   },
   "onboarding": {
     "welcome": "Willkommen bei ExpressDelivery",

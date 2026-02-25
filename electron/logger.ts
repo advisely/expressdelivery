@@ -18,7 +18,7 @@ function getLogPath(): string {
 export function logDebug(message: string): void {
     try {
         const timestamp = new Date().toISOString();
-        fs.appendFileSync(getLogPath(), `[${timestamp}] ${message}\n`);
+        fs.appendFile(getLogPath(), `[${timestamp}] ${message}\n`, () => { /* fire-and-forget */ });
     } catch {
         // Ignore if we can't write to log directory
     }

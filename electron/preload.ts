@@ -6,6 +6,7 @@ import { ipcRenderer, contextBridge } from 'electron'
  */
 
 const ALLOWED_INVOKE_CHANNELS = [
+  'startup:load',
   'accounts:list',
   'accounts:add',
   'accounts:remove',
@@ -13,12 +14,14 @@ const ALLOWED_INVOKE_CHANNELS = [
   'accounts:update',
   'emails:list',
   'emails:read',
+  'emails:thread',
   'emails:search',
   'emails:delete',
   'emails:toggle-flag',
   'email:send',
   'folders:list',
   'folders:unread-counts',
+  'folders:unified-unread-count',
   'settings:get',
   'settings:set',
   'contacts:search',
@@ -61,6 +64,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   'update:check',
   'update:download',
   'update:install',
+  // Reply templates
+  'templates:list',
+  'templates:create',
+  'templates:update',
+  'templates:delete',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [
