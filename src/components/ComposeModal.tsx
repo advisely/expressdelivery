@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type FC } from 'react';
+import styles from './ComposeModal.module.css';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp, CalendarClock } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -7,6 +8,7 @@ import StarterKit from '@tiptap/starter-kit';
 import LinkExtension from '@tiptap/extension-link';
 import UnderlineExtension from '@tiptap/extension-underline';
 import DOMPurify from 'dompurify';
+import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
 import { ContactAutocomplete } from './ContactAutocomplete';
@@ -30,6 +32,7 @@ interface ComposeModalProps {
 }
 
 export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', initialSubject = '', initialBody = '', draftId }) => {
+    const { t } = useTranslation();
     const [to, setTo] = useState(initialTo);
     const [cc, setCc] = useState('');
     const [bcc, setBcc] = useState('');
@@ -67,19 +70,19 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
 
         const newTotal = attachments.length + files.length;
         if (newTotal > 10) {
-            setError(`Maximum 10 attachments allowed (currently ${attachments.length})`);
+            setError(t('compose.maxAttachments', { count: attachments.length }));
             return;
         }
         const MAX_TOTAL = 25 * 1024 * 1024;
         const existingSize = attachments.reduce((s, a) => s + a.size, 0);
         const newSize = files.reduce((s, f) => s + f.size, 0);
         if (existingSize + newSize > MAX_TOTAL) {
-            setError('Total attachments exceed 25MB limit');
+            setError(t('compose.exceedsTotalSize'));
             return;
         }
         for (const file of files) {
             if (file.size > MAX_TOTAL) {
-                setError(`${file.filename} exceeds the 25MB limit`);
+                setError(t('compose.fileExceedsSize', { filename: file.filename }));
                 return;
             }
         }
@@ -124,11 +127,11 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
 
     const handleSend = async () => {
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-        if (!to.trim()) { setError('Recipient is required'); return; }
-        if (!subject.trim()) { setError('Subject is required'); return; }
+        if (!to.trim()) { setError(t('compose.recipientRequired')); return; }
+        if (!subject.trim()) { setError(t('compose.subjectRequired')); return; }
 
         const accountId = accounts[0]?.id;
-        if (!accountId) { setError('No account configured'); return; }
+        if (!accountId) { setError(t('compose.noAccount')); return; }
 
         setSending(true);
         setError(null);
@@ -139,7 +142,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 html += `<hr /><div class="email-signature">${DOMPurify.sanitize(accountSignature)}</div>`;
             }
             const recipients = parseRecipients(to);
-            if (recipients.length === 0) { setError('Recipient is required'); setSending(false); return; }
+            if (recipients.length === 0) { setError(t('compose.recipientRequired')); setSending(false); return; }
             const ccList = parseRecipients(cc);
             const bccList = parseRecipients(bcc);
             const result = await ipcInvoke<{ success: boolean }>('email:send', {
@@ -163,10 +166,10 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 }
                 onClose();
             } else {
-                setError('Failed to send email');
+                setError(t('compose.sendFailed'));
             }
         } catch {
-            setError('An error occurred while sending');
+            setError(t('compose.sendError'));
         } finally {
             setSending(false);
         }
@@ -174,19 +177,19 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
 
     const handleInsertLink = useCallback(() => {
         if (!editor) return;
-        const url = window.prompt('Enter URL:');
+        const url = window.prompt(t('compose.enterUrl'));
         if (url && /^https?:\/\//i.test(url)) {
             editor.chain().focus().setLink({ href: url }).run();
         }
-    }, [editor]);
+    }, [editor, t]);
 
     const handleScheduleSend = async (sendAt: string) => {
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-        if (!to.trim()) { setError('Recipient is required'); return; }
-        if (!subject.trim()) { setError('Subject is required'); return; }
+        if (!to.trim()) { setError(t('compose.recipientRequired')); return; }
+        if (!subject.trim()) { setError(t('compose.subjectRequired')); return; }
 
         const accountId = accounts[0]?.id;
-        if (!accountId) { setError('No account configured'); return; }
+        if (!accountId) { setError(t('compose.noAccount')); return; }
 
         setSending(true);
         setError(null);
@@ -196,7 +199,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 html += `<hr /><div class="email-signature">${DOMPurify.sanitize(accountSignature)}</div>`;
             }
             const recipients = parseRecipients(to);
-            if (recipients.length === 0) { setError('Recipient is required'); setSending(false); return; }
+            if (recipients.length === 0) { setError(t('compose.recipientRequired')); setSending(false); return; }
             const ccList = parseRecipients(cc);
             const bccList = parseRecipients(bcc);
             const result = await ipcInvoke<{ success: boolean; scheduledId: string }>('scheduled:create', {
@@ -221,10 +224,10 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 }
                 onClose();
             } else {
-                setError('Failed to schedule email');
+                setError(t('compose.scheduleFailed'));
             }
         } catch {
-            setError('An error occurred while scheduling');
+            setError(t('compose.scheduleError'));
         } finally {
             setSending(false);
             setShowSchedulePicker(false);
@@ -236,129 +239,129 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
             <Dialog.Portal>
                 <Dialog.Overlay className="compose-overlay" />
                 <Dialog.Content className="compose-modal" aria-describedby={undefined}>
-                    <div className="compose-modal__header">
-                        <Dialog.Title className="compose-modal__title">New Message</Dialog.Title>
+                    <div className={styles['compose-modal__header']}>
+                        <Dialog.Title className={styles['compose-modal__title']}>{t('compose.newMessage')}</Dialog.Title>
                         <Dialog.Close asChild>
-                            <button className="compose-close-btn" aria-label="Close compose">
+                            <button className={styles['compose-close-btn']} aria-label={t('compose.close')}>
                                 <X size={18} />
                             </button>
                         </Dialog.Close>
                     </div>
 
-                    <div className="compose-fields">
-                        <div className="field-row">
-                            <label htmlFor="compose-to" className="field-label">To:</label>
+                    <div className={styles['compose-fields']}>
+                        <div className={styles['field-row']}>
+                            <label htmlFor="compose-to" className={styles['field-label']}>{t('compose.to')}:</label>
                             <ContactAutocomplete
                                 id="compose-to"
-                                className="compose-input"
-                                placeholder="Recipient..."
+                                className={styles['compose-input']}
+                                placeholder={t('compose.recipientPlaceholder')}
                                 value={to}
                                 onChange={setTo}
                             />
                             <button
                                 type="button"
-                                className="ccbcc-toggle"
+                                className={styles['ccbcc-toggle']}
                                 onClick={() => setShowCcBcc(!showCcBcc)}
                                 aria-expanded={showCcBcc}
-                                aria-label="Toggle CC and BCC fields"
+                                aria-label={t('compose.toggleCcBcc')}
                             >
                                 {showCcBcc ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                <span>CC/BCC</span>
+                                <span>{t('compose.ccBcc')}</span>
                             </button>
                         </div>
                         {showCcBcc && (
                             <>
-                                <div className="field-row">
-                                    <label htmlFor="compose-cc" className="field-label">CC:</label>
+                                <div className={styles['field-row']}>
+                                    <label htmlFor="compose-cc" className={styles['field-label']}>{t('compose.cc')}:</label>
                                     <ContactAutocomplete
                                         id="compose-cc"
-                                        className="compose-input"
-                                        placeholder="CC recipients..."
+                                        className={styles['compose-input']}
+                                        placeholder={t('compose.ccPlaceholder')}
                                         value={cc}
                                         onChange={setCc}
                                     />
                                 </div>
-                                <div className="field-row">
-                                    <label htmlFor="compose-bcc" className="field-label">BCC:</label>
+                                <div className={styles['field-row']}>
+                                    <label htmlFor="compose-bcc" className={styles['field-label']}>{t('compose.bcc')}:</label>
                                     <ContactAutocomplete
                                         id="compose-bcc"
-                                        className="compose-input"
-                                        placeholder="BCC recipients..."
+                                        className={styles['compose-input']}
+                                        placeholder={t('compose.bccPlaceholder')}
                                         value={bcc}
                                         onChange={setBcc}
                                     />
                                 </div>
                             </>
                         )}
-                        <div className="field-row">
-                            <label htmlFor="compose-subject" className="field-label">Subject:</label>
-                            <input id="compose-subject" type="text" className="compose-input" placeholder="Subject..."
+                        <div className={styles['field-row']}>
+                            <label htmlFor="compose-subject" className={styles['field-label']}>{t('compose.subject')}:</label>
+                            <input id="compose-subject" type="text" className={styles['compose-input']} placeholder={t('compose.subjectPlaceholder')}
                                 value={subject} onChange={e => setSubject(e.target.value)} />
                         </div>
                     </div>
 
                     {error && (
-                        <div className="compose-error" role="alert">{error}</div>
+                        <div className={styles['compose-error']} role="alert">{error}</div>
                     )}
 
-                    <div className="toolbar">
+                    <div className={styles['toolbar']}>
                         <button
                             type="button"
-                            className={`toolbar-btn${editor?.isActive('bold') ? ' toolbar-btn-active' : ''}`}
-                            title="Bold"
-                            aria-label="Bold"
+                            className={`${styles['toolbar-btn']}${editor?.isActive('bold') ? ` ${styles['toolbar-btn-active']}` : ''}`}
+                            title={t('compose.bold')}
+                            aria-label={t('compose.bold')}
                             onClick={() => editor?.chain().focus().toggleBold().run()}
                         ><Bold size={16} /></button>
                         <button
                             type="button"
-                            className={`toolbar-btn${editor?.isActive('italic') ? ' toolbar-btn-active' : ''}`}
-                            title="Italic"
-                            aria-label="Italic"
+                            className={`${styles['toolbar-btn']}${editor?.isActive('italic') ? ` ${styles['toolbar-btn-active']}` : ''}`}
+                            title={t('compose.italic')}
+                            aria-label={t('compose.italic')}
                             onClick={() => editor?.chain().focus().toggleItalic().run()}
                         ><Italic size={16} /></button>
                         <button
                             type="button"
-                            className={`toolbar-btn${editor?.isActive('underline') ? ' toolbar-btn-active' : ''}`}
-                            title="Underline"
-                            aria-label="Underline"
+                            className={`${styles['toolbar-btn']}${editor?.isActive('underline') ? ` ${styles['toolbar-btn-active']}` : ''}`}
+                            title={t('compose.underline')}
+                            aria-label={t('compose.underline')}
                             onClick={() => editor?.chain().focus().toggleUnderline().run()}
                         ><UnderlineIcon size={16} /></button>
                         <button
                             type="button"
-                            className={`toolbar-btn${editor?.isActive('bulletList') ? ' toolbar-btn-active' : ''}`}
-                            title="Bullet List"
-                            aria-label="Bullet List"
+                            className={`${styles['toolbar-btn']}${editor?.isActive('bulletList') ? ` ${styles['toolbar-btn-active']}` : ''}`}
+                            title={t('compose.bulletList')}
+                            aria-label={t('compose.bulletList')}
                             onClick={() => editor?.chain().focus().toggleBulletList().run()}
                         ><List size={16} /></button>
                         <button
                             type="button"
-                            className={`toolbar-btn${editor?.isActive('orderedList') ? ' toolbar-btn-active' : ''}`}
-                            title="Ordered List"
-                            aria-label="Ordered List"
+                            className={`${styles['toolbar-btn']}${editor?.isActive('orderedList') ? ` ${styles['toolbar-btn-active']}` : ''}`}
+                            title={t('compose.orderedList')}
+                            aria-label={t('compose.orderedList')}
                             onClick={() => editor?.chain().focus().toggleOrderedList().run()}
                         ><ListOrdered size={16} /></button>
                         <button
                             type="button"
-                            className={`toolbar-btn${editor?.isActive('link') ? ' toolbar-btn-active' : ''}`}
-                            title="Insert Link"
-                            aria-label="Insert Link"
+                            className={`${styles['toolbar-btn']}${editor?.isActive('link') ? ` ${styles['toolbar-btn-active']}` : ''}`}
+                            title={t('compose.insertLink')}
+                            aria-label={t('compose.insertLink')}
                             onClick={handleInsertLink}
                         ><Link size={16} /></button>
-                        <button type="button" className="toolbar-btn" title="Attach Files" aria-label="Attach Files" onClick={handleAttachFiles}><Paperclip size={16} /></button>
+                        <button type="button" className={styles['toolbar-btn']} title={t('compose.attachFiles')} aria-label={t('compose.attachFiles')} onClick={handleAttachFiles}><Paperclip size={16} /></button>
                     </div>
 
                     {attachments.length > 0 && (
-                        <div className="compose-attachments">
+                        <div className={styles['compose-attachments']}>
                             {attachments.map(att => (
-                                <div key={att.id} className="compose-attachment-chip">
+                                <div key={att.id} className={styles['compose-attachment-chip']}>
                                     <Paperclip size={12} />
-                                    <span className="compose-att-name">{att.filename}</span>
-                                    <span className="compose-att-size">{formatFileSize(att.size)}</span>
+                                    <span className={styles['compose-att-name']}>{att.filename}</span>
+                                    <span className={styles['compose-att-size']}>{formatFileSize(att.size)}</span>
                                     <button
-                                        className="compose-att-remove"
+                                        className={styles['compose-att-remove']}
                                         onClick={() => handleRemoveAttachment(att.id)}
-                                        aria-label={`Remove ${att.filename}`}
-                                        title="Remove attachment"
+                                        aria-label={t('compose.removeAttachment', { filename: att.filename })}
+                                        title={t('compose.removeAttachment', { filename: att.filename })}
                                     >
                                         <X size={12} />
                                     </button>
@@ -367,38 +370,38 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                         </div>
                     )}
 
-                    <div className="editor-area">
-                        <EditorContent editor={editor} className="tiptap-editor" data-testid="compose-editor" />
+                    <div className={styles['editor-area']}>
+                        <EditorContent editor={editor} className={styles['tiptap-editor']} data-testid="compose-editor" />
                     </div>
 
                     {accountSignature && (
-                        <div className="signature-preview">
-                            <hr className="signature-divider" />
+                        <div className={styles['signature-preview']}>
+                            <hr className={styles['signature-divider']} />
                             <div
-                                className="signature-content"
+                                className={styles['signature-content']}
                                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(accountSignature) }}
                             />
                         </div>
                     )}
 
-                    <div className="compose-modal__footer">
+                    <div className={styles['compose-modal__footer']}>
                         {showSchedulePicker ? (
-                            <div className="schedule-picker-inline">
+                            <div className={styles['schedule-picker-inline']}>
                                 <DateTimePicker
-                                    label="Schedule send for:"
+                                    label={t('compose.scheduleLabel')}
                                     onSelect={handleScheduleSend}
                                     onCancel={() => setShowSchedulePicker(false)}
                                 />
                             </div>
                         ) : (
-                            <div className="send-btn-group">
-                                <button className="send-btn send-btn-main" onClick={handleSend} disabled={sending}>
-                                    <span>{sending ? 'Sending...' : 'Send'}</span>
+                            <div className={styles['send-btn-group']}>
+                                <button className={`${styles['send-btn']} ${styles['send-btn-main']}`} onClick={handleSend} disabled={sending}>
+                                    <span>{sending ? t('compose.sending') : t('compose.send')}</span>
                                     <Send size={14} />
                                 </button>
                                 <DropdownMenu.Root>
                                     <DropdownMenu.Trigger asChild>
-                                        <button className="send-btn send-btn-dropdown" disabled={sending} aria-label="Send options">
+                                        <button className={`${styles['send-btn']} ${styles['send-btn-dropdown']}`} disabled={sending} aria-label={t('compose.sendOptions')}>
                                             <ChevronDown size={14} />
                                         </button>
                                     </DropdownMenu.Trigger>
@@ -406,11 +409,11 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                                         <DropdownMenu.Content className="send-dropdown-content" side="top" align="end" sideOffset={4}>
                                             <DropdownMenu.Item className="send-dropdown-item" onSelect={handleSend}>
                                                 <Send size={14} />
-                                                <span>Send now</span>
+                                                <span>{t('compose.sendNow')}</span>
                                             </DropdownMenu.Item>
                                             <DropdownMenu.Item className="send-dropdown-item" onSelect={() => setShowSchedulePicker(true)}>
                                                 <CalendarClock size={14} />
-                                                <span>Schedule send...</span>
+                                                <span>{t('compose.scheduleSend')}</span>
                                             </DropdownMenu.Item>
                                         </DropdownMenu.Content>
                                     </DropdownMenu.Portal>
@@ -421,329 +424,6 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 </Dialog.Content>
             </Dialog.Portal>
 
-            <style>{`
-                .compose-overlay {
-                    position: fixed;
-                    inset: 0;
-                    background: rgba(0, 0, 0, 0.55);
-                    backdrop-filter: blur(8px);
-                    -webkit-backdrop-filter: blur(8px);
-                    z-index: 1000;
-                    animation: overlayFadeIn 0.15s ease-out;
-                }
-
-                .compose-modal {
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    animation: composeFadeIn 0.2s ease-out;
-                    width: 640px;
-                    max-height: 80vh;
-                    border-radius: 12px;
-                    display: flex;
-                    flex-direction: column;
-                    background: rgb(var(--color-bg-elevated));
-                    color: var(--text-primary);
-                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-                    overflow: hidden;
-                    z-index: 1001;
-                }
-
-                .compose-modal__header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 12px 16px;
-                    border-bottom: 1px solid var(--glass-border);
-                }
-
-                .compose-modal__title {
-                    font-weight: 600;
-                    font-size: 14px;
-                    margin: 0;
-                }
-
-                .compose-close-btn {
-                    color: var(--text-secondary);
-                    padding: 6px;
-                    border-radius: 6px;
-                }
-
-                .compose-close-btn:hover {
-                    background: var(--close-hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .compose-fields {
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                .field-row {
-                    display: flex;
-                    align-items: center;
-                    padding: 0 16px;
-                    border-bottom: 1px solid var(--glass-border);
-                }
-
-                .field-label {
-                    color: var(--text-secondary);
-                    font-size: 14px;
-                    width: 60px;
-                }
-
-                .compose-input {
-                    flex: 1;
-                    background: transparent;
-                    border: none;
-                    color: var(--text-primary);
-                    padding: 12px 0;
-                    font-size: 14px;
-                    font-family: inherit;
-                    outline: none;
-                }
-
-                .ccbcc-toggle {
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    padding: 4px 8px;
-                    border-radius: 4px;
-                    color: var(--text-secondary);
-                    font-size: 12px;
-                    font-weight: 500;
-                    white-space: nowrap;
-                }
-
-                .ccbcc-toggle:hover {
-                    background: var(--hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .compose-error {
-                    padding: 8px 16px;
-                    color: rgb(var(--color-danger));
-                    font-size: 13px;
-                }
-
-                .toolbar {
-                    display: flex;
-                    gap: 4px;
-                    padding: 8px 16px;
-                    border-bottom: 1px solid var(--glass-border);
-                }
-
-                .toolbar-btn {
-                    width: 30px;
-                    height: 30px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    border-radius: 4px;
-                    color: var(--text-secondary);
-                }
-
-                .toolbar-btn:hover {
-                    background: var(--close-hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .toolbar-btn-active {
-                    background: rgba(var(--color-accent), 0.15);
-                    color: var(--accent-color);
-                }
-
-                .editor-area {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    overflow-y: auto;
-                }
-
-                .tiptap-editor {
-                    flex: 1;
-                    padding: 16px;
-                    font-size: 15px;
-                    font-family: inherit;
-                    line-height: 1.6;
-                    min-height: 200px;
-                    color: var(--text-primary);
-                }
-
-                .tiptap-editor .tiptap {
-                    outline: none;
-                    min-height: 180px;
-                }
-
-                .tiptap-editor .tiptap p {
-                    margin: 0 0 0.5em;
-                }
-
-                .tiptap-editor .tiptap a {
-                    color: var(--accent-color);
-                    text-decoration: underline;
-                }
-
-                .tiptap-editor .tiptap ul,
-                .tiptap-editor .tiptap ol {
-                    padding-left: 1.5em;
-                    margin: 0.5em 0;
-                }
-
-                .signature-preview {
-                    padding: 0 16px 8px;
-                    font-size: 13px;
-                    color: var(--text-secondary);
-                }
-
-                .signature-divider {
-                    border: none;
-                    border-top: 1px solid var(--glass-border);
-                    margin: 0 0 8px;
-                }
-
-                .signature-content {
-                    line-height: 1.4;
-                }
-
-                .compose-modal__footer {
-                    padding: 12px 16px;
-                    display: flex;
-                    justify-content: flex-end;
-                    border-top: 1px solid var(--glass-border);
-                }
-
-                .send-btn-group {
-                    display: flex;
-                    align-items: stretch;
-                }
-
-                .send-btn {
-                    background: var(--accent-color);
-                    color: white;
-                    font-weight: 600;
-                    font-size: 14px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-
-                .send-btn-main {
-                    padding: 8px 16px;
-                    border-radius: 6px 0 0 6px;
-                }
-
-                .send-btn-dropdown {
-                    padding: 8px 8px;
-                    border-radius: 0 6px 6px 0;
-                    border-left: 1px solid rgba(255, 255, 255, 0.25);
-                }
-
-                .send-btn:hover {
-                    background: var(--accent-hover);
-                }
-
-                .send-btn:disabled {
-                    opacity: 0.6;
-                    cursor: not-allowed;
-                }
-
-                .send-dropdown-content {
-                    background: rgb(var(--color-bg-elevated));
-                    border: 1px solid var(--glass-border);
-                    border-radius: 8px;
-                    padding: 4px;
-                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-                    z-index: 1100;
-                    min-width: 180px;
-                }
-
-                .send-dropdown-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                    font-size: 13px;
-                    color: var(--text-primary);
-                    cursor: pointer;
-                    outline: none;
-                }
-
-                .send-dropdown-item:hover,
-                .send-dropdown-item[data-highlighted] {
-                    background: var(--hover-bg);
-                }
-
-                .schedule-picker-inline {
-                    flex: 1;
-                }
-
-                @keyframes overlayFadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-
-                @keyframes composeFadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-
-                .compose-attachments {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 6px;
-                    padding: 8px 16px;
-                    border-bottom: 1px solid var(--glass-border);
-                }
-
-                .compose-attachment-chip {
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    padding: 4px 8px;
-                    border-radius: 6px;
-                    background: var(--bg-secondary);
-                    border: 1px solid var(--glass-border);
-                    font-size: 12px;
-                    color: var(--text-primary);
-                    max-width: 240px;
-                }
-
-                .compose-att-name {
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    max-width: 140px;
-                }
-
-                .compose-att-size {
-                    color: var(--text-secondary);
-                    font-size: 11px;
-                    white-space: nowrap;
-                }
-
-                .compose-att-remove {
-                    padding: 2px;
-                    border-radius: 4px;
-                    color: var(--text-secondary);
-                    display: flex;
-                    align-items: center;
-                }
-
-                .compose-att-remove:hover {
-                    background: var(--close-hover-bg);
-                    color: rgb(var(--color-danger));
-                }
-
-                @media (prefers-reduced-motion: reduce) {
-                    .compose-overlay,
-                    .compose-modal {
-                        animation: none !important;
-                    }
-                }
-            `}</style>
         </Dialog.Root>
     );
 };

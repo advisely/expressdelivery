@@ -1,0 +1,65 @@
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(var(--color-accent), 0.12);
+  border-bottom: 1px solid rgba(var(--color-accent), 0.25);
+  font-size: 13px;
+  color: var(--text-primary);
+  gap: 12px;
+}
+
+.text {
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.download {
+  background: var(--accent-color);
+  color: white;
+}
+
+.download:hover {
+  background: var(--accent-hover);
+}
+
+.download:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.install {
+  background: rgb(var(--color-success));
+  color: white;
+}
+
+.install:hover {
+  filter: brightness(1.1);
+}
+
+.dismiss {
+  color: var(--text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.dismiss:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}

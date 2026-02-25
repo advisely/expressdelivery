@@ -105,7 +105,7 @@ describe('ReadingPane', () => {
 
     it('renders placeholder when no email is selected', () => {
         renderReadingPane();
-        expect(screen.getByText('Select an email to read')).toBeInTheDocument();
+        expect(screen.getByText('readingPane.noSelection')).toBeInTheDocument();
     });
 
     it('renders email content when email is selected', () => {
@@ -118,18 +118,18 @@ describe('ReadingPane', () => {
     it('renders all action buttons including archive and move', () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        expect(screen.getByTitle('Reply')).toBeInTheDocument();
-        expect(screen.getByTitle('Forward')).toBeInTheDocument();
-        expect(screen.getByTitle('Delete')).toBeInTheDocument();
-        expect(screen.getByTitle('Archive (E)')).toBeInTheDocument();
-        expect(screen.getByTitle('Move to folder')).toBeInTheDocument();
+        expect(screen.getByTitle('readingPane.reply')).toBeInTheDocument();
+        expect(screen.getByTitle('readingPane.forward')).toBeInTheDocument();
+        expect(screen.getByTitle('readingPane.delete')).toBeInTheDocument();
+        expect(screen.getByTitle('readingPane.archive')).toBeInTheDocument();
+        expect(screen.getByTitle('readingPane.moveTo')).toBeInTheDocument();
     });
 
     it('calls onReply callback when reply button is clicked', () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         const onReply = vi.fn();
         renderReadingPane({ onReply });
-        fireEvent.click(screen.getByTitle('Reply'));
+        fireEvent.click(screen.getByTitle('readingPane.reply'));
         expect(onReply).toHaveBeenCalledWith(mockEmail);
     });
 
@@ -137,14 +137,14 @@ describe('ReadingPane', () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         const onForward = vi.fn();
         renderReadingPane({ onForward });
-        fireEvent.click(screen.getByTitle('Forward'));
+        fireEvent.click(screen.getByTitle('readingPane.forward'));
         expect(onForward).toHaveBeenCalledWith(mockEmail);
     });
 
     it('calls emails:delete IPC on delete button click', async () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        fireEvent.click(screen.getByTitle('Delete'));
+        fireEvent.click(screen.getByTitle('readingPane.delete'));
         await waitFor(() => {
             expect(mockIpcInvoke).toHaveBeenCalledWith('emails:delete', 'email-1');
         });
@@ -154,7 +154,7 @@ describe('ReadingPane', () => {
         mockIpcInvoke.mockResolvedValueOnce({ success: true });
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        fireEvent.click(screen.getByTitle('Archive (E)'));
+        fireEvent.click(screen.getByTitle('readingPane.archive'));
         await waitFor(() => {
             expect(mockIpcInvoke).toHaveBeenCalledWith('emails:archive', 'email-1');
         });
@@ -163,7 +163,7 @@ describe('ReadingPane', () => {
     it('calls emails:toggle-flag IPC on star button click', async () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        fireEvent.click(screen.getByTitle('Flag'));
+        fireEvent.click(screen.getByTitle('readingPane.star'));
         await waitFor(() => {
             expect(mockIpcInvoke).toHaveBeenCalledWith('emails:toggle-flag', 'email-1', true);
         });
@@ -182,9 +182,7 @@ describe('ReadingPane', () => {
     it('renders HTML email content', () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        const bodyHtml = document.querySelector('.email-body-html');
-        expect(bodyHtml).toBeTruthy();
-        expect(bodyHtml?.innerHTML).toContain('Hello world');
+        expect(screen.getByText('Hello world')).toBeInTheDocument();
     });
 
     it('renders plain text when no body_html', () => {
@@ -278,8 +276,8 @@ describe('ReadingPane', () => {
         useEmailStore.setState({ selectedEmail: emailWithRemoteImg });
         renderReadingPane();
         await waitFor(() => {
-            expect(screen.getByText('Remote images blocked for privacy.')).toBeInTheDocument();
-            expect(screen.getByText('Load images')).toBeInTheDocument();
+            expect(screen.getByText('readingPane.remoteImagesBlocked')).toBeInTheDocument();
+            expect(screen.getByText('readingPane.loadImages')).toBeInTheDocument();
         });
     });
 
@@ -290,10 +288,10 @@ describe('ReadingPane', () => {
         };
         useEmailStore.setState({ selectedEmail: emailWithSafeImgs });
         renderReadingPane();
-        expect(screen.queryByText('Remote images blocked for privacy.')).not.toBeInTheDocument();
+        expect(screen.queryByText('readingPane.remoteImagesBlocked')).not.toBeInTheDocument();
     });
 
-    it('clicking Load images removes the banner and restores images', async () => {
+    it('clicking readingPane.loadImages removes the banner and restores images', async () => {
         const emailWithRemoteImg: EmailFull = {
             ...mockEmail,
             body_html: '<p>Hello</p><img src="https://example.com/logo.png" />',
@@ -301,11 +299,11 @@ describe('ReadingPane', () => {
         useEmailStore.setState({ selectedEmail: emailWithRemoteImg });
         renderReadingPane();
         await waitFor(() => {
-            expect(screen.getByText('Load images')).toBeInTheDocument();
+            expect(screen.getByText('readingPane.loadImages')).toBeInTheDocument();
         });
-        fireEvent.click(screen.getByText('Load images'));
+        fireEvent.click(screen.getByText('readingPane.loadImages'));
         await waitFor(() => {
-            expect(screen.queryByText('Remote images blocked for privacy.')).not.toBeInTheDocument();
+            expect(screen.queryByText('readingPane.remoteImagesBlocked')).not.toBeInTheDocument();
         });
     });
 });

@@ -11,9 +11,11 @@ import {
   Clock,
   CalendarClock
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
+import styles from './Sidebar.module.css';
 
 const FOLDER_ICONS: Record<string, React.ElementType> = {
   inbox: Inbox,
@@ -37,6 +39,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
+  const { t } = useTranslation();
   const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount } = useEmailStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -97,41 +100,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   }, []);
 
   return (
-    <aside className="sidebar glass">
-      <div className="sidebar-header">
+    <aside className={`${styles['sidebar']} glass`}>
+      <div className={styles['sidebar-header']}>
         <button
-          className="account-selector"
+          className={styles['account-selector']}
           onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
           aria-expanded={accounts.length > 1 ? showAccountPicker : undefined}
           aria-label="Switch account"
         >
-          <div className="avatar-icon">
+          <div className={styles['avatar-icon']}>
             {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
           </div>
-          <div className="account-info">
-            <span className="account-name">{activeAccount?.display_name ?? 'Personal'}</span>
-            <span className="account-email">{activeAccount?.email ?? 'No account'}</span>
+          <div className={styles['account-info']}>
+            <span className={styles['account-name']}>{activeAccount?.display_name ?? 'Personal'}</span>
+            <span className={styles['account-email']}>{activeAccount?.email ?? 'No account'}</span>
           </div>
-          {accounts.length > 1 && <ChevronDown size={14} className="account-chevron" />}
+          {accounts.length > 1 && <ChevronDown size={14} className={styles['account-chevron']} />}
         </button>
 
         {showAccountPicker && accounts.length > 1 && (
-          <div className="account-picker">
+          <div className={styles['account-picker']}>
             {accounts.map(acc => {
               const AccIcon = getProviderIcon(acc.provider);
               return (
                 <button
                   key={acc.id}
-                  className={`account-picker-item ${acc.id === selectedAccountId ? 'active' : ''}`}
+                  className={`${styles['account-picker-item']} ${acc.id === selectedAccountId ? styles['active'] : ''}`}
                   onClick={() => {
                     selectAccount(acc.id);
                     setShowAccountPicker(false);
                   }}
                 >
-                  <div className="avatar-icon-sm"><AccIcon size={16} /></div>
-                  <div className="account-info">
-                    <span className="account-name">{acc.display_name ?? acc.email}</span>
-                    <span className="account-email">{acc.email}</span>
+                  <div className={styles['avatar-icon-sm']}><AccIcon size={16} /></div>
+                  <div className={styles['account-info']}>
+                    <span className={styles['account-name']}>{acc.display_name ?? acc.email}</span>
+                    <span className={styles['account-email']}>{acc.email}</span>
                   </div>
                 </button>
               );
@@ -140,14 +143,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
         )}
       </div>
 
-      <div className="compose-wrapper">
-        <button className="compose-btn" onClick={onCompose}>
+      <div className={styles['compose-wrapper']}>
+        <button className={styles['compose-btn']} onClick={onCompose}>
           <Plus size={18} />
-          <span>New Message</span>
+          <span>{t('sidebar.compose')}</span>
         </button>
       </div>
 
-      <nav className="sidebar-nav">
+      <nav className={styles['sidebar-nav']}>
         {folders.length > 0
           ? folders.map((folder) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
@@ -155,260 +158,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
               return (
                 <button
                   key={folder.id}
-                  className={`nav-item ${selectedFolderId === folder.id ? 'active' : ''}`}
+                  className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
                   onClick={() => selectFolder(folder.id)}
                 >
-                  <Icon size={18} className="nav-icon" />
-                  <span className="nav-label">{folder.name}</span>
+                  <Icon size={18} className={styles['nav-icon']} />
+                  <span className={styles['nav-label']}>{folder.name}</span>
                   {count != null && count > 0 && (
-                    <span className="nav-badge">{count > 99 ? '99+' : count}</span>
+                    <span className={styles['nav-badge']}>{count > 99 ? '99+' : count}</span>
                   )}
                 </button>
               );
             })
           : DEFAULT_NAV.map((item) => (
-              <button key={item.label} className="nav-item">
-                <item.icon size={18} className="nav-icon" />
-                <span className="nav-label">{item.label}</span>
+              <button key={item.label} className={styles['nav-item']}>
+                <item.icon size={18} className={styles['nav-icon']} />
+                <span className={styles['nav-label']}>{item.label}</span>
               </button>
             ))
         }
         {snoozedCount > 0 && (
-          <button className={`nav-item ${selectedFolderId === '__snoozed' ? 'active' : ''}`} onClick={() => selectFolder('__snoozed')}>
-            <Clock size={18} className="nav-icon" />
-            <span className="nav-label">Snoozed</span>
-            <span className="nav-badge">{snoozedCount}</span>
+          <button className={`${styles['nav-item']} ${selectedFolderId === '__snoozed' ? styles['active'] : ''}`} onClick={() => selectFolder('__snoozed')}>
+            <Clock size={18} className={styles['nav-icon']} />
+            <span className={styles['nav-label']}>{t('sidebar.snoozed')}</span>
+            <span className={styles['nav-badge']}>{snoozedCount}</span>
           </button>
         )}
         {scheduledCount > 0 && (
-          <button className={`nav-item ${selectedFolderId === '__scheduled' ? 'active' : ''}`} onClick={() => selectFolder('__scheduled')}>
-            <CalendarClock size={18} className="nav-icon" />
-            <span className="nav-label">Scheduled</span>
-            <span className="nav-badge">{scheduledCount}</span>
+          <button className={`${styles['nav-item']} ${selectedFolderId === '__scheduled' ? styles['active'] : ''}`} onClick={() => selectFolder('__scheduled')}>
+            <CalendarClock size={18} className={styles['nav-icon']} />
+            <span className={styles['nav-label']}>{t('sidebar.scheduled')}</span>
+            <span className={styles['nav-badge']}>{scheduledCount}</span>
           </button>
         )}
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="mcp-status" aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
-          <div className={`mcp-dot ${mcpCount > 0 ? 'connected' : ''}`} />
-          <span className="mcp-label">
-            {mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : 'No AI connected'}
+      <div className={styles['sidebar-footer']}>
+        <div className={styles['mcp-status']} aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
+          <div className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`} />
+          <span className={styles['mcp-label']}>
+            {mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : t('sidebar.mcpDisconnected')}
           </span>
         </div>
-        <button className="nav-item" onClick={onSettings}>
-          <Settings size={18} className="nav-icon" />
-          <span className="nav-label">Settings</span>
+        <button className={styles['nav-item']} onClick={onSettings}>
+          <Settings size={18} className={styles['nav-icon']} />
+          <span className={styles['nav-label']}>{t('sidebar.settings')}</span>
         </button>
       </div>
-
-      <style>{`
-        .sidebar {
-          width: var(--sidebar-width);
-          height: 100vh;
-          display: flex;
-          flex-direction: column;
-          border-right: 1px solid var(--glass-border);
-        }
-
-        .sidebar-header {
-          padding: 20px 16px;
-        }
-
-        .account-selector {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 8px;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: background 0.2s ease;
-          width: 100%;
-          text-align: left;
-        }
-
-        .account-selector:hover {
-          background: var(--hover-bg);
-        }
-
-        .avatar-icon {
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          background: var(--surface-overlay);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-
-        .avatar-icon-sm {
-          width: 24px;
-          height: 24px;
-          border-radius: 6px;
-          background: var(--surface-overlay);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-
-        .account-info {
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          flex: 1;
-          min-width: 0;
-        }
-
-        .account-name {
-          font-weight: 500;
-          font-size: 14px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .account-email {
-          font-size: 12px;
-          color: var(--text-secondary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .account-chevron {
-          color: var(--text-secondary);
-          flex-shrink: 0;
-        }
-
-        .account-picker {
-          margin-top: 4px;
-          padding: 4px;
-          border-radius: 8px;
-          background: var(--surface-overlay);
-          border: 1px solid var(--glass-border);
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .account-picker-item {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 8px;
-          border-radius: 6px;
-          width: 100%;
-          text-align: left;
-          color: var(--text-primary);
-        }
-
-        .account-picker-item:hover {
-          background: var(--hover-bg);
-        }
-
-        .account-picker-item.active {
-          background: rgba(var(--color-accent), 0.1);
-        }
-
-        .compose-wrapper {
-          padding: 0 16px 16px;
-        }
-
-        .compose-btn {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          background: var(--accent-color);
-          color: white;
-          padding: 10px;
-          border-radius: 8px;
-          font-weight: 500;
-        }
-
-        .compose-btn:hover {
-          background: var(--accent-hover);
-          transform: translateY(-1px);
-        }
-
-        .sidebar-nav {
-          flex: 1;
-          padding: 0 8px;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .nav-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 8px 12px;
-          width: 100%;
-          border-radius: 6px;
-          color: var(--text-secondary);
-        }
-
-        .nav-item:hover {
-          background: var(--hover-bg);
-          color: var(--text-primary);
-        }
-
-        .nav-item.active {
-          background: rgba(var(--color-accent), 0.15);
-          color: var(--accent-color);
-        }
-
-        .nav-label {
-          flex: 1;
-          text-align: left;
-          font-size: 14px;
-          font-weight: 500;
-        }
-
-        .nav-badge {
-          background: var(--accent-color);
-          color: white;
-          font-size: 11px;
-          padding: 2px 6px;
-          border-radius: 10px;
-          font-weight: 600;
-        }
-
-        .sidebar-footer {
-          padding: 16px 8px;
-        }
-
-        .mcp-status {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 6px 12px;
-          margin-bottom: 4px;
-          font-size: 12px;
-          color: var(--text-muted);
-        }
-
-        .mcp-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: var(--text-muted);
-          transition: background 0.3s;
-          flex-shrink: 0;
-        }
-
-        .mcp-dot.connected {
-          background: rgb(var(--color-success));
-        }
-
-        .mcp-label {
-          font-size: 12px;
-        }
-      `}</style>
     </aside>
   );
 };

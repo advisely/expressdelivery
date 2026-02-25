@@ -65,7 +65,15 @@
     "noAccount": "Aucun compte configuré",
     "sendFailed": "Échec de l'envoi",
     "scheduleFailed": "Échec de la planification",
-    "scheduleError": "Erreur lors de la planification"
+    "scheduleError": "Erreur lors de la planification",
+    "sendError": "Erreur lors de l'envoi",
+    "ccBcc": "CC/CCI",
+    "maxAttachments": "Maximum 10 pièces jointes (actuellement {{count}})",
+    "exceedsTotalSize": "Les pièces jointes dépassent la limite de 25 Mo",
+    "fileExceedsSize": "{{filename}} dépasse la limite de 25 Mo",
+    "removeAttachment": "Supprimer {{filename}}",
+    "enterUrl": "Entrez l'URL :",
+    "scheduleLabel": "Planifier l'envoi pour :"
   },
   "settings": {
     "title": "Paramètres",
@@ -125,14 +133,53 @@
     "allDone": "Terminé !",
     "next": "Suivant",
     "back": "Retour",
-    "finish": "Terminer"
+    "finish": "Terminer",
+    "description": "Votre client e-mail intelligent. Connectez votre compte pour commencer.",
+    "providerSubtitle": "Sélectionnez votre fournisseur pour la configuration automatique",
+    "accountDetails": "Détails du compte",
+    "connectingTo": "Connexion à {{provider}}",
+    "enterYourCredentials": "Entrez vos identifiants",
+    "emailRequired": "L'adresse e-mail est requise",
+    "passwordRequired": "Le mot de passe est requis",
+    "serverRequired": "Les adresses des serveurs IMAP et SMTP sont requises",
+    "connectionFailed": "Échec de la connexion : {{error}}",
+    "addFailed": "Échec de l'ajout du compte. Vérifiez vos informations.",
+    "connect": "Connecter",
+    "connecting": "Connexion...",
+    "testingConnection": "Test de connexion...",
+    "serverSettings": "Paramètres serveur",
+    "serverSubtitle": "Configurez vos serveurs IMAP et SMTP",
+    "incomingMail": "Courrier entrant (IMAP)",
+    "outgoingMail": "Courrier sortant (SMTP)",
+    "host": "Hôte",
+    "port": "Port",
+    "optional": "(optionnel)",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe"
   },
   "toast": {
     "scheduledSent": "E-mail planifié envoyé",
     "scheduledFailed": "Échec de l'envoi planifié : {{error}}",
     "reminderNote": "Rappel : {{note}}",
     "reminderSubject": "Rappel : {{subject}}",
-    "reminderDefault": "Rappel : suivi d'e-mail"
+    "reminderDefault": "Rappel : suivi d'e-mail",
+    "dismissNotification": "Fermer la notification"
+  },
+  "datetime": {
+    "laterToday": "Plus tard aujourd'hui",
+    "tomorrow9am": "Demain 9h",
+    "nextMonday": "Lundi prochain",
+    "customDateTime": "Date et heure personnalisées",
+    "pickCustom": "Choisir une date et une heure",
+    "cancel": "Annuler"
+  },
+  "update": {
+    "readyToInstall": "La version {{version}} est prête à installer.",
+    "available": "La version {{version}} est disponible.",
+    "restartUpdate": "Redémarrer et mettre à jour",
+    "downloading": "Téléchargement...",
+    "download": "Télécharger",
+    "dismiss": "Fermer la bannière de mise à jour"
   },
   "common": {
     "from": "De",

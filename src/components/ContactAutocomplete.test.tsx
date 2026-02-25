@@ -242,8 +242,8 @@ describe('ContactAutocomplete', () => {
 
         fireEvent.keyDown(input, { key: 'ArrowDown' });
         const options = screen.getAllByRole('option');
-        expect(options[0]).toHaveClass('highlighted');
-        expect(options[1]).not.toHaveClass('highlighted');
+        expect(options[0]).toHaveAttribute('data-highlighted', 'true');
+        expect(options[1]).not.toHaveAttribute('data-highlighted');
     });
 
     it('ArrowDown stops at the last option (no wrap-around)', async () => {
@@ -258,7 +258,7 @@ describe('ContactAutocomplete', () => {
             fireEvent.keyDown(input, { key: 'ArrowDown' });
         }
         const options = screen.getAllByRole('option');
-        expect(options[2]).toHaveClass('highlighted');
+        expect(options[2]).toHaveAttribute('data-highlighted', 'true');
     });
 
     it('ArrowUp does not go below index 0', async () => {
@@ -273,7 +273,7 @@ describe('ContactAutocomplete', () => {
         fireEvent.keyDown(input, { key: 'ArrowUp' });
         fireEvent.keyDown(input, { key: 'ArrowUp' });
         const options = screen.getAllByRole('option');
-        expect(options[0]).toHaveClass('highlighted');
+        expect(options[0]).toHaveAttribute('data-highlighted', 'true');
     });
 
     it('Enter selects the highlighted option', async () => {

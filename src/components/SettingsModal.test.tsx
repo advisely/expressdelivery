@@ -91,7 +91,7 @@ describe('SettingsModal Integration Tests', () => {
         expect(mockClose).toHaveBeenCalledTimes(1);
     });
 
-    it('applies the active class only to the selected theme and layout options', () => {
+    it('applies the active state only to the selected theme and layout options', () => {
         useThemeStore.setState({ themeName: 'light' });
 
         renderSettings();
@@ -100,32 +100,32 @@ describe('SettingsModal Integration Tests', () => {
         const lightBtn = screen.getByText('Light').closest('button');
         const midnightBtn = screen.getByText('Midnight').closest('button');
 
-        expect(lightBtn).toHaveClass('active');
-        expect(midnightBtn).not.toHaveClass('active');
+        expect(lightBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(midnightBtn).toHaveAttribute('aria-pressed', 'false');
 
         const verticalBtn = screen.getByText('Vertical Split (3-Pane)').closest('button');
         const horizontalBtn = screen.getByText('Horizontal Split').closest('button');
 
-        expect(verticalBtn).toHaveClass('active');
-        expect(horizontalBtn).not.toHaveClass('active');
+        expect(verticalBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(horizontalBtn).toHaveAttribute('aria-pressed', 'false');
 
         fireEvent.click(horizontalBtn!);
-        expect(verticalBtn).not.toHaveClass('active');
-        expect(horizontalBtn).toHaveClass('active');
+        expect(verticalBtn).toHaveAttribute('aria-pressed', 'false');
+        expect(horizontalBtn).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('renders accounts tab with add account button', () => {
         renderSettings();
 
-        expect(screen.getByText('Email Accounts')).toBeInTheDocument();
-        expect(screen.getByText('Add Account')).toBeInTheDocument();
+        expect(screen.getByText('settings.emailAccounts')).toBeInTheDocument();
+        expect(screen.getByText('settings.addAccount')).toBeInTheDocument();
     });
 
     it('shows add account form when Add Account is clicked', () => {
         renderSettings();
 
-        fireEvent.click(screen.getByText('Add Account'));
-        expect(screen.getByText('Add Account', { selector: 'h3' })).toBeInTheDocument();
+        fireEvent.click(screen.getByText('settings.addAccount'));
+        expect(screen.getByText('settings.addAccount', { selector: 'h3' })).toBeInTheDocument();
         expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
         expect(screen.getByText('Gmail')).toBeInTheDocument();
     });
@@ -143,54 +143,54 @@ describe('SettingsModal Integration Tests', () => {
     it('associates form labels with inputs via htmlFor/id', () => {
         renderSettings();
 
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
 
         // Click a provider first to show the form
         fireEvent.click(screen.getByText('Gmail'));
 
-        expect(screen.getByLabelText('Email Address')).toBeInTheDocument();
-        expect(screen.getByLabelText('Display Name')).toBeInTheDocument();
-        expect(screen.getByLabelText('Password')).toBeInTheDocument();
+        expect(screen.getByLabelText('settings.email')).toBeInTheDocument();
+        expect(screen.getByLabelText('settings.displayName')).toBeInTheDocument();
+        expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
     });
 
     it('shows Test Connection button in account form', () => {
         renderSettings();
 
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
         fireEvent.click(screen.getByText('Gmail'));
 
-        const testBtn = screen.getByText('Test Connection', { selector: 'button.test-btn span' });
+        const testBtn = screen.getByText('settings.testConnection');
         expect(testBtn).toBeInTheDocument();
     });
 
     it('disables Test Connection button when email or password is empty', () => {
         renderSettings();
 
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
         fireEvent.click(screen.getByText('Gmail'));
 
-        const testBtn = screen.getByText('Test Connection').closest('button');
+        const testBtn = screen.getByText('settings.testConnection').closest('button');
         expect(testBtn).toBeDisabled();
 
         // Fill email but not password — still disabled
-        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'test@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('settings.email'), { target: { value: 'test@gmail.com' } });
         expect(testBtn).toBeDisabled();
 
         // Fill password too — now enabled
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+        fireEvent.change(screen.getByLabelText('settings.password'), { target: { value: 'secret' } });
         expect(testBtn).not.toBeDisabled();
     });
 
     it('shows error with role="alert" on validation failure', () => {
         renderSettings();
 
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
 
         // Click Gmail provider
         fireEvent.click(screen.getByText('Gmail'));
 
-        // Submit without filling fields — button text is now "Test & Add Account"
-        fireEvent.click(screen.getByText('Test & Add Account', { selector: 'button.primary-btn' }));
+        // Submit without filling fields — button text is now the testAndAdd key
+        fireEvent.click(screen.getByText('settings.testAndAdd'));
 
         const alert = screen.getByRole('alert');
         expect(alert).toBeInTheDocument();
@@ -206,30 +206,30 @@ describe('SettingsModal Integration Tests', () => {
         mockIpcInvoke.mockResolvedValueOnce({ success: true });
 
         renderSettings();
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
         fireEvent.click(screen.getByText('Gmail'));
 
-        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'user@gmail.com' } });
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
+        fireEvent.change(screen.getByLabelText('settings.email'), { target: { value: 'user@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('settings.password'), { target: { value: 'pass' } });
 
-        const testBtn = screen.getByText('Test Connection').closest('button')!;
+        const testBtn = screen.getByText('settings.testConnection').closest('button')!;
 
         // Run the test — button label should update to "Connected"
         fireEvent.click(testBtn);
         await waitFor(() =>
-            expect(screen.getByText('Connected')).toBeInTheDocument()
+            expect(screen.getByText('settings.connected')).toBeInTheDocument()
         );
 
         // Primary button should now be "Add Account" (test already passed)
-        expect(screen.getByText('Add Account', { selector: 'button.primary-btn' })).toBeInTheDocument();
+        expect(screen.getByText('settings.addAccount', { selector: 'button' })).toBeInTheDocument();
 
         // Change the email — status must revert to idle
-        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'other@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('settings.email'), { target: { value: 'other@gmail.com' } });
 
         // Button label reverts to "Test Connection"
-        expect(screen.getByText('Test Connection')).toBeInTheDocument();
+        expect(screen.getByText('settings.testConnection')).toBeInTheDocument();
         // Primary button reverts to requiring a fresh test
-        expect(screen.getByText('Test & Add Account', { selector: 'button.primary-btn' })).toBeInTheDocument();
+        expect(screen.getByText('settings.testAndAdd')).toBeInTheDocument();
     });
 
     it('shows inline error and Failed label when the IPC call itself throws (network failure)', async () => {
@@ -239,13 +239,13 @@ describe('SettingsModal Integration Tests', () => {
         mockIpcInvoke.mockRejectedValueOnce(new Error('IPC channel closed'));
 
         renderSettings();
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
         fireEvent.click(screen.getByText('Gmail'));
 
-        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'user@gmail.com' } });
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
+        fireEvent.change(screen.getByLabelText('settings.email'), { target: { value: 'user@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('settings.password'), { target: { value: 'pass' } });
 
-        fireEvent.click(screen.getByText('Test Connection').closest('button')!);
+        fireEvent.click(screen.getByText('settings.testConnection').closest('button')!);
 
         await waitFor(() =>
             expect(screen.getByRole('alert')).toBeInTheDocument()
@@ -254,8 +254,8 @@ describe('SettingsModal Integration Tests', () => {
         expect(screen.getByRole('alert')).toHaveTextContent(
             'Connection test failed. Check your credentials and server settings.'
         );
-        // The button span should now read "Failed"
-        expect(screen.getByText('Failed')).toBeInTheDocument();
+        // The button span should now read the failed key
+        expect(screen.getByText('settings.failed')).toBeInTheDocument();
     });
 
     it('skips the connection test on submit when the standalone test already passed', async () => {
@@ -272,25 +272,25 @@ describe('SettingsModal Integration Tests', () => {
             .mockResolvedValueOnce([]);                  // folders:list (post-add flow)
 
         renderSettings();
-        fireEvent.click(screen.getByText('Add Account'));
+        fireEvent.click(screen.getByText('settings.addAccount'));
         fireEvent.click(screen.getByText('Gmail'));
 
-        fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'user@gmail.com' } });
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
+        fireEvent.change(screen.getByLabelText('settings.email'), { target: { value: 'user@gmail.com' } });
+        fireEvent.change(screen.getByLabelText('settings.password'), { target: { value: 'pass' } });
 
         // Run the standalone test
-        fireEvent.click(screen.getByText('Test Connection').closest('button')!);
-        await waitFor(() => expect(screen.getByText('Connected')).toBeInTheDocument());
+        fireEvent.click(screen.getByText('settings.testConnection').closest('button')!);
+        await waitFor(() => expect(screen.getByText('settings.connected')).toBeInTheDocument());
 
         // Primary button label must confirm the test is no longer required
-        expect(screen.getByText('Add Account', { selector: 'button.primary-btn' })).toBeInTheDocument();
+        expect(screen.getByText('settings.addAccount', { selector: 'button' })).toBeInTheDocument();
 
         // Submit the form
-        fireEvent.click(screen.getByText('Add Account', { selector: 'button.primary-btn' }));
+        fireEvent.click(screen.getByText('settings.addAccount', { selector: 'button' }));
 
         // Wait for the form to reset (back to account list view)
         await waitFor(() =>
-            expect(screen.getByText('Email Accounts')).toBeInTheDocument()
+            expect(screen.getByText('settings.emailAccounts')).toBeInTheDocument()
         );
 
         // Call 1 is apikeys:get-openrouter, call 2 is settings:get (notifications_enabled),

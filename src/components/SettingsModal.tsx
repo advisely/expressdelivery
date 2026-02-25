@@ -15,6 +15,7 @@ import { PROVIDER_PRESETS } from '../lib/providerPresets';
 import type { ProviderPreset } from '../lib/providerPresets';
 import { ipcInvoke } from '../lib/ipc';
 import { getProviderIcon } from '../lib/providerIcons';
+import styles from './SettingsModal.module.css';
 
 const THEME_ICONS: Record<ThemeName, ElementType> = {
     light: Sun,
@@ -60,7 +61,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const { accounts, addAccount, updateAccount, removeAccount, selectAccount, selectFolder, setFolders } = useEmailStore();
     const { layout, setLayout } = useLayout();
     const { themeName, setTheme } = useThemeStore();
-    const { i18n } = useTranslation();
+    const { i18n, t } = useTranslation();
 
     // API key state
     const [apiKey, setApiKey] = useState('');
@@ -183,8 +184,8 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const handleSaveRule = async () => {
         if (!editingRule || !rulesAccountId) return;
         setRuleError(null);
-        if (!editingRule.name?.trim()) { setRuleError('Rule name is required'); return; }
-        if (!editingRule.match_value?.trim()) { setRuleError('Match value is required'); return; }
+        if (!editingRule.name?.trim()) { setRuleError(t('settings.ruleNameRequired')); return; }
+        if (!editingRule.match_value?.trim()) { setRuleError(t('settings.ruleValueRequired')); return; }
         try {
             if (editingRule.id) {
                 await ipcInvoke('rules:update', {
@@ -212,7 +213,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             if (result) setRules(result);
             setEditingRule(null);
         } catch {
-            setRuleError('Failed to save rule');
+            setRuleError(t('settings.ruleSaveFailed'));
         }
     };
 
@@ -442,8 +443,8 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             if (testStatus === 'passed') return 'Save Changes';
             return hasPassword ? 'Test & Save Changes' : 'Save Changes';
         }
-        if (testStatus === 'passed') return 'Add Account';
-        return 'Test & Add Account';
+        if (testStatus === 'passed') return t('settings.addAccount');
+        return t('settings.testAndAdd');
     };
 
     return (
@@ -451,45 +452,45 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             <Dialog.Portal>
                 <Dialog.Overlay className="settings-overlay" />
                 <Dialog.Content className="settings-modal" aria-describedby={undefined}>
-                    <div className="settings-modal__header">
-                        <Dialog.Title className="settings-modal__title">Settings</Dialog.Title>
+                    <div className={styles['settings-modal__header']}>
+                        <Dialog.Title className={styles['settings-modal__title']}>{t('settings.title')}</Dialog.Title>
                         <Dialog.Close asChild>
-                            <button className="close-btn" aria-label="Close settings">
+                            <button className={styles['close-btn']} aria-label="Close settings">
                                 <X size={20} />
                             </button>
                         </Dialog.Close>
                     </div>
 
-                    <Tabs.Root className="settings-body" defaultValue="accounts" orientation="vertical">
-                        <Tabs.List className="settings-tabs" aria-label="Settings sections">
-                            <Tabs.Trigger className="tab-btn" value="accounts">
+                    <Tabs.Root className={styles['settings-body']} defaultValue="accounts" orientation="vertical">
+                        <Tabs.List className={styles['settings-tabs']} aria-label="Settings sections">
+                            <Tabs.Trigger className={styles['tab-btn']} value="accounts">
                                 <Mail size={16} />
-                                <span>Accounts</span>
+                                <span>{t('settings.accounts')}</span>
                             </Tabs.Trigger>
-                            <Tabs.Trigger className="tab-btn" value="appearance">
+                            <Tabs.Trigger className={styles['tab-btn']} value="appearance">
                                 <Sun size={16} />
-                                <span>Appearance</span>
+                                <span>{t('settings.appearance')}</span>
                             </Tabs.Trigger>
-                            <Tabs.Trigger className="tab-btn" value="ai">
+                            <Tabs.Trigger className={styles['tab-btn']} value="ai">
                                 <Key size={16} />
-                                <span>AI / API Keys</span>
+                                <span>{t('settings.aiKeys')}</span>
                             </Tabs.Trigger>
-                            <Tabs.Trigger className="tab-btn" value="notifications">
+                            <Tabs.Trigger className={styles['tab-btn']} value="notifications">
                                 <Bell size={16} />
-                                <span>Notifications</span>
+                                <span>{t('settings.notifications')}</span>
                             </Tabs.Trigger>
-                            <Tabs.Trigger className="tab-btn" value="rules">
+                            <Tabs.Trigger className={styles['tab-btn']} value="rules">
                                 <Filter size={16} />
-                                <span>Rules</span>
+                                <span>{t('settings.rules')}</span>
                             </Tabs.Trigger>
                         </Tabs.List>
 
-                        <Tabs.Content className="settings-tab-panel" value="accounts" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="accounts" forceMount>
                             {!isAddingAccount && (
                                 <div className="accounts-list-view">
-                                    <h3 className="section-title">Email Accounts</h3>
+                                    <h3 className={styles['section-title']}>{t('settings.emailAccounts')}</h3>
                                     {accounts.length === 0 && (
-                                        <div className="empty-accounts">
+                                        <div className={styles['empty-accounts']}>
                                             <Mail size={32} />
                                             <p>No accounts connected</p>
                                         </div>
@@ -499,22 +500,22 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         return (
                                             <div
                                                 key={account.id}
-                                                className="account-item"
+                                                className={styles['account-item']}
                                                 onClick={() => enterEditMode(account)}
                                                 role="button"
                                                 tabIndex={0}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') enterEditMode(account); }}
                                                 aria-label={`Edit ${account.email}`}
                                             >
-                                                <div className="account-item-avatar">
+                                                <div className={styles['account-item-avatar']}>
                                                     <ProviderIcon size={20} />
                                                 </div>
-                                                <div className="account-item-info">
-                                                    <span className="account-item-email">{account.email}</span>
-                                                    <span className="account-item-provider">{providerLabel(account.provider)}</span>
+                                                <div className={styles['account-item-info']}>
+                                                    <span className={styles['account-item-email']}>{account.email}</span>
+                                                    <span className={styles['account-item-provider']}>{providerLabel(account.provider)}</span>
                                                 </div>
                                                 <button
-                                                    className="delete-btn"
+                                                    className={styles['delete-btn']}
                                                     onClick={(e) => { e.stopPropagation(); handleRemoveAccount(account.id); }}
                                                     title="Remove account"
                                                     aria-label={`Remove ${account.email}`}
@@ -524,28 +525,28 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             </div>
                                         );
                                     })}
-                                    <button className="add-account-btn" onClick={() => setIsAddingAccount(true)}>
+                                    <button className={styles['add-account-btn']} onClick={() => setIsAddingAccount(true)}>
                                         <Plus size={16} />
-                                        <span>Add Account</span>
+                                        <span>{t('settings.addAccount')}</span>
                                     </button>
                                 </div>
                             )}
 
                             {isAddingAccount && (
                                 <div className="account-form-view">
-                                    <h3 className="section-title">{isEditing ? 'Edit Account' : 'Add Account'}</h3>
+                                    <h3 className={styles['section-title']}>{isEditing ? t('settings.editAccount') : t('settings.addAccount')}</h3>
 
-                                    {formError && <div className="form-error" role="alert">{formError}</div>}
+                                    {formError && <div className={styles['form-error']} role="alert">{formError}</div>}
 
-                                    <div className="form-group">
-                                        <label className="form-label">Provider</label>
-                                        <div className="provider-mini-grid">
+                                    <div className={styles['form-group']}>
+                                        <label className={styles['form-label']}>Provider</label>
+                                        <div className={styles['provider-mini-grid']}>
                                             {PROVIDER_PRESETS.map(preset => {
                                                 const PresetIcon = getProviderIcon(preset.id);
                                                 return (
                                                     <button
                                                         key={preset.id}
-                                                        className={`provider-chip ${selectedPreset?.id === preset.id ? 'active' : ''}`}
+                                                        className={`${styles['provider-chip']} ${selectedPreset?.id === preset.id ? styles['provider-chip-active'] : ''}`}
                                                         onClick={() => selectProvider(preset)}
                                                     >
                                                         <PresetIcon size={18} />
@@ -556,35 +557,35 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </div>
                                     </div>
 
-                                    <div className="form-group">
-                                        <label className="form-label" htmlFor="settings-email">Email Address</label>
+                                    <div className={styles['form-group']}>
+                                        <label className={styles['form-label']} htmlFor="settings-email">{t('settings.email')}</label>
                                         <input
                                             id="settings-email"
                                             type="email"
-                                            className="form-input"
+                                            className={styles['form-input']}
                                             placeholder="you@example.com"
                                             value={formEmail}
                                             onChange={e => { setFormEmail(e.target.value); resetTestStatus(); }}
                                         />
                                     </div>
 
-                                    <div className="form-group">
-                                        <label className="form-label" htmlFor="settings-display-name">Display Name</label>
+                                    <div className={styles['form-group']}>
+                                        <label className={styles['form-label']} htmlFor="settings-display-name">{t('settings.displayName')}</label>
                                         <input
                                             id="settings-display-name"
                                             type="text"
-                                            className="form-input"
+                                            className={styles['form-input']}
                                             placeholder="John Doe (optional)"
                                             value={formDisplayName}
                                             onChange={e => setFormDisplayName(e.target.value)}
                                         />
                                     </div>
 
-                                    <div className="form-group">
-                                        <label className="form-label" htmlFor="settings-signature">Email Signature</label>
+                                    <div className={styles['form-group']}>
+                                        <label className={styles['form-label']} htmlFor="settings-signature">{t('settings.signatureHtml')}</label>
                                         <textarea
                                             id="settings-signature"
-                                            className="form-input signature-textarea"
+                                            className={`${styles['form-input']} ${styles['signature-textarea']}`}
                                             placeholder="Your email signature (plain text, optional)"
                                             value={formSignature}
                                             onChange={e => setFormSignature(e.target.value)}
@@ -592,19 +593,19 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         />
                                     </div>
 
-                                    <div className="form-group">
-                                        <label className="form-label" htmlFor="settings-password">Password</label>
-                                        <div className="password-wrapper">
+                                    <div className={styles['form-group']}>
+                                        <label className={styles['form-label']} htmlFor="settings-password">{t('settings.password')}</label>
+                                        <div className={styles['password-wrapper']}>
                                             <input
                                                 id="settings-password"
                                                 type={showPassword ? 'text' : 'password'}
-                                                className="form-input"
+                                                className={styles['form-input']}
                                                 placeholder={isEditing ? 'Leave blank to keep current' : 'Password or App Password'}
                                                 value={formPassword}
                                                 onChange={e => { setFormPassword(e.target.value); resetTestStatus(); }}
                                             />
                                             <button
-                                                className="password-toggle"
+                                                className={styles['password-toggle']}
                                                 onClick={() => setShowPassword(!showPassword)}
                                                 type="button"
                                                 aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -615,37 +616,37 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     </div>
 
                                     {(showServerFields || selectedPreset) && (
-                                        <div className="server-fields">
+                                        <div className={styles['server-fields']}>
                                             <button
                                                 type="button"
-                                                className="server-header"
+                                                className={styles['server-header']}
                                                 onClick={() => setShowServerFields(!showServerFields)}
                                                 aria-expanded={showServerFields}
                                             >
                                                 <Server size={14} />
-                                                <span>Server Settings</span>
-                                                <span className="toggle-hint">{showServerFields ? 'Hide' : 'Show'}</span>
+                                                <span>{t('settings.serverSettings')}</span>
+                                                <span className={styles['toggle-hint']}>{showServerFields ? 'Hide' : 'Show'}</span>
                                             </button>
                                             {showServerFields && (
                                                 <>
-                                                    <div className="form-row">
-                                                        <div className="form-group">
-                                                            <label className="form-label" htmlFor="settings-imap-host">IMAP Host</label>
+                                                    <div className={styles['form-row']}>
+                                                        <div className={styles['form-group']}>
+                                                            <label className={styles['form-label']} htmlFor="settings-imap-host">{t('settings.imapHost')}</label>
                                                             <input
                                                                 id="settings-imap-host"
                                                                 type="text"
-                                                                className="form-input"
+                                                                className={styles['form-input']}
                                                                 placeholder="imap.example.com"
                                                                 value={formImapHost}
                                                                 onChange={e => { setFormImapHost(e.target.value); resetTestStatus(); }}
                                                             />
                                                         </div>
-                                                        <div className="form-group form-group-port">
-                                                            <label className="form-label" htmlFor="settings-imap-port">Port</label>
+                                                        <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
+                                                            <label className={styles['form-label']} htmlFor="settings-imap-port">Port</label>
                                                             <input
                                                                 id="settings-imap-port"
                                                                 type="number"
-                                                                className="form-input"
+                                                                className={styles['form-input']}
                                                                 value={formImapPort}
                                                                 min={1}
                                                                 max={65535}
@@ -653,24 +654,24 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                             />
                                                         </div>
                                                     </div>
-                                                    <div className="form-row">
-                                                        <div className="form-group">
-                                                            <label className="form-label" htmlFor="settings-smtp-host">SMTP Host</label>
+                                                    <div className={styles['form-row']}>
+                                                        <div className={styles['form-group']}>
+                                                            <label className={styles['form-label']} htmlFor="settings-smtp-host">{t('settings.smtpHost')}</label>
                                                             <input
                                                                 id="settings-smtp-host"
                                                                 type="text"
-                                                                className="form-input"
+                                                                className={styles['form-input']}
                                                                 placeholder="smtp.example.com"
                                                                 value={formSmtpHost}
                                                                 onChange={e => { setFormSmtpHost(e.target.value); resetTestStatus(); }}
                                                             />
                                                         </div>
-                                                        <div className="form-group form-group-port">
-                                                            <label className="form-label" htmlFor="settings-smtp-port">Port</label>
+                                                        <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
+                                                            <label className={styles['form-label']} htmlFor="settings-smtp-port">Port</label>
                                                             <input
                                                                 id="settings-smtp-port"
                                                                 type="number"
-                                                                className="form-input"
+                                                                className={styles['form-input']}
                                                                 value={formSmtpPort}
                                                                 min={1}
                                                                 max={65535}
@@ -683,26 +684,26 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </div>
                                     )}
 
-                                    <div className="form-actions">
+                                    <div className={styles['form-actions']}>
                                         <button
-                                            className={`test-btn ${testStatus === 'passed' ? 'test-passed' : ''} ${testStatus === 'failed' ? 'test-failed' : ''}`}
+                                            className={`${styles['test-btn']} ${testStatus === 'passed' ? styles['test-passed'] : ''} ${testStatus === 'failed' ? styles['test-failed'] : ''}`}
                                             onClick={handleTestConnection}
                                             disabled={testStatus === 'testing' || !formEmail.trim() || !formPassword.trim()}
                                             type="button"
                                         >
-                                            {testStatus === 'testing' && <Loader size={14} className="test-spin" />}
+                                            {testStatus === 'testing' && <Loader size={14} className={styles['test-spin']} />}
                                             {testStatus === 'passed' && <CheckCircle2 size={14} />}
                                             {testStatus === 'failed' && <XCircle size={14} />}
                                             <span>
-                                                {testStatus === 'testing' ? 'Testing...' :
-                                                 testStatus === 'passed' ? 'Connected' :
-                                                 testStatus === 'failed' ? 'Failed' : 'Test Connection'}
+                                                {testStatus === 'testing' ? t('settings.testing') :
+                                                 testStatus === 'passed' ? t('settings.connected') :
+                                                 testStatus === 'failed' ? t('settings.failed') : t('settings.testConnection')}
                                             </span>
                                         </button>
                                         <div style={{ flex: 1 }} />
-                                        <button className="secondary-btn" onClick={resetForm}>Cancel</button>
+                                        <button className={styles['secondary-btn']} onClick={resetForm}>{t('settings.cancel')}</button>
                                         <button
-                                            className="primary-btn"
+                                            className={styles['primary-btn']}
                                             onClick={isEditing ? handleUpdateAccount : handleAddAccount}
                                             disabled={formSaving}
                                         >
@@ -713,35 +714,37 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             )}
                         </Tabs.Content>
 
-                        <Tabs.Content className="settings-tab-panel" value="appearance" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="appearance" forceMount>
                             <div className="appearance-view">
-                                <div className="setting-group">
-                                    <h3 className="section-title">Interface Theme</h3>
-                                    <div className="options-grid">
-                                        {THEMES.map(t => {
-                                            const Icon = THEME_ICONS[t.name];
+                                <div className={styles['setting-group']}>
+                                    <h3 className={styles['section-title']}>Interface Theme</h3>
+                                    <div className={styles['options-grid']}>
+                                        {THEMES.map(theme => {
+                                            const Icon = THEME_ICONS[theme.name];
                                             return (
                                                 <button
-                                                    key={t.name}
-                                                    className={`option-btn ${themeName === t.name ? 'active' : ''}`}
-                                                    onClick={() => setTheme(t.name)}
+                                                    key={theme.name}
+                                                    className={`${styles['option-btn']} ${themeName === theme.name ? styles['option-btn-active'] : ''}`}
+                                                    onClick={() => setTheme(theme.name)}
+                                                    aria-pressed={themeName === theme.name}
                                                 >
                                                     <Icon size={18} />
-                                                    <span>{t.label}</span>
+                                                    <span>{theme.label}</span>
                                                 </button>
                                             );
                                         })}
                                     </div>
                                 </div>
 
-                                <div className="setting-group">
-                                    <h3 className="section-title">Pane Layout</h3>
-                                    <div className="options-grid">
+                                <div className={styles['setting-group']}>
+                                    <h3 className={styles['section-title']}>Pane Layout</h3>
+                                    <div className={styles['options-grid']}>
                                         {LAYOUTS.map(l => (
                                             <button
                                                 key={l.id}
-                                                className={`option-btn ${layout === l.id ? 'active' : ''}`}
+                                                className={`${styles['option-btn']} ${layout === l.id ? styles['option-btn-active'] : ''}`}
                                                 onClick={() => setLayout(l.id)}
+                                                aria-pressed={layout === l.id}
                                             >
                                                 <l.icon size={18} />
                                                 <span>{l.label}</span>
@@ -750,18 +753,18 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     </div>
                                 </div>
 
-                                <div className="setting-group">
-                                    <h3 className="section-title">Language</h3>
+                                <div className={styles['setting-group']}>
+                                    <h3 className={styles['section-title']}>{t('common.language')}</h3>
                                     <select
-                                        className="lang-select"
+                                        className={styles['lang-select']}
                                         value={i18n.language}
                                         onChange={e => {
                                             i18n.changeLanguage(e.target.value);
                                             ipcInvoke('settings:set', 'locale', e.target.value);
                                         }}
-                                        aria-label="Language"
+                                        aria-label={t('common.language')}
                                     >
-                                        <option value="en">English</option>
+                                        <option value="en">{t('common.english')}</option>
                                         <option value="fr">Français</option>
                                         <option value="es">Español</option>
                                         <option value="de">Deutsch</option>
@@ -770,19 +773,19 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className="settings-tab-panel" value="ai" forceMount>
-                            <div className="ai-keys-view">
-                                <h3 className="section-title">OpenRouter API Key</h3>
-                                <p className="apikey-description">
-                                    Required for AI-powered features. Your key is encrypted and stored locally — it never leaves your device.
+                        <Tabs.Content className={styles['settings-tab-panel']} value="ai" forceMount>
+                            <div className={styles['ai-keys-view']}>
+                                <h3 className={styles['section-title']}>{t('settings.openrouterKey')}</h3>
+                                <p className={styles['apikey-description']}>
+                                    {t('settings.openrouterDesc')}
                                 </p>
 
-                                <div className="form-group">
-                                    <label className="form-label" htmlFor="apikey-input">API Key</label>
-                                    <div className="apikey-input-wrapper">
+                                <div className={styles['form-group']}>
+                                    <label className={styles['form-label']} htmlFor="apikey-input">API Key</label>
+                                    <div className={styles['apikey-input-wrapper']}>
                                         <input
                                             id="apikey-input"
-                                            className="form-input"
+                                            className={styles['form-input']}
                                             type={showApiKey ? 'text' : 'password'}
                                             value={apiKey}
                                             onChange={e => { setApiKey(e.target.value); setApiKeyStatus('idle'); }}
@@ -791,7 +794,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         />
                                         <button
                                             type="button"
-                                            className="eye-toggle"
+                                            className={styles['eye-toggle']}
                                             onClick={() => setShowApiKey(!showApiKey)}
                                             aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
                                         >
@@ -800,142 +803,142 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     </div>
                                 </div>
 
-                                <div className="apikey-actions" aria-live="polite">
+                                <div className={styles['apikey-actions']} aria-live="polite">
                                     <button
                                         type="button"
-                                        className="primary-btn"
+                                        className={styles['primary-btn']}
                                         onClick={handleSaveApiKey}
                                         disabled={apiKeySaving || !apiKey.trim()}
                                     >
-                                        {apiKeySaving ? 'Saving...' : 'Save Key'}
+                                        {apiKeySaving ? 'Saving...' : t('settings.saveKey')}
                                     </button>
                                     <button
                                         type="button"
-                                        className="secondary-btn"
+                                        className={styles['secondary-btn']}
                                         onClick={handleClearApiKey}
                                         disabled={apiKeySaving}
                                     >
-                                        Clear Key
+                                        {t('settings.clearKey')}
                                     </button>
                                     {apiKeyStatus === 'saved' && (
-                                        <span className="apikey-status apikey-saved">
-                                            <CheckCircle2 size={14} /> Key saved
+                                        <span className={`${styles['apikey-status']} ${styles['apikey-saved']}`}>
+                                            <CheckCircle2 size={14} /> {t('settings.keySaved')}
                                         </span>
                                     )}
                                     {apiKeyStatus === 'error' && (
-                                        <span className="apikey-status apikey-error">
-                                            <XCircle size={14} /> Failed to save
+                                        <span className={`${styles['apikey-status']} ${styles['apikey-error']}`}>
+                                            <XCircle size={14} /> {t('settings.keyFailed')}
                                         </span>
                                     )}
                                 </div>
 
-                                <p className="apikey-hint">
-                                    Get your API key at <strong>openrouter.ai/keys</strong>
+                                <p className={styles['apikey-hint']}>
+                                    {t('settings.openrouterHint')}
                                 </p>
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className="settings-tab-panel" value="notifications" forceMount>
-                            <div className="notif-settings-view">
-                                <h3 className="section-title">Notification Preferences</h3>
-                                <div className="notif-toggle-row">
-                                    <label htmlFor="notif-enabled-toggle" className="notif-label">
-                                        Desktop Notifications
+                        <Tabs.Content className={styles['settings-tab-panel']} value="notifications" forceMount>
+                            <div className={styles['notif-settings-view']}>
+                                <h3 className={styles['section-title']}>Notification Preferences</h3>
+                                <div className={styles['notif-toggle-row']}>
+                                    <label htmlFor="notif-enabled-toggle" className={styles['notif-label']}>
+                                        {t('settings.desktopNotifications')}
                                     </label>
                                     <button
                                         id="notif-enabled-toggle"
                                         type="button"
                                         role="switch"
                                         aria-checked={notificationsEnabled}
-                                        className={`notif-switch ${notificationsEnabled ? 'notif-switch-on' : ''}`}
+                                        className={`${styles['notif-switch']} ${notificationsEnabled ? styles['notif-switch-on'] : ''}`}
                                         onClick={() => handleToggleNotifications(!notificationsEnabled)}
                                     >
-                                        <span className="notif-switch-thumb" />
+                                        <span className={styles['notif-switch-thumb']} />
                                     </button>
                                 </div>
-                                <p className="notif-description">
-                                    Receive desktop notifications for new emails, reminders, and scheduled send results.
+                                <p className={styles['notif-description']}>
+                                    {t('settings.notifDescription')}
                                 </p>
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className="settings-tab-panel" value="rules" forceMount>
-                            <div className="rules-view">
-                                <div className="rules-header">
-                                    <h3 className="section-title">Mail Rules</h3>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="rules" forceMount>
+                            <div className={styles['rules-view']}>
+                                <div className={styles['rules-header']}>
+                                    <h3 className={styles['section-title']}>{t('settings.mailRules')}</h3>
                                     <button
-                                        className="add-rule-btn"
+                                        className={styles['add-rule-btn']}
                                         onClick={() => setEditingRule({
                                             name: '', match_field: 'from', match_operator: 'contains',
                                             match_value: '', action_type: 'mark_read', action_value: null, is_active: 1,
                                         })}
                                     >
-                                        <Plus size={14} /> New Rule
+                                        <Plus size={14} /> {t('settings.newRule')}
                                     </button>
                                 </div>
 
                                 {editingRule && (
-                                    <div className="rule-editor">
-                                        <div className="rule-form-row">
+                                    <div className={styles['rule-editor']}>
+                                        <div className={styles['rule-form-row']}>
                                             <label htmlFor="rule-name">Name</label>
                                             <input
                                                 id="rule-name"
-                                                className="rule-input"
+                                                className={styles['rule-input']}
                                                 value={editingRule.name ?? ''}
                                                 onChange={e => setEditingRule({ ...editingRule, name: e.target.value })}
                                                 placeholder="Rule name..."
                                             />
                                         </div>
-                                        <div className="rule-form-row rule-form-condition">
-                                            <span className="rule-label-text">If</span>
+                                        <div className={`${styles['rule-form-row']} ${styles['rule-form-condition']}`}>
+                                            <span className={styles['rule-label-text']}>If</span>
                                             <select
-                                                className="rule-select"
+                                                className={styles['rule-select']}
                                                 value={editingRule.match_field ?? 'from'}
                                                 onChange={e => setEditingRule({ ...editingRule, match_field: e.target.value })}
                                                 aria-label="Match field"
                                             >
-                                                <option value="from">From</option>
-                                                <option value="subject">Subject</option>
-                                                <option value="body">Body</option>
-                                                <option value="has_attachment">Has Attachment</option>
+                                                <option value="from">{t('common.from')}</option>
+                                                <option value="subject">{t('common.subject')}</option>
+                                                <option value="body">{t('common.body')}</option>
+                                                <option value="has_attachment">{t('common.hasAttachment')}</option>
                                             </select>
                                             <select
-                                                className="rule-select"
+                                                className={styles['rule-select']}
                                                 value={editingRule.match_operator ?? 'contains'}
                                                 onChange={e => setEditingRule({ ...editingRule, match_operator: e.target.value })}
                                                 aria-label="Match operator"
                                             >
-                                                <option value="contains">contains</option>
-                                                <option value="equals">equals</option>
-                                                <option value="starts_with">starts with</option>
-                                                <option value="ends_with">ends with</option>
+                                                <option value="contains">{t('common.contains')}</option>
+                                                <option value="equals">{t('common.equals')}</option>
+                                                <option value="starts_with">{t('common.startsWith')}</option>
+                                                <option value="ends_with">{t('common.endsWith')}</option>
                                             </select>
                                             <input
-                                                className="rule-input rule-input-value"
+                                                className={`${styles['rule-input']} ${styles['rule-input-value']}`}
                                                 value={editingRule.match_value ?? ''}
                                                 onChange={e => setEditingRule({ ...editingRule, match_value: e.target.value })}
                                                 placeholder="Value..."
                                                 aria-label="Match value"
                                             />
                                         </div>
-                                        <div className="rule-form-row rule-form-condition">
-                                            <span className="rule-label-text">Then</span>
+                                        <div className={`${styles['rule-form-row']} ${styles['rule-form-condition']}`}>
+                                            <span className={styles['rule-label-text']}>Then</span>
                                             <select
-                                                className="rule-select"
+                                                className={styles['rule-select']}
                                                 value={editingRule.action_type ?? 'mark_read'}
                                                 onChange={e => setEditingRule({ ...editingRule, action_type: e.target.value, action_value: null })}
                                                 aria-label="Action type"
                                             >
-                                                <option value="mark_read">Mark as Read</option>
-                                                <option value="flag">Flag</option>
-                                                <option value="delete">Delete</option>
-                                                <option value="label">Add Label</option>
-                                                <option value="categorize">Set Category</option>
-                                                <option value="move">Move to Folder</option>
+                                                <option value="mark_read">{t('common.markRead')}</option>
+                                                <option value="flag">{t('common.flag')}</option>
+                                                <option value="delete">{t('settings.delete')}</option>
+                                                <option value="label">{t('common.addLabel')}</option>
+                                                <option value="categorize">{t('common.setCategory')}</option>
+                                                <option value="move">{t('common.moveToFolder')}</option>
                                             </select>
                                             {(editingRule.action_type === 'label' || editingRule.action_type === 'categorize' || editingRule.action_type === 'move') && (
                                                 <input
-                                                    className="rule-input rule-input-value"
+                                                    className={`${styles['rule-input']} ${styles['rule-input-value']}`}
                                                     value={editingRule.action_value ?? ''}
                                                     onChange={e => setEditingRule({ ...editingRule, action_value: e.target.value })}
                                                     placeholder={editingRule.action_type === 'move' ? 'Folder ID...' : 'Value...'}
@@ -943,51 +946,51 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 />
                                             )}
                                         </div>
-                                        {ruleError && <p className="rule-error" role="alert">{ruleError}</p>}
-                                        <div className="rule-form-actions">
-                                            <button className="secondary-btn" onClick={() => { setEditingRule(null); setRuleError(null); }}>Cancel</button>
-                                            <button className="primary-btn" onClick={handleSaveRule}>
-                                                {editingRule.id ? 'Update Rule' : 'Create Rule'}
+                                        {ruleError && <p className={styles['rule-error']} role="alert">{ruleError}</p>}
+                                        <div className={styles['rule-form-actions']}>
+                                            <button className={styles['secondary-btn']} onClick={() => { setEditingRule(null); setRuleError(null); }}>{t('settings.cancel')}</button>
+                                            <button className={styles['primary-btn']} onClick={handleSaveRule}>
+                                                {editingRule.id ? t('settings.updateRule') : t('settings.createRule')}
                                             </button>
                                         </div>
                                     </div>
                                 )}
 
                                 {rules.length === 0 && !editingRule && (
-                                    <p className="rules-empty">No mail rules configured. Rules automatically process incoming emails.</p>
+                                    <p className={styles['rules-empty']}>{t('settings.noRules')}</p>
                                 )}
 
                                 {rules.map(rule => (
-                                    <div key={rule.id} className={`rule-item ${rule.is_active ? '' : 'rule-item-disabled'}`}>
-                                        <div className="rule-item-info">
-                                            <GripVertical size={14} className="rule-grip" />
+                                    <div key={rule.id} className={`${styles['rule-item']} ${rule.is_active ? '' : styles['rule-item-disabled']}`}>
+                                        <div className={styles['rule-item-info']}>
+                                            <GripVertical size={14} className={styles['rule-grip']} />
                                             <button
-                                                className="rule-toggle"
+                                                className={styles['rule-toggle']}
                                                 role="switch"
                                                 aria-checked={!!rule.is_active}
                                                 onClick={() => handleToggleRule(rule)}
                                                 aria-label={`Toggle rule ${rule.name}`}
                                             >
-                                                <span className={`rule-toggle-dot ${rule.is_active ? 'rule-toggle-on' : ''}`} />
+                                                <span className={`${styles['rule-toggle-dot']} ${rule.is_active ? styles['rule-toggle-on'] : ''}`} />
                                             </button>
-                                            <div className="rule-item-text">
-                                                <span className="rule-name">{rule.name}</span>
-                                                <span className="rule-desc">
+                                            <div className={styles['rule-item-text']}>
+                                                <span className={styles['rule-name']}>{rule.name}</span>
+                                                <span className={styles['rule-desc']}>
                                                     If <strong>{rule.match_field}</strong> {rule.match_operator.replace('_', ' ')} &quot;{rule.match_value}&quot; → {rule.action_type.replace('_', ' ')}
                                                     {rule.action_value ? `: ${rule.action_value}` : ''}
                                                 </span>
                                             </div>
                                         </div>
-                                        <div className="rule-item-actions">
+                                        <div className={styles['rule-item-actions']}>
                                             <button
-                                                className="icon-btn"
+                                                className={styles['icon-btn']}
                                                 onClick={() => setEditingRule({ ...rule })}
                                                 aria-label={`Edit rule ${rule.name}`}
                                             >
                                                 <Pencil size={14} />
                                             </button>
                                             <button
-                                                className="icon-btn icon-btn-danger"
+                                                className={`${styles['icon-btn']} ${styles['icon-btn-danger']}`}
                                                 onClick={() => handleDeleteRule(rule.id)}
                                                 aria-label={`Delete rule ${rule.name}`}
                                             >
@@ -1001,856 +1004,6 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     </Tabs.Root>
                 </Dialog.Content>
             </Dialog.Portal>
-
-            <style>{`
-                .settings-overlay {
-                    position: fixed;
-                    inset: 0;
-                    background: rgba(0, 0, 0, 0.55);
-                    backdrop-filter: blur(8px);
-                    z-index: 1000;
-                    animation: overlayFadeIn 0.15s ease-out;
-                }
-
-                @keyframes overlayFadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-
-                .settings-modal {
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    width: 640px;
-                    max-height: 80vh;
-                    border-radius: 12px;
-                    background: rgb(var(--color-bg-elevated));
-                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-                    display: flex;
-                    flex-direction: column;
-                    overflow: hidden;
-                    z-index: 1001;
-                    animation: settingsFadeIn 0.2s ease-out;
-                }
-
-                @keyframes settingsFadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-
-                .settings-modal__header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 16px 20px;
-                    border-bottom: 1px solid var(--glass-border);
-                }
-
-                .settings-modal__title {
-                    font-size: 18px;
-                    font-weight: 600;
-                    color: var(--text-primary);
-                    margin: 0;
-                }
-
-                .close-btn {
-                    color: var(--text-secondary);
-                    padding: 6px;
-                    border-radius: 6px;
-                }
-
-                .close-btn:hover {
-                    background: var(--close-hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .settings-body {
-                    display: flex;
-                    flex: 1;
-                    overflow: hidden;
-                    min-height: 400px;
-                }
-
-                .settings-tabs {
-                    width: 160px;
-                    padding: 12px 8px;
-                    border-right: 1px solid var(--glass-border);
-                    display: flex;
-                    flex-direction: column;
-                    gap: 4px;
-                    flex-shrink: 0;
-                }
-
-                .tab-btn {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 10px 12px;
-                    border-radius: 6px;
-                    color: var(--text-secondary);
-                    font-size: 14px;
-                    font-weight: 500;
-                    width: 100%;
-                    text-align: left;
-                    background: none;
-                    border: none;
-                    cursor: pointer;
-                    font-family: inherit;
-                }
-
-                .tab-btn:hover {
-                    background: var(--hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .tab-btn[data-state="active"] {
-                    background: rgba(var(--color-accent), 0.12);
-                    color: var(--accent-color);
-                }
-
-                .settings-tab-panel {
-                    flex: 1;
-                    padding: 24px;
-                    overflow-y: auto;
-                }
-
-                .settings-tab-panel[data-state="inactive"] {
-                    display: none;
-                }
-
-                .section-title {
-                    font-size: 14px;
-                    font-weight: 600;
-                    color: var(--text-secondary);
-                    margin-bottom: 16px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                /* Accounts List */
-                .empty-accounts {
-                    text-align: center;
-                    padding: 32px 16px;
-                    color: var(--text-muted);
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    gap: 8px;
-                }
-
-                .account-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    padding: 12px 16px;
-                    border-radius: 8px;
-                    border: 1px solid var(--glass-border);
-                    background: var(--surface-overlay);
-                    margin-bottom: 8px;
-                    cursor: pointer;
-                    transition: border-color 0.2s;
-                }
-
-                .account-item:hover {
-                    border-color: var(--accent-color);
-                }
-
-                .account-item-avatar {
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 50%;
-                    background: var(--surface-inset);
-                    color: var(--text-secondary);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                }
-
-                .account-item-info {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    min-width: 0;
-                }
-
-                .account-item-email {
-                    font-size: 14px;
-                    font-weight: 500;
-                    color: var(--text-primary);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-
-                .account-item-provider {
-                    font-size: 12px;
-                    color: var(--text-muted);
-                }
-
-                .delete-btn {
-                    color: var(--text-muted);
-                    padding: 6px;
-                    border-radius: 6px;
-                    flex-shrink: 0;
-                }
-
-                .delete-btn:hover {
-                    color: rgb(var(--color-danger));
-                    background: rgba(var(--color-danger), 0.1);
-                }
-
-                .add-account-btn {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    width: 100%;
-                    padding: 12px;
-                    border-radius: 8px;
-                    border: 1px dashed var(--glass-border);
-                    color: var(--text-secondary);
-                    font-size: 14px;
-                    font-weight: 500;
-                    margin-top: 8px;
-                }
-
-                .add-account-btn:hover {
-                    background: var(--hover-bg);
-                    color: var(--accent-color);
-                    border-color: var(--accent-color);
-                }
-
-                /* Account Form */
-                .form-error {
-                    padding: 10px 14px;
-                    border-radius: 8px;
-                    background: rgba(var(--color-danger), 0.1);
-                    color: rgb(var(--color-danger));
-                    font-size: 13px;
-                    margin-bottom: 16px;
-                }
-
-                .form-group {
-                    margin-bottom: 16px;
-                }
-
-                .form-group-port {
-                    width: 100px;
-                    flex-shrink: 0;
-                }
-
-                .form-label {
-                    display: block;
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: var(--text-secondary);
-                    margin-bottom: 6px;
-                }
-
-                .form-input {
-                    width: 100%;
-                    padding: 8px 12px;
-                    border-radius: 6px;
-                    border: 1px solid var(--glass-border);
-                    background: var(--bg-primary);
-                    color: var(--text-primary);
-                    font-family: inherit;
-                    font-size: 14px;
-                    outline: none;
-                    transition: border-color 0.2s;
-                }
-
-                .form-input:focus {
-                    border-color: var(--accent-color);
-                }
-
-                .form-input::placeholder {
-                    color: var(--text-muted);
-                }
-
-                .signature-textarea {
-                    resize: vertical;
-                    min-height: 60px;
-                    max-height: 120px;
-                    font-family: inherit;
-                    line-height: 1.4;
-                }
-
-                .password-wrapper {
-                    position: relative;
-                }
-
-                .password-wrapper .form-input {
-                    padding-right: 40px;
-                }
-
-                .password-toggle {
-                    position: absolute;
-                    right: 8px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    color: var(--text-muted);
-                    padding: 4px;
-                    border-radius: 4px;
-                }
-
-                .password-toggle:hover {
-                    color: var(--text-primary);
-                }
-
-                .provider-mini-grid {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px;
-                }
-
-                .provider-chip {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 6px 14px;
-                    border-radius: 20px;
-                    border: 1px solid var(--glass-border);
-                    background: var(--surface-overlay);
-                    color: var(--text-secondary);
-                    font-size: 13px;
-                    font-weight: 500;
-                }
-
-                .provider-chip:hover {
-                    background: var(--hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .provider-chip.active {
-                    background: rgba(var(--color-accent), 0.12);
-                    border-color: var(--accent-color);
-                    color: var(--accent-color);
-                }
-
-                .server-fields {
-                    margin-bottom: 16px;
-                    border: 1px solid var(--glass-border);
-                    border-radius: 8px;
-                    overflow: hidden;
-                }
-
-                .server-header {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 10px 14px;
-                    width: 100%;
-                    background: var(--surface-overlay);
-                    color: var(--text-secondary);
-                    font-size: 13px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    border: none;
-                    font-family: inherit;
-                    text-align: left;
-                }
-
-                .server-header:hover {
-                    background: var(--hover-bg);
-                }
-
-                .toggle-hint {
-                    margin-left: auto;
-                    font-size: 12px;
-                    color: var(--text-muted);
-                }
-
-                .server-fields .form-row {
-                    display: flex;
-                    gap: 12px;
-                    padding: 0 14px;
-                }
-
-                .server-fields .form-row .form-group:first-child {
-                    flex: 1;
-                }
-
-                .server-fields .form-group:first-of-type {
-                    margin-top: 12px;
-                }
-
-                .form-row {
-                    display: flex;
-                    gap: 12px;
-                }
-
-                .form-actions {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    margin-top: 8px;
-                }
-
-                .test-btn {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 8px 16px;
-                    border-radius: 6px;
-                    font-size: 13px;
-                    font-weight: 500;
-                    border: 1px solid var(--glass-border);
-                    background: var(--surface-overlay);
-                    color: var(--text-secondary);
-                    font-family: inherit;
-                    cursor: pointer;
-                }
-
-                .test-btn:hover:not(:disabled) {
-                    background: var(--hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .test-btn:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-
-                .test-btn.test-passed {
-                    color: rgb(var(--color-success));
-                    border-color: rgb(var(--color-success));
-                }
-
-                .test-btn.test-failed {
-                    color: rgb(var(--color-danger));
-                    border-color: rgb(var(--color-danger));
-                }
-
-                .test-spin {
-                    animation: testSpinAnim 1s linear infinite;
-                }
-
-                @keyframes testSpinAnim {
-                    from { transform: rotate(0deg); }
-                    to { transform: rotate(360deg); }
-                }
-
-                .primary-btn {
-                    background: var(--accent-color);
-                    color: white;
-                    padding: 8px 20px;
-                    border-radius: 6px;
-                    font-weight: 500;
-                    font-size: 14px;
-                }
-
-                .primary-btn:hover {
-                    background: var(--accent-hover);
-                }
-
-                .primary-btn:disabled {
-                    opacity: 0.6;
-                    cursor: not-allowed;
-                }
-
-                .secondary-btn {
-                    background: var(--surface-inset);
-                    color: var(--text-primary);
-                    padding: 8px 20px;
-                    border-radius: 6px;
-                    font-weight: 500;
-                    font-size: 14px;
-                }
-
-                .secondary-btn:hover {
-                    background: var(--close-hover-bg);
-                }
-
-                /* Appearance Tab */
-                .setting-group {
-                    margin-bottom: 24px;
-                }
-
-                .options-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-                    gap: 12px;
-                }
-
-                .option-btn {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 16px;
-                    border-radius: 8px;
-                    border: 1px solid var(--glass-border);
-                    background: var(--surface-overlay);
-                    color: var(--text-secondary);
-                }
-
-                .option-btn:hover {
-                    background: var(--hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .option-btn.active {
-                    background: rgba(var(--color-accent), 0.12);
-                    border-color: var(--accent-color);
-                    color: var(--accent-color);
-                }
-
-                /* AI / API Keys Tab */
-                .ai-keys-view {
-                    padding: 4px 0;
-                }
-
-                .apikey-description {
-                    font-size: 13px;
-                    color: var(--text-secondary);
-                    margin-bottom: 20px;
-                    line-height: 1.5;
-                }
-
-                .apikey-input-wrapper {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-
-                .apikey-input-wrapper .form-input {
-                    flex: 1;
-                    font-family: monospace;
-                }
-
-                .apikey-actions {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    margin-top: 16px;
-                }
-
-                .apikey-status {
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    font-size: 13px;
-                    font-weight: 500;
-                }
-
-                .apikey-saved {
-                    color: rgb(var(--color-success));
-                }
-
-                .apikey-error {
-                    color: rgb(var(--color-danger));
-                }
-
-                .apikey-hint {
-                    margin-top: 20px;
-                    font-size: 12px;
-                    color: var(--text-muted);
-                }
-
-                .lang-select {
-                    width: 100%;
-                    padding: 8px 12px;
-                    border-radius: 6px;
-                    border: 1px solid var(--glass-border);
-                    background: rgb(var(--color-bg-base));
-                    color: var(--text-primary);
-                    font-size: 14px;
-                    font-family: var(--font-sans);
-                }
-
-                .lang-select:focus {
-                    outline: none;
-                    border-color: var(--accent-color);
-                }
-
-                /* Notifications Tab */
-                .notif-settings-view {
-                    padding: 4px 0;
-                }
-
-                .notif-toggle-row {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    padding: 12px 0;
-                }
-
-                .notif-label {
-                    font-size: 14px;
-                    font-weight: 500;
-                    color: var(--text-primary);
-                }
-
-                .notif-switch {
-                    width: 44px;
-                    height: 24px;
-                    border-radius: 12px;
-                    background: var(--glass-border);
-                    position: relative;
-                    cursor: pointer;
-                    transition: background 0.2s;
-                    padding: 0;
-                    flex-shrink: 0;
-                }
-
-                .notif-switch-on {
-                    background: var(--accent-color);
-                }
-
-                .notif-switch-thumb {
-                    position: absolute;
-                    top: 2px;
-                    left: 2px;
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 50%;
-                    background: white;
-                    transition: transform 0.2s;
-                    pointer-events: none;
-                }
-
-                .notif-switch-on .notif-switch-thumb {
-                    transform: translateX(20px);
-                }
-
-                .notif-description {
-                    font-size: 12px;
-                    color: var(--text-secondary);
-                    margin-top: 4px;
-                    line-height: 1.5;
-                }
-
-                /* Rules Tab */
-                .rules-view {
-                    padding: 4px 0;
-                }
-
-                .rules-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 12px;
-                }
-
-                .add-rule-btn {
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    padding: 6px 12px;
-                    border-radius: 6px;
-                    background: var(--accent-color);
-                    color: white;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-
-                .add-rule-btn:hover {
-                    background: var(--accent-hover);
-                }
-
-                .rule-editor {
-                    background: var(--surface-overlay);
-                    border: 1px solid var(--glass-border);
-                    border-radius: 8px;
-                    padding: 16px;
-                    margin-bottom: 12px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 10px;
-                }
-
-                .rule-form-row {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-
-                .rule-form-row label {
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: var(--text-secondary);
-                    min-width: 40px;
-                }
-
-                .rule-label-text {
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: var(--text-secondary);
-                    min-width: 40px;
-                }
-
-                .rule-input {
-                    flex: 1;
-                    padding: 6px 10px;
-                    border-radius: 6px;
-                    border: 1px solid var(--glass-border);
-                    background: rgb(var(--color-bg-base));
-                    color: var(--text-primary);
-                    font-size: 13px;
-                }
-
-                .rule-input:focus {
-                    outline: none;
-                    border-color: var(--accent-color);
-                }
-
-                .rule-select {
-                    padding: 6px 10px;
-                    border-radius: 6px;
-                    border: 1px solid var(--glass-border);
-                    background: rgb(var(--color-bg-base));
-                    color: var(--text-primary);
-                    font-size: 13px;
-                }
-
-                .rule-form-condition {
-                    flex-wrap: wrap;
-                }
-
-                .rule-input-value {
-                    min-width: 120px;
-                }
-
-                .rule-error {
-                    color: var(--color-danger);
-                    font-size: 12px;
-                    margin: 0;
-                }
-
-                .rule-form-actions {
-                    display: flex;
-                    gap: 8px;
-                    justify-content: flex-end;
-                    margin-top: 4px;
-                }
-
-                .rules-empty {
-                    color: var(--text-secondary);
-                    font-size: 13px;
-                    text-align: center;
-                    padding: 24px 0;
-                }
-
-                .rule-item {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    padding: 10px 12px;
-                    border: 1px solid var(--glass-border);
-                    border-radius: 8px;
-                    margin-bottom: 8px;
-                }
-
-                .rule-item-disabled {
-                    opacity: 0.5;
-                }
-
-                .rule-item-info {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    flex: 1;
-                    min-width: 0;
-                }
-
-                .rule-grip {
-                    color: var(--text-secondary);
-                    flex-shrink: 0;
-                }
-
-                .rule-toggle {
-                    width: 32px;
-                    height: 18px;
-                    border-radius: 9px;
-                    background: var(--glass-border);
-                    position: relative;
-                    cursor: pointer;
-                    padding: 0;
-                    flex-shrink: 0;
-                    transition: background 0.2s;
-                }
-
-                .rule-toggle:has(.rule-toggle-on) {
-                    background: var(--accent-color);
-                }
-
-                .rule-toggle-dot {
-                    position: absolute;
-                    top: 2px;
-                    left: 2px;
-                    width: 14px;
-                    height: 14px;
-                    border-radius: 50%;
-                    background: white;
-                    transition: transform 0.2s;
-                    pointer-events: none;
-                }
-
-                .rule-toggle-on {
-                    transform: translateX(14px);
-                }
-
-                .rule-item-text {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 2px;
-                    min-width: 0;
-                }
-
-                .rule-name {
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: var(--text-primary);
-                }
-
-                .rule-desc {
-                    font-size: 11px;
-                    color: var(--text-secondary);
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
-
-                .rule-item-actions {
-                    display: flex;
-                    gap: 4px;
-                    flex-shrink: 0;
-                }
-
-                .icon-btn {
-                    padding: 4px;
-                    border-radius: 4px;
-                    color: var(--text-secondary);
-                }
-
-                .icon-btn:hover {
-                    background: var(--hover-bg);
-                    color: var(--text-primary);
-                }
-
-                .icon-btn-danger:hover {
-                    color: var(--color-danger);
-                }
-
-                @media (prefers-reduced-motion: reduce) {
-                    .settings-overlay,
-                    .settings-modal {
-                        animation: none;
-                    }
-                    .test-spin {
-                        animation-duration: 0s;
-                    }
-                    .notif-switch,
-                    .notif-switch-thumb,
-                    .rule-toggle,
-                    .rule-toggle-dot {
-                        transition: none;
-                    }
-                }
-            `}</style>
         </Dialog.Root>
     );
 };

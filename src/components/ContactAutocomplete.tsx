@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type FC } from 'react';
 import { ipcInvoke } from '../lib/ipc';
+import styles from './ContactAutocomplete.module.css';
 
 interface Contact {
     id: string;
@@ -134,7 +135,7 @@ export const ContactAutocomplete: FC<ContactAutocompleteProps> = ({
                 <ul
                     id={listboxId}
                     role="listbox"
-                    className="contact-suggestions"
+                    className={styles['suggestions']}
                     aria-label="Contact suggestions"
                 >
                     {suggestions.map((contact, index) => (
@@ -143,18 +144,19 @@ export const ContactAutocomplete: FC<ContactAutocompleteProps> = ({
                             id={`${id}-option-${index}`}
                             role="option"
                             aria-selected={highlightIndex === index}
-                            className={`contact-suggestion-item${highlightIndex === index ? ' highlighted' : ''}`}
+                            className={`${styles['suggestion-item']}${highlightIndex === index ? ` ${styles['suggestion-item-highlighted']}` : ''}`}
+                            data-highlighted={highlightIndex === index ? 'true' : undefined}
                             onMouseDown={(e) => {
                                 e.preventDefault(); // Prevent blur
                                 selectSuggestion(contact);
                             }}
                             onMouseEnter={() => setHighlightIndex(index)}
                         >
-                            <span className="contact-suggestion-name">
+                            <span className={styles['suggestion-name']}>
                                 {contact.name ?? contact.email}
                             </span>
                             {contact.name && (
-                                <span className="contact-suggestion-email">
+                                <span className={styles['suggestion-email']}>
                                     {contact.email}
                                 </span>
                             )}
@@ -162,49 +164,6 @@ export const ContactAutocomplete: FC<ContactAutocompleteProps> = ({
                     ))}
                 </ul>
             )}
-            <style>{`
-                .contact-suggestions {
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    z-index: 50;
-                    background: rgb(var(--color-bg-elevated));
-                    border: 1px solid var(--glass-border);
-                    border-radius: 8px;
-                    padding: 4px;
-                    margin-top: 2px;
-                    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-                    list-style: none;
-                    max-height: 200px;
-                    overflow-y: auto;
-                }
-
-                .contact-suggestion-item {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1px;
-                    padding: 8px 10px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 13px;
-                }
-
-                .contact-suggestion-item:hover,
-                .contact-suggestion-item.highlighted {
-                    background: var(--hover-bg);
-                }
-
-                .contact-suggestion-name {
-                    color: var(--text-primary);
-                    font-weight: 500;
-                }
-
-                .contact-suggestion-email {
-                    color: var(--text-secondary);
-                    font-size: 12px;
-                }
-            `}</style>
         </div>
     );
 };

@@ -115,9 +115,9 @@ describe('ComposeModal', () => {
 
     it('renders compose form with title and all fields', () => {
         renderCompose();
-        expect(screen.getByText('New Message')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('Recipient...')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('Subject...')).toBeInTheDocument();
+        expect(screen.getByText('compose.newMessage')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('compose.recipientPlaceholder')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('compose.subjectPlaceholder')).toBeInTheDocument();
         expect(screen.getByTestId('compose-editor')).toBeInTheDocument();
     });
 
@@ -131,29 +131,29 @@ describe('ComposeModal', () => {
     it('calls onClose when close button is clicked', () => {
         const onClose = vi.fn();
         renderCompose({ onClose });
-        fireEvent.click(screen.getByLabelText('Close compose'));
+        fireEvent.click(screen.getByLabelText('compose.close'));
         expect(onClose).toHaveBeenCalled();
     });
 
     it('shows CC/BCC fields when toggle is clicked', () => {
         renderCompose();
-        expect(screen.queryByPlaceholderText('CC recipients...')).not.toBeInTheDocument();
-        fireEvent.click(screen.getByLabelText('Toggle CC and BCC fields'));
-        expect(screen.getByPlaceholderText('CC recipients...')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('BCC recipients...')).toBeInTheDocument();
+        expect(screen.queryByPlaceholderText('compose.ccPlaceholder')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByLabelText('compose.toggleCcBcc'));
+        expect(screen.getByPlaceholderText('compose.ccPlaceholder')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('compose.bccPlaceholder')).toBeInTheDocument();
     });
 
     it('shows validation error when To is empty on send', async () => {
         renderCompose();
-        fireEvent.click(screen.getByText('Send'));
-        expect(screen.getByRole('alert')).toHaveTextContent('Recipient is required');
+        fireEvent.click(screen.getByText('compose.send'));
+        expect(screen.getByRole('alert')).toHaveTextContent('compose.recipientRequired');
     });
 
     it('shows validation error when Subject is empty on send', async () => {
         renderCompose();
-        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
-        fireEvent.click(screen.getByText('Send'));
-        expect(screen.getByRole('alert')).toHaveTextContent('Subject is required');
+        fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+        fireEvent.click(screen.getByText('compose.send'));
+        expect(screen.getByRole('alert')).toHaveTextContent('compose.subjectRequired');
     });
 
     it('calls email:send IPC with correct params on successful send', async () => {
@@ -162,9 +162,9 @@ describe('ComposeModal', () => {
         mockEditorContent = '<p>Hello world</p>';
         renderCompose({ onClose });
 
-        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
-        fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'Test Subject' } });
-        fireEvent.click(screen.getByText('Send'));
+        fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+        fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+        fireEvent.click(screen.getByText('compose.send'));
 
         await waitFor(() => {
             expect(mockIpcInvoke).toHaveBeenCalledWith('email:send', expect.objectContaining({
@@ -185,28 +185,28 @@ describe('ComposeModal', () => {
             initialSubject: 'Re: Hello',
             initialBody: 'Original message',
         });
-        expect(screen.getByPlaceholderText('Recipient...')).toHaveValue('reply@test.com');
-        expect(screen.getByPlaceholderText('Subject...')).toHaveValue('Re: Hello');
+        expect(screen.getByPlaceholderText('compose.recipientPlaceholder')).toHaveValue('reply@test.com');
+        expect(screen.getByPlaceholderText('compose.subjectPlaceholder')).toHaveValue('Re: Hello');
     });
 
     it('shows error when no account is configured', async () => {
         useEmailStore.setState({ accounts: [] });
         renderCompose();
-        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
-        fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'Sub' } });
-        fireEvent.click(screen.getByText('Send'));
-        expect(screen.getByRole('alert')).toHaveTextContent('No account configured');
+        fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+        fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Sub' } });
+        fireEvent.click(screen.getByText('compose.send'));
+        expect(screen.getByRole('alert')).toHaveTextContent('compose.noAccount');
     });
 
     it('renders toolbar with formatting buttons', () => {
         renderCompose();
-        expect(screen.getByTitle('Bold')).toBeInTheDocument();
-        expect(screen.getByTitle('Italic')).toBeInTheDocument();
-        expect(screen.getByTitle('Underline')).toBeInTheDocument();
-        expect(screen.getByTitle('Bullet List')).toBeInTheDocument();
-        expect(screen.getByTitle('Ordered List')).toBeInTheDocument();
-        expect(screen.getByTitle('Insert Link')).toBeInTheDocument();
-        expect(screen.getByTitle('Attach Files')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.bold')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.italic')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.underline')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.bulletList')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.orderedList')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.insertLink')).toBeInTheDocument();
+        expect(screen.getByTitle('compose.attachFiles')).toBeInTheDocument();
     });
 
     it('adds attachments when file picker returns files', async () => {
@@ -217,7 +217,7 @@ describe('ComposeModal', () => {
             return null;
         });
         renderCompose();
-        fireEvent.click(screen.getByTitle('Attach Files'));
+        fireEvent.click(screen.getByTitle('compose.attachFiles'));
         await waitFor(() => {
             expect(screen.getByText('doc.pdf')).toBeInTheDocument();
             expect(screen.getByText('5000 bytes')).toBeInTheDocument();
@@ -232,11 +232,11 @@ describe('ComposeModal', () => {
             return null;
         });
         renderCompose();
-        fireEvent.click(screen.getByTitle('Attach Files'));
+        fireEvent.click(screen.getByTitle('compose.attachFiles'));
         await waitFor(() => {
             expect(screen.getByText('doc.pdf')).toBeInTheDocument();
         });
-        fireEvent.click(screen.getByLabelText('Remove doc.pdf'));
+        fireEvent.click(screen.getByLabelText('compose.removeAttachment'));
         expect(screen.queryByText('doc.pdf')).not.toBeInTheDocument();
     });
 
@@ -251,12 +251,12 @@ describe('ComposeModal', () => {
         const onClose = vi.fn();
         renderCompose({ onClose });
 
-        fireEvent.click(screen.getByTitle('Attach Files'));
+        fireEvent.click(screen.getByTitle('compose.attachFiles'));
         await waitFor(() => expect(screen.getByText('doc.pdf')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
-        fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'With attachment' } });
-        fireEvent.click(screen.getByText('Send'));
+        fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+        fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'With attachment' } });
+        fireEvent.click(screen.getByText('compose.send'));
 
         await waitFor(() => {
             expect(mockIpcInvoke).toHaveBeenCalledWith('email:send', expect.objectContaining({
@@ -287,9 +287,9 @@ describe('ComposeModal', () => {
         const onClose = vi.fn();
         renderCompose({ onClose });
 
-        fireEvent.change(screen.getByPlaceholderText('Recipient...'), { target: { value: 'user@test.com' } });
-        fireEvent.change(screen.getByPlaceholderText('Subject...'), { target: { value: 'Sub' } });
-        fireEvent.click(screen.getByText('Send'));
+        fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+        fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Sub' } });
+        fireEvent.click(screen.getByText('compose.send'));
 
         await waitFor(() => {
             const call = mockIpcInvoke.mock.calls.find(c => c[0] === 'email:send');

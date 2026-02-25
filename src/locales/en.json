@@ -65,7 +65,15 @@
     "noAccount": "No account configured",
     "sendFailed": "Failed to send email",
     "scheduleFailed": "Failed to schedule email",
-    "scheduleError": "An error occurred while scheduling"
+    "scheduleError": "An error occurred while scheduling",
+    "sendError": "An error occurred while sending",
+    "ccBcc": "CC/BCC",
+    "maxAttachments": "Maximum 10 attachments allowed (currently {{count}})",
+    "exceedsTotalSize": "Total attachments exceed 25MB limit",
+    "fileExceedsSize": "{{filename}} exceeds the 25MB limit",
+    "removeAttachment": "Remove {{filename}}",
+    "enterUrl": "Enter URL:",
+    "scheduleLabel": "Schedule send for:"
   },
   "settings": {
     "title": "Settings",
@@ -125,14 +133,53 @@
     "allDone": "All done!",
     "next": "Next",
     "back": "Back",
-    "finish": "Finish Setup"
+    "finish": "Finish Setup",
+    "description": "Your AI-powered email client. Connect your email account to get started.",
+    "providerSubtitle": "Select your provider for automatic server configuration",
+    "accountDetails": "Account details",
+    "connectingTo": "Connecting to {{provider}}",
+    "enterYourCredentials": "Enter your account credentials",
+    "emailRequired": "Email address is required",
+    "passwordRequired": "Password is required",
+    "serverRequired": "IMAP and SMTP server addresses are required",
+    "connectionFailed": "Connection failed: {{error}}",
+    "addFailed": "Failed to add account. Please check your details.",
+    "connect": "Connect",
+    "connecting": "Connecting...",
+    "testingConnection": "Testing connection...",
+    "serverSettings": "Server settings",
+    "serverSubtitle": "Configure your IMAP and SMTP servers",
+    "incomingMail": "Incoming Mail (IMAP)",
+    "outgoingMail": "Outgoing Mail (SMTP)",
+    "host": "Host",
+    "port": "Port",
+    "optional": "(optional)",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "toast": {
     "scheduledSent": "Scheduled email sent successfully",
     "scheduledFailed": "Scheduled email failed: {{error}}",
     "reminderNote": "Reminder: {{note}}",
     "reminderSubject": "Reminder: {{subject}}",
-    "reminderDefault": "Reminder: Follow up on email"
+    "reminderDefault": "Reminder: Follow up on email",
+    "dismissNotification": "Dismiss notification"
+  },
+  "datetime": {
+    "laterToday": "Later Today",
+    "tomorrow9am": "Tomorrow 9 AM",
+    "nextMonday": "Next Monday",
+    "customDateTime": "Custom date & time",
+    "pickCustom": "Pick a custom date and time",
+    "cancel": "Cancel"
+  },
+  "update": {
+    "readyToInstall": "Version {{version}} is ready to install.",
+    "available": "Version {{version}} is available.",
+    "restartUpdate": "Restart & Update",
+    "downloading": "Downloading...",
+    "download": "Download",
+    "dismiss": "Dismiss update banner"
   },
   "common": {
     "from": "From",

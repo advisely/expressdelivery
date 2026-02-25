@@ -1,0 +1,329 @@
+/* Radix UI Dialog.Overlay — rendered in a portal, must be global */
+:global(.compose-overlay) {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    animation: overlayFadeIn 0.15s ease-out;
+}
+
+/* Radix UI Dialog.Content — rendered in a portal, must be global */
+:global(.compose-modal) {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation: composeFadeIn 0.2s ease-out;
+    width: 640px;
+    max-height: 80vh;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    background: rgb(var(--color-bg-elevated));
+    color: var(--text-primary);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    z-index: 1001;
+}
+
+.compose-modal__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.compose-modal__title {
+    font-weight: 600;
+    font-size: 14px;
+    margin: 0;
+}
+
+.compose-close-btn {
+    color: var(--text-secondary);
+    padding: 6px;
+    border-radius: 6px;
+}
+
+.compose-close-btn:hover {
+    background: var(--close-hover-bg);
+    color: var(--text-primary);
+}
+
+.compose-fields {
+    display: flex;
+    flex-direction: column;
+}
+
+.field-row {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.field-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+    width: 60px;
+}
+
+.compose-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 0;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+}
+
+.ccbcc-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ccbcc-toggle:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.compose-error {
+    padding: 8px 16px;
+    color: rgb(var(--color-danger));
+    font-size: 13px;
+}
+
+.toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.toolbar-btn {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--text-secondary);
+}
+
+.toolbar-btn:hover {
+    background: var(--close-hover-bg);
+    color: var(--text-primary);
+}
+
+.toolbar-btn-active {
+    background: rgba(var(--color-accent), 0.15);
+    color: var(--accent-color);
+}
+
+.editor-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.tiptap-editor {
+    flex: 1;
+    padding: 16px;
+    font-size: 15px;
+    font-family: inherit;
+    line-height: 1.6;
+    min-height: 200px;
+    color: var(--text-primary);
+}
+
+/* TipTap injects .tiptap onto the contenteditable div — must use :global */
+.tiptap-editor :global(.tiptap) {
+    outline: none;
+    min-height: 180px;
+}
+
+.tiptap-editor :global(.tiptap) p {
+    margin: 0 0 0.5em;
+}
+
+.tiptap-editor :global(.tiptap) a {
+    color: var(--accent-color);
+    text-decoration: underline;
+}
+
+.tiptap-editor :global(.tiptap) ul,
+.tiptap-editor :global(.tiptap) ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+
+.signature-preview {
+    padding: 0 16px 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.signature-divider {
+    border: none;
+    border-top: 1px solid var(--glass-border);
+    margin: 0 0 8px;
+}
+
+.signature-content {
+    line-height: 1.4;
+}
+
+.compose-modal__footer {
+    padding: 12px 16px;
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid var(--glass-border);
+}
+
+.send-btn-group {
+    display: flex;
+    align-items: stretch;
+}
+
+.send-btn {
+    background: var(--accent-color);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.send-btn-main {
+    padding: 8px 16px;
+    border-radius: 6px 0 0 6px;
+}
+
+.send-btn-dropdown {
+    padding: 8px 8px;
+    border-radius: 0 6px 6px 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.send-btn:hover {
+    background: var(--accent-hover);
+}
+
+.send-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Radix UI DropdownMenu.Content — rendered in a portal, must be global */
+:global(.send-dropdown-content) {
+    background: rgb(var(--color-bg-elevated));
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    z-index: 1100;
+    min-width: 180px;
+}
+
+/* Radix UI DropdownMenu.Item — rendered in a portal, must be global */
+:global(.send-dropdown-item) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+    outline: none;
+}
+
+:global(.send-dropdown-item:hover),
+:global(.send-dropdown-item[data-highlighted]) {
+    background: var(--hover-bg);
+}
+
+.schedule-picker-inline {
+    flex: 1;
+}
+
+.compose-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.compose-attachment-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--glass-border);
+    font-size: 12px;
+    color: var(--text-primary);
+    max-width: 240px;
+}
+
+.compose-att-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+}
+
+.compose-att-size {
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.compose-att-remove {
+    padding: 2px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+}
+
+.compose-att-remove:hover {
+    background: var(--close-hover-bg);
+    color: rgb(var(--color-danger));
+}
+
+/* Keyframes must be global so the animation name is available to portal elements */
+:global {
+    @keyframes overlayFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @keyframes composeFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :global(.compose-overlay),
+    :global(.compose-modal) {
+        animation: none !important;
+    }
+}

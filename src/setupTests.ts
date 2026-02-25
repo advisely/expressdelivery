@@ -17,3 +17,20 @@ vi.mock('electron', () => {
         },
     };
 });
+
+// Mock react-i18next globally so components with useTranslation() work in tests
+vi.mock('react-i18next', () => ({
+    useTranslation: () => ({
+        t: (key: string, opts?: Record<string, unknown>) => {
+            // Return interpolated key for testing (e.g., "toast.scheduledFailed" with {error: "x"} => "toast.scheduledFailed")
+            void opts;
+            return key;
+        },
+        i18n: {
+            language: 'en',
+            changeLanguage: vi.fn().mockResolvedValue(undefined),
+        },
+    }),
+    Trans: ({ children }: { children: React.ReactNode }) => children,
+    initReactI18next: { type: '3rdParty', init: vi.fn() },
+}));

@@ -3,11 +3,13 @@ import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
+import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
 import type { Attachment, EmailFull, EmailSummary } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
 import { formatFileSize } from '../lib/formatFileSize';
 import DateTimePicker from './DateTimePicker';
+import styles from './ReadingPane.module.css';
 
 interface ReadingPaneProps {
     onReply?: (email: EmailFull) => void;
@@ -51,6 +53,7 @@ function processRemoteImages(html: string, block: boolean): { html: string; coun
 }
 
 export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) => {
+    const { t } = useTranslation();
     const selectedEmail = useEmailStore(s => s.selectedEmail);
     const folders = useEmailStore(s => s.folders);
     const { setSelectedEmail, setEmails } = useEmailStore();
@@ -244,19 +247,8 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
 
     if (!selectedEmail) {
         return (
-            <div className="reading-pane" style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--text-muted)', fontSize: 16
-            }}>
-                Select an email to read
-                <style>{`
-                    .reading-pane {
-                      flex: 1;
-                      display: flex;
-                      flex-direction: column;
-                      background: var(--bg-primary);
-                    }
-                `}</style>
+            <div className={styles['reading-pane-empty']}>
+                {t('readingPane.noSelection')}
             </div>
         );
     }
@@ -269,42 +261,42 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     const downloadableAttachments = attachments.filter(a => !a.content_id);
 
     return (
-        <div className="reading-pane scrollable">
-            <div className="pane-header glass">
+        <div className={`${styles['reading-pane']} scrollable`}>
+            <div className={`${styles['pane-header']} glass`}>
                 {actionError && (
-                    <div className="reading-pane-error" role="alert">{actionError}</div>
+                    <div className={styles['reading-pane-error']} role="alert">{actionError}</div>
                 )}
-                <div className="actions">
+                <div className={styles.actions}>
                     <button
-                        className="icon-btn"
-                        title="Reply"
-                        aria-label="Reply"
+                        className={styles['icon-btn']}
+                        title={t('readingPane.reply')}
+                        aria-label={t('readingPane.reply')}
                         onClick={() => onReply?.(selectedEmail)}
                     >
                         <Reply size={18} />
                     </button>
                     <button
-                        className="icon-btn"
-                        title="Forward"
-                        aria-label="Forward"
+                        className={styles['icon-btn']}
+                        title={t('readingPane.forward')}
+                        aria-label={t('readingPane.forward')}
                         onClick={() => onForward?.(selectedEmail)}
                     >
                         <Forward size={18} />
                     </button>
                     <button
-                        className="icon-btn"
-                        title="Delete"
-                        aria-label="Delete"
+                        className={styles['icon-btn']}
+                        title={t('readingPane.delete')}
+                        aria-label={t('readingPane.delete')}
                         onClick={handleDelete}
                     >
                         <Trash2 size={18} />
                     </button>
-                    <button className="icon-btn" title="Archive (E)" aria-label="Archive" onClick={handleArchive}>
+                    <button className={styles['icon-btn']} title={t('readingPane.archive')} aria-label={t('readingPane.archive')} onClick={handleArchive}>
                         <Archive size={18} />
                     </button>
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger asChild>
-                            <button className="icon-btn" title="Move to folder" aria-label="Move to folder">
+                            <button className={styles['icon-btn']} title={t('readingPane.moveTo')} aria-label={t('readingPane.moveTo')}>
                                 <FolderInput size={18} />
                             </button>
                         </DropdownMenu.Trigger>
@@ -328,9 +320,9 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>
                     <button
-                        className={`icon-btn${selectedEmail.is_flagged ? ' flag-active' : ''}`}
-                        title={selectedEmail.is_flagged ? 'Unflag' : 'Flag'}
-                        aria-label={selectedEmail.is_flagged ? 'Unflag' : 'Flag'}
+                        className={`${styles['icon-btn']}${selectedEmail.is_flagged ? ` ${styles['flag-active']}` : ''}`}
+                        title={selectedEmail.is_flagged ? t('readingPane.unstar') : t('readingPane.star')}
+                        aria-label={selectedEmail.is_flagged ? t('readingPane.unstar') : t('readingPane.star')}
                         onClick={handleToggleFlag}
                     >
                         <Star
@@ -340,7 +332,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     </button>
                     <Popover.Root open={snoozeOpen} onOpenChange={setSnoozeOpen}>
                         <Popover.Trigger asChild>
-                            <button className="icon-btn" title="Snooze" aria-label="Snooze">
+                            <button className={styles['icon-btn']} title={t('readingPane.snooze')} aria-label={t('readingPane.snooze')}>
                                 <Clock size={18} />
                             </button>
                         </Popover.Trigger>
@@ -356,7 +348,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     </Popover.Root>
                     <Popover.Root open={reminderOpen} onOpenChange={setReminderOpen}>
                         <Popover.Trigger asChild>
-                            <button className="icon-btn" title="Remind me" aria-label="Set reminder">
+                            <button className={styles['icon-btn']} title={t('readingPane.reminder')} aria-label={t('readingPane.reminder')}>
                                 <Bell size={18} />
                             </button>
                         </Popover.Trigger>
@@ -373,40 +365,40 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                 </div>
             </div>
 
-            <div className="email-content animate-fade-in">
-                <h1 className="subject-title">{selectedEmail.subject}</h1>
+            <div className={`${styles['email-content']} animate-fade-in`}>
+                <h1 className={styles['subject-title']}>{selectedEmail.subject}</h1>
 
-                <div className="email-meta">
-                    <div className="avatar">{initial}</div>
-                    <div className="meta-info">
-                        <div className="sender-row">
-                            <span className="sender-name">{selectedEmail.from_name}</span>
-                            <span className="sender-email">&lt;{selectedEmail.from_email}&gt;</span>
+                <div className={styles['email-meta']}>
+                    <div className={styles.avatar}>{initial}</div>
+                    <div className={styles['meta-info']}>
+                        <div className={styles['sender-row']}>
+                            <span className={styles['sender-name']}>{selectedEmail.from_name}</span>
+                            <span className={styles['sender-email']}>&lt;{selectedEmail.from_email}&gt;</span>
                         </div>
-                        <div className="to-row">
-                            <span className="to-label">to {selectedEmail.to_email}</span>
+                        <div className={styles['to-row']}>
+                            <span className={styles['to-label']}>to {selectedEmail.to_email}</span>
                         </div>
                     </div>
-                    <div className="date-time">
+                    <div className={styles['date-time']}>
                         {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString() : ''}
                     </div>
                 </div>
 
                 {(selectedEmail.ai_category || selectedEmail.ai_priority != null || selectedEmail.ai_labels) && (
-                    <div className="rp-ai-meta-row">
+                    <div className={styles['rp-ai-meta-row']}>
                         {selectedEmail.ai_priority != null && selectedEmail.ai_priority >= 1 && selectedEmail.ai_priority <= 4 && (
-                            <span className={`rp-priority-badge rp-priority-${selectedEmail.ai_priority}`}>
+                            <span className={`${styles['rp-priority-badge']} ${styles[`rp-priority-${selectedEmail.ai_priority}`]}`}>
                                 {['', 'Low', 'Normal', 'High', 'Urgent'][selectedEmail.ai_priority]}
                             </span>
                         )}
                         {selectedEmail.ai_category && (
-                            <span className="rp-category-badge">{selectedEmail.ai_category}</span>
+                            <span className={styles['rp-category-badge']}>{selectedEmail.ai_category}</span>
                         )}
                         {selectedEmail.ai_labels && (() => {
                             try {
                                 const labels = JSON.parse(selectedEmail.ai_labels) as string[];
                                 return Array.isArray(labels) ? labels.slice(0, 5).map((label, i) => (
-                                    <span key={`${label}-${i}`} className="rp-label-badge">{label}</span>
+                                    <span key={`${label}-${i}`} className={styles['rp-label-badge']}>{label}</span>
                                 )) : null;
                             } catch { return null; }
                         })()}
@@ -414,17 +406,17 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                 )}
 
                 {remoteImageCount > 0 && remoteImagesBlocked && (
-                    <div className="remote-images-banner" role="status">
+                    <div className={styles['remote-images-banner']} role="status">
                         <ShieldAlert size={16} />
-                        <span>Remote images blocked for privacy.</span>
-                        <button className="load-images-btn" onClick={handleLoadRemoteImages}>Load images</button>
+                        <span>{t('readingPane.remoteImagesBlocked')}</span>
+                        <button className={styles['load-images-btn']} onClick={handleLoadRemoteImages}>{t('readingPane.loadImages')}</button>
                     </div>
                 )}
 
-                <div className="email-body">
+                <div className={styles['email-body']}>
                     {processedHtml ? (
                         <div
-                            className="email-body-html"
+                            className={styles['email-body-html']}
                             dangerouslySetInnerHTML={{ __html: processedHtml }}
                         />
                     ) : (
@@ -435,26 +427,26 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                 </div>
 
                 {downloadableAttachments.length > 0 && (
-                    <div className="attachments-section">
-                        <div className="attachments-header">
+                    <div className={styles['attachments-section']}>
+                        <div className={styles['attachments-header']}>
                             <Paperclip size={14} />
                             <span>{downloadableAttachments.length} attachment{downloadableAttachments.length !== 1 ? 's' : ''}</span>
                         </div>
-                        <div className="attachments-list">
+                        <div className={styles['attachments-list']}>
                             {downloadableAttachments.map(att => (
                                 <button
                                     key={att.id}
-                                    className="attachment-chip"
+                                    className={styles['attachment-chip']}
                                     onClick={() => handleDownloadAttachment(att)}
                                     disabled={downloadingId === att.id}
                                     title={`Download ${att.filename} (${formatFileSize(att.size)})`}
                                     aria-label={`Download attachment ${att.filename}`}
                                 >
                                     <FileText size={14} />
-                                    <span className="attachment-name">{att.filename}</span>
-                                    <span className="attachment-size">{formatFileSize(att.size)}</span>
+                                    <span className={styles['attachment-name']}>{att.filename}</span>
+                                    <span className={styles['attachment-size']}>{formatFileSize(att.size)}</span>
                                     {downloadingId === att.id ? (
-                                        <span className="attachment-spinner" />
+                                        <span className={styles['attachment-spinner']} />
                                     ) : (
                                         <Download size={14} />
                                     )}
@@ -464,352 +456,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     </div>
                 )}
             </div>
-
-            <style>{`
-        .reading-pane {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          background: var(--bg-primary);
-        }
-
-        .pane-header {
-          padding: 12px 24px;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-          border-bottom: 1px solid var(--glass-border);
-          position: sticky;
-          top: 0;
-          z-index: 10;
-        }
-
-        .actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .icon-btn {
-          width: 36px;
-          height: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 6px;
-          color: var(--text-secondary);
-          transition: background 0.15s, color 0.15s;
-        }
-
-        .icon-btn:hover {
-          background: var(--hover-bg);
-          color: var(--text-primary);
-        }
-
-        .flag-active {
-          color: rgb(var(--color-flag));
-          fill: rgb(var(--color-flag));
-        }
-
-        .reading-pane-error {
-          padding: 6px 24px;
-          color: rgb(var(--color-danger));
-          font-size: 13px;
-        }
-
-        .email-content {
-          padding: 32px 48px;
-          max-width: 800px;
-        }
-
-        .subject-title {
-          font-size: 24px;
-          font-weight: 600;
-          margin-bottom: 24px;
-          color: var(--text-primary);
-        }
-
-        .email-meta {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 32px;
-        }
-
-        .avatar {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 18px;
-          font-weight: 500;
-        }
-
-        .meta-info {
-          flex: 1;
-        }
-
-        .sender-row {
-          display: flex;
-          align-items: baseline;
-          gap: 8px;
-        }
-
-        .sender-name {
-          font-weight: 600;
-          font-size: 15px;
-        }
-
-        .sender-email {
-          color: var(--text-secondary);
-          font-size: 13px;
-        }
-
-        .to-row {
-          font-size: 12px;
-          color: var(--text-secondary);
-        }
-
-        .date-time {
-          font-size: 13px;
-          color: var(--text-secondary);
-        }
-
-        .rp-ai-meta-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-          margin-bottom: 16px;
-        }
-
-        .rp-priority-badge {
-          font-size: 11px;
-          font-weight: 600;
-          padding: 2px 8px;
-          border-radius: 4px;
-        }
-
-        .rp-priority-1 { background: rgba(var(--color-text-muted), 0.1); color: var(--text-muted); }
-        .rp-priority-2 { background: rgba(var(--color-accent), 0.1); color: var(--accent-color); }
-        .rp-priority-3 { background: rgba(var(--color-flag), 0.15); color: rgb(var(--color-flag)); }
-        .rp-priority-4 { background: rgba(var(--color-danger), 0.15); color: rgb(var(--color-danger)); }
-
-        .rp-category-badge {
-          font-size: 11px;
-          font-weight: 600;
-          padding: 2px 8px;
-          border-radius: 4px;
-          background: rgba(var(--color-accent), 0.1);
-          color: var(--accent-color);
-        }
-
-        .rp-label-badge {
-          font-size: 10px;
-          padding: 2px 6px;
-          border-radius: 4px;
-          background: var(--surface-overlay);
-          color: var(--text-secondary);
-        }
-
-        .email-body {
-          font-size: 15px;
-          line-height: 1.6;
-          color: var(--text-primary);
-        }
-
-        .email-body-html {
-          font-size: 14px;
-          line-height: 1.6;
-          color: var(--text-primary);
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-        }
-
-        .email-body-html a {
-          color: var(--accent-color);
-        }
-
-        .email-body-html img {
-          max-width: 100%;
-          height: auto;
-        }
-
-        .email-body-html table {
-          max-width: 100%;
-          overflow-x: auto;
-        }
-
-        .remote-images-banner {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 12px;
-          margin-bottom: 16px;
-          border-radius: 8px;
-          background: rgba(var(--color-flag), 0.1);
-          border: 1px solid rgba(var(--color-flag), 0.3);
-          color: var(--text-primary);
-          font-size: 13px;
-        }
-
-        .load-images-btn {
-          margin-left: auto;
-          padding: 4px 12px;
-          border-radius: 4px;
-          background: var(--accent-color);
-          color: white;
-          font-size: 12px;
-          font-weight: 600;
-          white-space: nowrap;
-        }
-
-        .load-images-btn:hover {
-          background: var(--accent-hover);
-        }
-
-        .action-button {
-          background: var(--accent-color);
-          color: white;
-          padding: 8px 16px;
-          border-radius: 6px;
-          font-weight: 500;
-          font-size: 14px;
-        }
-
-        .action-button:hover {
-          background: var(--accent-hover);
-        }
-
-        .move-menu {
-          min-width: 180px;
-          background: rgb(var(--color-bg-elevated));
-          border-radius: 8px;
-          padding: 4px;
-          box-shadow: 0 10px 38px -10px rgba(0,0,0,0.35), 0 10px 20px -15px rgba(0,0,0,0.2);
-          border: 1px solid var(--glass-border);
-          z-index: 100;
-          animation: menuFadeIn 0.15s ease-out;
-        }
-
-        .move-menu-item {
-          padding: 8px 12px;
-          border-radius: 4px;
-          font-size: 13px;
-          color: var(--text-primary);
-          cursor: pointer;
-          outline: none;
-          user-select: none;
-        }
-
-        .move-menu-item[data-highlighted] {
-          background: var(--hover-bg);
-          color: var(--text-primary);
-        }
-
-        .move-menu-item[data-disabled] {
-          color: var(--text-muted);
-          cursor: default;
-        }
-
-        @keyframes menuFadeIn {
-          from { opacity: 0; transform: translateY(-4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        .attachments-section {
-          margin-top: 24px;
-          padding-top: 16px;
-          border-top: 1px solid var(--glass-border);
-        }
-
-        .attachments-header {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--text-secondary);
-          margin-bottom: 8px;
-        }
-
-        .attachments-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .attachment-chip {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 12px;
-          border-radius: 8px;
-          background: var(--bg-secondary);
-          border: 1px solid var(--glass-border);
-          color: var(--text-primary);
-          font-size: 13px;
-          cursor: pointer;
-          transition: background 0.15s, border-color 0.15s;
-          max-width: 280px;
-        }
-
-        .attachment-chip:hover {
-          background: var(--hover-bg);
-          border-color: var(--accent-color);
-        }
-
-        .attachment-chip:disabled {
-          opacity: 0.6;
-          cursor: wait;
-        }
-
-        .attachment-name {
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 160px;
-        }
-
-        .attachment-size {
-          color: var(--text-secondary);
-          font-size: 11px;
-          white-space: nowrap;
-        }
-
-        .attachment-spinner {
-          width: 14px;
-          height: 14px;
-          border: 2px solid var(--glass-border);
-          border-top-color: var(--accent-color);
-          border-radius: 50%;
-          animation: attachSpin 0.6s linear infinite;
-        }
-
-        @keyframes attachSpin {
-          to { transform: rotate(360deg); }
-        }
-
-        .rp-popover {
-          background: rgb(var(--color-bg-elevated));
-          border-radius: 10px;
-          box-shadow: 0 10px 38px -10px rgba(0,0,0,0.35), 0 10px 20px -15px rgba(0,0,0,0.2);
-          border: 1px solid var(--glass-border);
-          z-index: 100;
-          animation: menuFadeIn 0.15s ease-out;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .move-menu, .rp-popover {
-            animation: none;
-          }
-          .attachment-spinner {
-            animation: none;
-          }
-        }
-      `}</style>
         </div>
     );
 };

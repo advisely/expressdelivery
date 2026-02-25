@@ -1,0 +1,92 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  min-width: 220px;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(var(--color-text-secondary));
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.preset-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--color-text-primary));
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  text-align: left;
+}
+
+.preset-btn:hover {
+  background: rgba(var(--color-text-primary), 0.06);
+}
+
+.preset-btn svg {
+  width: 15px;
+  height: 15px;
+  color: rgb(var(--color-accent));
+  flex-shrink: 0;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(var(--color-border), 0.5);
+  margin: 4px 0;
+}
+
+.custom-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgb(var(--color-text-secondary));
+  margin-bottom: 2px;
+}
+
+.input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(var(--color-border), 0.7);
+  border-radius: 6px;
+  background: rgb(var(--color-bg-tertiary));
+  color: rgb(var(--color-text-primary));
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  color-scheme: inherit;
+}
+
+.input:focus {
+  border-color: rgba(var(--color-accent), 0.8);
+  box-shadow: 0 0 0 3px rgba(var(--color-accent), 0.14);
+}
+
+.cancel-btn {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--color-text-secondary));
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.cancel-btn:hover {
+  background: rgba(var(--color-text-primary), 0.06);
+}

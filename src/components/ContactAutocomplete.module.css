@@ -1,0 +1,41 @@
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgb(var(--color-bg-elevated));
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 4px;
+  margin-top: 2px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.suggestion-item:hover,
+.suggestion-item-highlighted {
+  background: var(--hover-bg);
+}
+
+.suggestion-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.suggestion-email {
+  color: var(--text-secondary);
+  font-size: 12px;
+}

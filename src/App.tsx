@@ -9,9 +9,11 @@ import { OnboardingScreen } from './components/OnboardingScreen';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useEmailStore } from './stores/emailStore';
 import type { Account, EmailFull, EmailSummary, Folder } from './stores/emailStore';
+import { useTranslation } from 'react-i18next';
 import { ipcInvoke, ipcOn } from './lib/ipc';
 import { useKeyboardShortcuts } from './lib/useKeyboardShortcuts';
 import './index.css';
+import appStyles from './components/App.module.css';
 
 interface ErrorBoundaryState { hasError: boolean; error: Error | null }
 
@@ -46,6 +48,7 @@ interface ComposeState {
 }
 
 function App() {
+  const { t } = useTranslation();
   const [composeState, setComposeState] = useState<ComposeState | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const { accounts, setAccounts, setFolders, selectAccount, setSelectedEmail, selectEmail, setEmails } = useEmailStore();
@@ -62,14 +65,14 @@ function App() {
       const data = args[0] as { emailId?: string; subject?: string; note?: string } | undefined;
       if (!data) return;
       const msg = data.note
-        ? `Reminder: ${data.note}`
-        : `Reminder: ${data.subject ?? 'Follow up on email'}`;
+        ? t('toast.reminderNote', { note: data.note })
+        : data.subject ? t('toast.reminderSubject', { subject: data.subject }) : t('toast.reminderDefault');
       clearTimeout(toastTimerRef.current);
       setToast({ message: msg, emailId: data.emailId });
       toastTimerRef.current = setTimeout(() => setToast(null), 8000);
     });
     return () => { cleanup?.(); };
-  }, []);
+  }, [t]);
 
   // Listen for notification:click to navigate to email
   useEffect(() => {
@@ -91,17 +94,17 @@ function App() {
       const data = args[0] as { scheduledId?: string } | undefined;
       void data;
       clearTimeout(toastTimerRef.current);
-      setToast({ message: 'Scheduled email sent successfully' });
+      setToast({ message: t('toast.scheduledSent') });
       toastTimerRef.current = setTimeout(() => setToast(null), 5000);
     });
     const cleanupFailed = ipcOn('scheduled:failed', (...args: unknown[]) => {
       const data = args[0] as { error?: string } | undefined;
       clearTimeout(toastTimerRef.current);
-      setToast({ message: `Scheduled email failed: ${(data?.error ?? 'unknown error').slice(0, 200)}` });
+      setToast({ message: t('toast.scheduledFailed', { error: (data?.error ?? 'unknown error').slice(0, 200) }) });
       toastTimerRef.current = setTimeout(() => setToast(null), 8000);
     });
     return () => { cleanupSent?.(); cleanupFailed?.(); };
-  }, []);
+  }, [t]);
 
   const loadAccounts = useCallback(async () => {
     const result = await ipcInvoke<Account[]>('accounts:list');
@@ -262,57 +265,14 @@ function App() {
         )}
 
         {toast && (
-          <div className="toast-notification" role="alert" aria-live="polite">
+          <div className={appStyles['toast-notification']} role="alert" aria-live="polite">
             <span>{toast.message}</span>
-            <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss notification">
+            <button className={appStyles['toast-close']} onClick={() => setToast(null)} aria-label={t('toast.dismissNotification')}>
               &times;
             </button>
           </div>
         )}
       </div>
-      <style>{`
-        .toast-notification {
-          position: fixed;
-          bottom: 24px;
-          right: 24px;
-          background: rgb(var(--color-bg-elevated));
-          color: var(--text-primary);
-          border: 1px solid var(--glass-border);
-          border-radius: 8px;
-          padding: 12px 16px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-          z-index: 2000;
-          max-width: 400px;
-          font-size: 13px;
-          animation: toastSlideIn 0.2s ease-out;
-        }
-
-        .toast-close {
-          color: var(--text-secondary);
-          font-size: 18px;
-          line-height: 1;
-          padding: 2px 4px;
-          border-radius: 4px;
-          flex-shrink: 0;
-        }
-
-        .toast-close:hover {
-          background: var(--hover-bg);
-          color: var(--text-primary);
-        }
-
-        @keyframes toastSlideIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .toast-notification { animation: none !important; }
-        }
-      `}</style>
     </ErrorBoundary>
   );
 }

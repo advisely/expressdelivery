@@ -65,7 +65,15 @@
     "noAccount": "Kein Konto konfiguriert",
     "sendFailed": "Senden fehlgeschlagen",
     "scheduleFailed": "Planung fehlgeschlagen",
-    "scheduleError": "Fehler bei der Planung"
+    "scheduleError": "Fehler bei der Planung",
+    "sendError": "Fehler beim Senden",
+    "ccBcc": "CC/BCC",
+    "maxAttachments": "Maximal 10 Anhänge erlaubt (aktuell {{count}})",
+    "exceedsTotalSize": "Anhänge überschreiten das 25-MB-Limit",
+    "fileExceedsSize": "{{filename}} überschreitet das 25-MB-Limit",
+    "removeAttachment": "{{filename}} entfernen",
+    "enterUrl": "URL eingeben:",
+    "scheduleLabel": "Senden planen für:"
   },
   "settings": {
     "title": "Einstellungen",
@@ -125,14 +133,53 @@
     "allDone": "Fertig!",
     "next": "Weiter",
     "back": "Zurück",
-    "finish": "Einrichtung abschließen"
+    "finish": "Einrichtung abschließen",
+    "description": "Ihr KI-gestützter E-Mail-Client. Verbinden Sie Ihr Konto, um zu beginnen.",
+    "providerSubtitle": "Wählen Sie Ihren Anbieter für automatische Konfiguration",
+    "accountDetails": "Kontodetails",
+    "connectingTo": "Verbindung zu {{provider}}",
+    "enterYourCredentials": "Geben Sie Ihre Zugangsdaten ein",
+    "emailRequired": "E-Mail-Adresse erforderlich",
+    "passwordRequired": "Passwort erforderlich",
+    "serverRequired": "IMAP- und SMTP-Serveradressen erforderlich",
+    "connectionFailed": "Verbindung fehlgeschlagen: {{error}}",
+    "addFailed": "Konto konnte nicht hinzugefügt werden. Überprüfen Sie Ihre Angaben.",
+    "connect": "Verbinden",
+    "connecting": "Verbindung...",
+    "testingConnection": "Verbindung wird getestet...",
+    "serverSettings": "Servereinstellungen",
+    "serverSubtitle": "Konfigurieren Sie Ihre IMAP- und SMTP-Server",
+    "incomingMail": "Eingehende Post (IMAP)",
+    "outgoingMail": "Ausgehende Post (SMTP)",
+    "host": "Host",
+    "port": "Port",
+    "optional": "(optional)",
+    "showPassword": "Passwort anzeigen",
+    "hidePassword": "Passwort verbergen"
   },
   "toast": {
     "scheduledSent": "Geplante E-Mail gesendet",
     "scheduledFailed": "Geplanter Versand fehlgeschlagen: {{error}}",
     "reminderNote": "Erinnerung: {{note}}",
     "reminderSubject": "Erinnerung: {{subject}}",
-    "reminderDefault": "Erinnerung: E-Mail nachverfolgen"
+    "reminderDefault": "Erinnerung: E-Mail nachverfolgen",
+    "dismissNotification": "Benachrichtigung schließen"
+  },
+  "datetime": {
+    "laterToday": "Später heute",
+    "tomorrow9am": "Morgen 9 Uhr",
+    "nextMonday": "Nächsten Montag",
+    "customDateTime": "Benutzerdefiniert",
+    "pickCustom": "Datum und Uhrzeit wählen",
+    "cancel": "Abbrechen"
+  },
+  "update": {
+    "readyToInstall": "Version {{version}} ist bereit zur Installation.",
+    "available": "Version {{version}} ist verfügbar.",
+    "restartUpdate": "Neustart und aktualisieren",
+    "downloading": "Wird heruntergeladen...",
+    "download": "Herunterladen",
+    "dismiss": "Update-Banner schließen"
   },
   "common": {
     "from": "Von",

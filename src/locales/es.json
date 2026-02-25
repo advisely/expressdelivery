@@ -65,7 +65,15 @@
     "noAccount": "Sin cuenta configurada",
     "sendFailed": "Error al enviar",
     "scheduleFailed": "Error al programar",
-    "scheduleError": "Error al programar el envío"
+    "scheduleError": "Error al programar el envío",
+    "sendError": "Error al enviar el correo",
+    "ccBcc": "CC/CCO",
+    "maxAttachments": "Máximo 10 adjuntos (actualmente {{count}})",
+    "exceedsTotalSize": "Los adjuntos superan el límite de 25 MB",
+    "fileExceedsSize": "{{filename}} supera el límite de 25 MB",
+    "removeAttachment": "Eliminar {{filename}}",
+    "enterUrl": "Ingrese la URL:",
+    "scheduleLabel": "Programar envío para:"
   },
   "settings": {
     "title": "Ajustes",
@@ -125,14 +133,53 @@
     "allDone": "¡Listo!",
     "next": "Siguiente",
     "back": "Atrás",
-    "finish": "Finalizar"
+    "finish": "Finalizar",
+    "description": "Tu cliente de correo inteligente. Conecta tu cuenta para empezar.",
+    "providerSubtitle": "Selecciona tu proveedor para configuración automática",
+    "accountDetails": "Detalles de la cuenta",
+    "connectingTo": "Conectando a {{provider}}",
+    "enterYourCredentials": "Ingresa tus credenciales",
+    "emailRequired": "El correo electrónico es obligatorio",
+    "passwordRequired": "La contraseña es obligatoria",
+    "serverRequired": "Las direcciones de los servidores IMAP y SMTP son obligatorias",
+    "connectionFailed": "Error de conexión: {{error}}",
+    "addFailed": "Error al agregar la cuenta. Verifica tus datos.",
+    "connect": "Conectar",
+    "connecting": "Conectando...",
+    "testingConnection": "Probando conexión...",
+    "serverSettings": "Configuración del servidor",
+    "serverSubtitle": "Configura tus servidores IMAP y SMTP",
+    "incomingMail": "Correo entrante (IMAP)",
+    "outgoingMail": "Correo saliente (SMTP)",
+    "host": "Host",
+    "port": "Puerto",
+    "optional": "(opcional)",
+    "showPassword": "Mostrar contraseña",
+    "hidePassword": "Ocultar contraseña"
   },
   "toast": {
     "scheduledSent": "Correo programado enviado",
     "scheduledFailed": "Error en envío programado: {{error}}",
     "reminderNote": "Recordatorio: {{note}}",
     "reminderSubject": "Recordatorio: {{subject}}",
-    "reminderDefault": "Recordatorio: seguimiento de correo"
+    "reminderDefault": "Recordatorio: seguimiento de correo",
+    "dismissNotification": "Cerrar notificación"
+  },
+  "datetime": {
+    "laterToday": "Más tarde hoy",
+    "tomorrow9am": "Mañana 9 AM",
+    "nextMonday": "Próximo lunes",
+    "customDateTime": "Fecha y hora personalizadas",
+    "pickCustom": "Elegir fecha y hora",
+    "cancel": "Cancelar"
+  },
+  "update": {
+    "readyToInstall": "La versión {{version}} está lista para instalar.",
+    "available": "La versión {{version}} está disponible.",
+    "restartUpdate": "Reiniciar y actualizar",
+    "downloading": "Descargando...",
+    "download": "Descargar",
+    "dismiss": "Cerrar banner de actualización"
   },
   "common": {
     "from": "De",
