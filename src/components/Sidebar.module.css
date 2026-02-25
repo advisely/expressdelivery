@@ -242,3 +242,54 @@
   color: rgb(var(--color-danger));
   background: rgba(var(--color-danger), 0.1);
 }
+
+/* IMAP sync status indicator */
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.sync-none {
+  background: var(--text-muted);
+}
+
+.sync-error {
+  background: rgb(var(--color-danger));
+}
+
+.sync-connecting {
+  background: rgb(var(--color-flag));
+  animation: sync-pulse 1.5s ease-in-out infinite;
+}
+
+.sync-connected {
+  background: rgb(var(--color-success));
+}
+
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-connecting {
+    animation: none;
+  }
+}
+
+.sync-label {
+  font-size: 12px;
+}

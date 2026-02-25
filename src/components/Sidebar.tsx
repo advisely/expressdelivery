@@ -48,6 +48,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const [snoozedCount, setSnoozedCount] = useState(0);
   const [scheduledCount, setScheduledCount] = useState(0);
   const [unifiedUnreadCount, setUnifiedUnreadCount] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
+  const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected'>('none');
+  const [lastCheckLabel, setLastCheckLabel] = useState('');
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
 
@@ -124,6 +127,50 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
     });
     return () => { cancelled = true; cleanup?.(); };
   }, []);
+
+  // IMAP connection status + last sync time
+  useEffect(() => {
+    let cancelled = false;
+
+    if (selectedAccountId) {
+      ipcInvoke<{ status: string; lastSync: number | null }>('imap:status', selectedAccountId).then(result => {
+        if (result && !cancelled) {
+          setImapStatus(result.status as 'none' | 'error' | 'connecting' | 'connected');
+          if (result.lastSync) setLastSyncTime(result.lastSync);
+        }
+      });
+    }
+
+    const cleanupSync = ipcOn('sync:status', (...args: unknown[]) => {
+      const data = args[0] as { accountId?: string; status?: string; timestamp?: number } | undefined;
+      if (data && !cancelled && data.accountId === selectedAccountId) {
+        if (data.status) setImapStatus(data.status as 'none' | 'error' | 'connecting' | 'connected');
+        if (data.timestamp) setLastSyncTime(data.timestamp);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cleanupSync?.();
+      setImapStatus('none');
+      setLastSyncTime(null);
+    };
+  }, [selectedAccountId]);
+
+  // Update "last check" label every 10 seconds
+  useEffect(() => {
+    function updateLabel() {
+      if (!lastSyncTime) { setLastCheckLabel(''); return; }
+      const diffSec = Math.floor((Date.now() - lastSyncTime) / 1000);
+      if (diffSec < 60) setLastCheckLabel(`${diffSec}s ago`);
+      else if (diffSec < 3600) setLastCheckLabel(`${Math.floor(diffSec / 60)}m ago`);
+      else if (diffSec < 86400) setLastCheckLabel(`${Math.floor(diffSec / 3600)}h ago`);
+      else setLastCheckLabel(`${Math.floor(diffSec / 86400)}d ago`);
+    }
+    updateLabel();
+    const timer = setInterval(updateLabel, 10_000);
+    return () => clearInterval(timer);
+  }, [lastSyncTime]);
 
   return (
     <aside className={`${styles['sidebar']} glass`}>
@@ -243,6 +290,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
       </nav>
 
       <div className={styles['sidebar-footer']}>
+        <div className={styles['sync-status']} aria-label={`Last sync: ${lastCheckLabel || 'never'}`}>
+          <div className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`} />
+          <span className={styles['sync-label']}>
+            {lastCheckLabel ? `Last check: ${lastCheckLabel}` : accounts.length > 0 ? 'Not synced' : 'No account'}
+          </span>
+        </div>
         <div className={styles['mcp-status']} aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
           <div className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`} />
           <span className={styles['mcp-label']}>

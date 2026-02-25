@@ -132,6 +132,10 @@ export class ImapEngine {
         this.onNewEmail = cb;
     }
 
+    isConnected(accountId: string): boolean {
+        return this.clients.has(accountId);
+    }
+
     async testConnection(params: {
         email: string;
         password: string;
@@ -474,6 +478,41 @@ export class ImapEngine {
             const { content } = await client.download(String(emailUid), partNumber, { uid: true });
             const chunks: Buffer[] = [];
             let totalBytes = 0;
+            for await (const chunk of content) {
+                const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                totalBytes += buf.length;
+                if (totalBytes > MAX_BODY_BYTES) break;
+                chunks.push(buf);
+            }
+            return Buffer.concat(chunks).toString('utf-8');
+        } catch {
+            return null;
+        } finally {
+            lock.release();
+        }
+    }
+
+    async fetchBodyHtml(accountId: string, emailUid: number, mailbox: string): Promise<string | null> {
+        const client = this.clients.get(accountId);
+        if (!client) return null;
+
+        const lock = await client.getMailboxLock(mailbox);
+        try {
+            // Fetch bodyStructure to find the correct HTML part
+            let htmlPart: string | null = null;
+            for await (const message of client.fetch(String(emailUid), { bodyStructure: true, uid: true })) {
+                if (message.bodyStructure) {
+                    const parts = findTextParts(message.bodyStructure as BodyStructureNode);
+                    htmlPart = parts.htmlPart;
+                }
+            }
+            if (!htmlPart) return null;
+
+            // Download that specific part (ImapFlow auto-decodes base64/quoted-printable)
+            const { content } = await client.download(String(emailUid), htmlPart, { uid: true });
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
+            const MAX_BODY_BYTES = 2 * 1024 * 1024;
             for await (const chunk of content) {
                 const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
                 totalBytes += buf.length;

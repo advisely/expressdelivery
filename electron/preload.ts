@@ -70,6 +70,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'templates:create',
   'templates:update',
   'templates:delete',
+  // IMAP connection status
+  'imap:status',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [

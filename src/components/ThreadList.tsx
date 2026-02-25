@@ -1,5 +1,5 @@
 import { memo, useEffect, useCallback, useRef } from 'react';
-import { Search, Paperclip } from 'lucide-react';
+import { Search, Paperclip, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
 import type { EmailSummary, EmailFull } from '../stores/emailStore';
@@ -10,9 +10,10 @@ interface ThreadItemProps {
     thread: EmailSummary;
     isSelected: boolean;
     onSelect: (id: string) => void;
+    onDelete: (id: string) => void;
 }
 
-const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect }) => (
+const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect, onDelete }) => (
     <div
         role="button"
         tabIndex={0}
@@ -20,6 +21,15 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect }) => (
         onClick={() => onSelect(thread.id)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(thread.id); } }}
     >
+        <button
+            className={styles['thread-delete-btn']}
+            onClick={(e) => { e.stopPropagation(); onDelete(thread.id); }}
+            title="Delete"
+            aria-label="Delete email"
+            type="button"
+        >
+            <Trash2 size={14} />
+        </button>
         <div className={styles['thread-item-header']}>
             <span className={styles['sender']}>{thread.from_name || thread.from_email}</span>
             <span className={styles['thread-meta']}>
@@ -113,6 +123,19 @@ export const ThreadList: React.FC = () => {
         if (full) setSelectedEmail(full);
     }, [emails, selectEmail, setEmails, setSelectedEmail]);
 
+    const handleDeleteEmail = useCallback(async (emailId: string) => {
+        const result = await ipcInvoke<{ success: boolean }>('emails:delete', emailId);
+        if (result?.success) {
+            if (useEmailStore.getState().selectedEmailId === emailId) {
+                setSelectedEmail(null);
+            }
+            if (selectedFolderId) {
+                const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
+                if (refreshed) setEmails(refreshed);
+            }
+        }
+    }, [selectedFolderId, setEmails, setSelectedEmail]);
+
     return (
         <div className={`${styles['thread-list']} scrollable`}>
             <div className={`${styles['thread-list-header']} glass`}>
@@ -140,6 +163,7 @@ export const ThreadList: React.FC = () => {
                         thread={thread}
                         isSelected={selectedEmailId === thread.id}
                         onSelect={handleSelectEmail}
+                        onDelete={handleDeleteEmail}
                     />
                 ))}
             </div>

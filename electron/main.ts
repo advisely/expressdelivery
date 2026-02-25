@@ -45,6 +45,10 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null
 let tray: Tray | null = null
 
+// Track last successful IMAP sync timestamp per account (module-level so it's
+// accessible from both the new-email callback and the imap:status IPC handler)
+const lastSyncTimestamps: Map<string, number> = new Map();
+
 function getMimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -109,6 +113,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
       devTools: !!VITE_DEV_SERVER_URL,
     },
   })
@@ -116,6 +121,14 @@ function createWindow() {
   win.once('ready-to-show', () => {
     win?.show();
   })
+
+  // Minimize to tray instead of closing (prevents app.quit on idle)
+  win.on('close', (e) => {
+    if (!(app as unknown as { isQuitting: boolean }).isQuitting) {
+      e.preventDefault();
+      win?.hide();
+    }
+  });
 
   // Use the app icon for the system tray; fall back to a transparent 1x1 buffer
   // if the file isn't present (e.g. during first-run before public/ is populated).
@@ -165,9 +178,13 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
-})
+});
+
+// Flag to distinguish intentional quit vs window close
+(app as unknown as { isQuitting: boolean }).isQuitting = false;
 
 app.on('before-quit', async () => {
+  (app as unknown as { isQuitting: boolean }).isQuitting = true;
   logDebug('before-quit: cleaning up...');
   schedulerEngine.stop();
   if (tray) {
@@ -415,7 +432,7 @@ function registerIpcHandlers() {
         if (folder) {
           const mailbox = folder.path.replace(/^\//, '');
           try {
-            const html = await imapEngine.downloadPart(email.account_id as string, uidForFetch, mailbox, '2');
+            const html = await imapEngine.fetchBodyHtml(email.account_id as string, uidForFetch, mailbox);
             if (html && html.includes('<')) {
               db.prepare('UPDATE emails SET body_html = ? WHERE id = ?').run(html, emailId);
               email.body_html = html;
@@ -602,6 +619,12 @@ function registerIpcHandlers() {
        INNER JOIN folders f ON e.folder_id = f.id
        WHERE f.type = 'inbox' AND e.is_read = 0 AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)`
     ).get();
+  });
+
+  ipcMain.handle('imap:status', (_event, accountId: string) => {
+    const connected = imapEngine.isConnected(accountId);
+    const lastSync = lastSyncTimestamps.get(accountId) ?? null;
+    return { status: connected ? 'connected' : 'error', lastSync };
   });
 
   const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key']);
@@ -1338,8 +1361,11 @@ app.whenReady().then(() => {
 
   // Wire up email:new IPC event from IMAP sync
   imapEngine.setNewEmailCallback((accountId, folderId, count) => {
+    const now = Date.now();
+    lastSyncTimestamps.set(accountId, now);
     if (win && !win.isDestroyed()) {
       win.webContents.send('email:new', { accountId, folderId, count });
+      win.webContents.send('sync:status', { accountId, status: 'connected', timestamp: now });
     }
     if (count > 0) {
       showNotification('New Email', `${count} new message${count > 1 ? 's' : ''} received`);
@@ -1413,6 +1439,11 @@ app.whenReady().then(() => {
             const inbox = folders.find(f => f.type === 'inbox');
             if (inbox) {
               await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
+              const now = Date.now();
+              lastSyncTimestamps.set(account.id, now);
+              if (win && !win.isDestroyed()) {
+                win.webContents.send('sync:status', { accountId: account.id, status: 'connected', timestamp: now });
+              }
             }
           }
         })
