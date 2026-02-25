@@ -1,10 +1,11 @@
 import { useState, useEffect, type FC, type ElementType } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
-    CheckCircle2, XCircle, Loader, Key
+    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil
 } from 'lucide-react';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
@@ -59,6 +60,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const { accounts, addAccount, updateAccount, removeAccount, selectAccount, selectFolder, setFolders } = useEmailStore();
     const { layout, setLayout } = useLayout();
     const { themeName, setTheme } = useThemeStore();
+    const { i18n } = useTranslation();
 
     // API key state
     const [apiKey, setApiKey] = useState('');
@@ -66,7 +68,26 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [apiKeySaving, setApiKeySaving] = useState(false);
     const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'saved' | 'error'>('idle');
 
-    // Load API key on mount
+    // Notification settings state
+    const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+    // Mail rules state
+    interface MailRule {
+        id: string;
+        name: string;
+        priority: number;
+        is_active: number;
+        match_field: string;
+        match_operator: string;
+        match_value: string;
+        action_type: string;
+        action_value: string | null;
+    }
+    const [rules, setRules] = useState<MailRule[]>([]);
+    const [editingRule, setEditingRule] = useState<Partial<MailRule> | null>(null);
+    const [ruleError, setRuleError] = useState<string | null>(null);
+
+    // Load API key and notification settings on mount
     useEffect(() => {
         let cancelled = false;
         async function loadApiKey() {
@@ -77,7 +98,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                 if (!cancelled) setApiKeyStatus('error');
             }
         }
+        async function loadNotifSettings() {
+            const val = await ipcInvoke<string | null>('settings:get', 'notifications_enabled');
+            if (!cancelled) setNotificationsEnabled(val !== 'false');
+        }
         loadApiKey();
+        loadNotifSettings();
         return () => { cancelled = true; };
     }, []);
 
@@ -88,6 +114,19 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             setApiKey('');
         };
     }, []);
+
+    // Load rules for first account
+    const rulesAccountId = accounts[0]?.id;
+    useEffect(() => {
+        if (!rulesAccountId) return;
+        let cancelled = false;
+        async function loadRules() {
+            const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
+            if (result && !cancelled) setRules(result);
+        }
+        loadRules();
+        return () => { cancelled = true; };
+    }, [rulesAccountId]);
 
     const resetForm = () => {
         setSelectedPreset(null);
@@ -133,6 +172,72 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             setApiKeyStatus('error');
         } finally {
             setApiKeySaving(false);
+        }
+    };
+
+    const handleToggleNotifications = async (enabled: boolean) => {
+        setNotificationsEnabled(enabled);
+        await ipcInvoke('settings:set', 'notifications_enabled', enabled ? 'true' : 'false');
+    };
+
+    const handleSaveRule = async () => {
+        if (!editingRule || !rulesAccountId) return;
+        setRuleError(null);
+        if (!editingRule.name?.trim()) { setRuleError('Rule name is required'); return; }
+        if (!editingRule.match_value?.trim()) { setRuleError('Match value is required'); return; }
+        try {
+            if (editingRule.id) {
+                await ipcInvoke('rules:update', {
+                    ruleId: editingRule.id,
+                    name: editingRule.name,
+                    matchField: editingRule.match_field,
+                    matchOperator: editingRule.match_operator,
+                    matchValue: editingRule.match_value,
+                    actionType: editingRule.action_type,
+                    actionValue: editingRule.action_value,
+                    isActive: !!editingRule.is_active,
+                });
+            } else {
+                await ipcInvoke('rules:create', {
+                    accountId: rulesAccountId,
+                    name: editingRule.name,
+                    matchField: editingRule.match_field ?? 'from',
+                    matchOperator: editingRule.match_operator ?? 'contains',
+                    matchValue: editingRule.match_value,
+                    actionType: editingRule.action_type ?? 'mark_read',
+                    actionValue: editingRule.action_value,
+                });
+            }
+            const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
+            if (result) setRules(result);
+            setEditingRule(null);
+        } catch {
+            setRuleError('Failed to save rule');
+        }
+    };
+
+    const handleDeleteRule = async (ruleId: string) => {
+        if (!rulesAccountId) return;
+        try {
+            await ipcInvoke('rules:delete', ruleId, rulesAccountId);
+            const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
+            if (result) setRules(result);
+        } catch {
+            setRuleError('Failed to delete rule');
+        }
+    };
+
+    const handleToggleRule = async (rule: MailRule) => {
+        if (!rulesAccountId) return;
+        try {
+            await ipcInvoke('rules:update', {
+                ruleId: rule.id,
+                isActive: !rule.is_active,
+            });
+            const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
+            if (result) setRules(result);
+        } catch {
+            setRuleError('Failed to toggle rule');
         }
     };
 
@@ -368,6 +473,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             <Tabs.Trigger className="tab-btn" value="ai">
                                 <Key size={16} />
                                 <span>AI / API Keys</span>
+                            </Tabs.Trigger>
+                            <Tabs.Trigger className="tab-btn" value="notifications">
+                                <Bell size={16} />
+                                <span>Notifications</span>
+                            </Tabs.Trigger>
+                            <Tabs.Trigger className="tab-btn" value="rules">
+                                <Filter size={16} />
+                                <span>Rules</span>
                             </Tabs.Trigger>
                         </Tabs.List>
 
@@ -636,6 +749,24 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         ))}
                                     </div>
                                 </div>
+
+                                <div className="setting-group">
+                                    <h3 className="section-title">Language</h3>
+                                    <select
+                                        className="lang-select"
+                                        value={i18n.language}
+                                        onChange={e => {
+                                            i18n.changeLanguage(e.target.value);
+                                            ipcInvoke('settings:set', 'locale', e.target.value);
+                                        }}
+                                        aria-label="Language"
+                                    >
+                                        <option value="en">English</option>
+                                        <option value="fr">Français</option>
+                                        <option value="es">Español</option>
+                                        <option value="de">Deutsch</option>
+                                    </select>
+                                </div>
                             </div>
                         </Tabs.Content>
 
@@ -701,6 +832,170 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <p className="apikey-hint">
                                     Get your API key at <strong>openrouter.ai/keys</strong>
                                 </p>
+                            </div>
+                        </Tabs.Content>
+
+                        <Tabs.Content className="settings-tab-panel" value="notifications" forceMount>
+                            <div className="notif-settings-view">
+                                <h3 className="section-title">Notification Preferences</h3>
+                                <div className="notif-toggle-row">
+                                    <label htmlFor="notif-enabled-toggle" className="notif-label">
+                                        Desktop Notifications
+                                    </label>
+                                    <button
+                                        id="notif-enabled-toggle"
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={notificationsEnabled}
+                                        className={`notif-switch ${notificationsEnabled ? 'notif-switch-on' : ''}`}
+                                        onClick={() => handleToggleNotifications(!notificationsEnabled)}
+                                    >
+                                        <span className="notif-switch-thumb" />
+                                    </button>
+                                </div>
+                                <p className="notif-description">
+                                    Receive desktop notifications for new emails, reminders, and scheduled send results.
+                                </p>
+                            </div>
+                        </Tabs.Content>
+
+                        <Tabs.Content className="settings-tab-panel" value="rules" forceMount>
+                            <div className="rules-view">
+                                <div className="rules-header">
+                                    <h3 className="section-title">Mail Rules</h3>
+                                    <button
+                                        className="add-rule-btn"
+                                        onClick={() => setEditingRule({
+                                            name: '', match_field: 'from', match_operator: 'contains',
+                                            match_value: '', action_type: 'mark_read', action_value: null, is_active: 1,
+                                        })}
+                                    >
+                                        <Plus size={14} /> New Rule
+                                    </button>
+                                </div>
+
+                                {editingRule && (
+                                    <div className="rule-editor">
+                                        <div className="rule-form-row">
+                                            <label htmlFor="rule-name">Name</label>
+                                            <input
+                                                id="rule-name"
+                                                className="rule-input"
+                                                value={editingRule.name ?? ''}
+                                                onChange={e => setEditingRule({ ...editingRule, name: e.target.value })}
+                                                placeholder="Rule name..."
+                                            />
+                                        </div>
+                                        <div className="rule-form-row rule-form-condition">
+                                            <span className="rule-label-text">If</span>
+                                            <select
+                                                className="rule-select"
+                                                value={editingRule.match_field ?? 'from'}
+                                                onChange={e => setEditingRule({ ...editingRule, match_field: e.target.value })}
+                                                aria-label="Match field"
+                                            >
+                                                <option value="from">From</option>
+                                                <option value="subject">Subject</option>
+                                                <option value="body">Body</option>
+                                                <option value="has_attachment">Has Attachment</option>
+                                            </select>
+                                            <select
+                                                className="rule-select"
+                                                value={editingRule.match_operator ?? 'contains'}
+                                                onChange={e => setEditingRule({ ...editingRule, match_operator: e.target.value })}
+                                                aria-label="Match operator"
+                                            >
+                                                <option value="contains">contains</option>
+                                                <option value="equals">equals</option>
+                                                <option value="starts_with">starts with</option>
+                                                <option value="ends_with">ends with</option>
+                                            </select>
+                                            <input
+                                                className="rule-input rule-input-value"
+                                                value={editingRule.match_value ?? ''}
+                                                onChange={e => setEditingRule({ ...editingRule, match_value: e.target.value })}
+                                                placeholder="Value..."
+                                                aria-label="Match value"
+                                            />
+                                        </div>
+                                        <div className="rule-form-row rule-form-condition">
+                                            <span className="rule-label-text">Then</span>
+                                            <select
+                                                className="rule-select"
+                                                value={editingRule.action_type ?? 'mark_read'}
+                                                onChange={e => setEditingRule({ ...editingRule, action_type: e.target.value, action_value: null })}
+                                                aria-label="Action type"
+                                            >
+                                                <option value="mark_read">Mark as Read</option>
+                                                <option value="flag">Flag</option>
+                                                <option value="delete">Delete</option>
+                                                <option value="label">Add Label</option>
+                                                <option value="categorize">Set Category</option>
+                                                <option value="move">Move to Folder</option>
+                                            </select>
+                                            {(editingRule.action_type === 'label' || editingRule.action_type === 'categorize' || editingRule.action_type === 'move') && (
+                                                <input
+                                                    className="rule-input rule-input-value"
+                                                    value={editingRule.action_value ?? ''}
+                                                    onChange={e => setEditingRule({ ...editingRule, action_value: e.target.value })}
+                                                    placeholder={editingRule.action_type === 'move' ? 'Folder ID...' : 'Value...'}
+                                                    aria-label="Action value"
+                                                />
+                                            )}
+                                        </div>
+                                        {ruleError && <p className="rule-error" role="alert">{ruleError}</p>}
+                                        <div className="rule-form-actions">
+                                            <button className="secondary-btn" onClick={() => { setEditingRule(null); setRuleError(null); }}>Cancel</button>
+                                            <button className="primary-btn" onClick={handleSaveRule}>
+                                                {editingRule.id ? 'Update Rule' : 'Create Rule'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {rules.length === 0 && !editingRule && (
+                                    <p className="rules-empty">No mail rules configured. Rules automatically process incoming emails.</p>
+                                )}
+
+                                {rules.map(rule => (
+                                    <div key={rule.id} className={`rule-item ${rule.is_active ? '' : 'rule-item-disabled'}`}>
+                                        <div className="rule-item-info">
+                                            <GripVertical size={14} className="rule-grip" />
+                                            <button
+                                                className="rule-toggle"
+                                                role="switch"
+                                                aria-checked={!!rule.is_active}
+                                                onClick={() => handleToggleRule(rule)}
+                                                aria-label={`Toggle rule ${rule.name}`}
+                                            >
+                                                <span className={`rule-toggle-dot ${rule.is_active ? 'rule-toggle-on' : ''}`} />
+                                            </button>
+                                            <div className="rule-item-text">
+                                                <span className="rule-name">{rule.name}</span>
+                                                <span className="rule-desc">
+                                                    If <strong>{rule.match_field}</strong> {rule.match_operator.replace('_', ' ')} &quot;{rule.match_value}&quot; → {rule.action_type.replace('_', ' ')}
+                                                    {rule.action_value ? `: ${rule.action_value}` : ''}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="rule-item-actions">
+                                            <button
+                                                className="icon-btn"
+                                                onClick={() => setEditingRule({ ...rule })}
+                                                aria-label={`Edit rule ${rule.name}`}
+                                            >
+                                                <Pencil size={14} />
+                                            </button>
+                                            <button
+                                                className="icon-btn icon-btn-danger"
+                                                onClick={() => handleDeleteRule(rule.id)}
+                                                aria-label={`Delete rule ${rule.name}`}
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </Tabs.Content>
                     </Tabs.Root>
@@ -1255,6 +1550,291 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     color: var(--text-muted);
                 }
 
+                .lang-select {
+                    width: 100%;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    border: 1px solid var(--glass-border);
+                    background: rgb(var(--color-bg-base));
+                    color: var(--text-primary);
+                    font-size: 14px;
+                    font-family: var(--font-sans);
+                }
+
+                .lang-select:focus {
+                    outline: none;
+                    border-color: var(--accent-color);
+                }
+
+                /* Notifications Tab */
+                .notif-settings-view {
+                    padding: 4px 0;
+                }
+
+                .notif-toggle-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 12px 0;
+                }
+
+                .notif-label {
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: var(--text-primary);
+                }
+
+                .notif-switch {
+                    width: 44px;
+                    height: 24px;
+                    border-radius: 12px;
+                    background: var(--glass-border);
+                    position: relative;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                    padding: 0;
+                    flex-shrink: 0;
+                }
+
+                .notif-switch-on {
+                    background: var(--accent-color);
+                }
+
+                .notif-switch-thumb {
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 50%;
+                    background: white;
+                    transition: transform 0.2s;
+                    pointer-events: none;
+                }
+
+                .notif-switch-on .notif-switch-thumb {
+                    transform: translateX(20px);
+                }
+
+                .notif-description {
+                    font-size: 12px;
+                    color: var(--text-secondary);
+                    margin-top: 4px;
+                    line-height: 1.5;
+                }
+
+                /* Rules Tab */
+                .rules-view {
+                    padding: 4px 0;
+                }
+
+                .rules-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 12px;
+                }
+
+                .add-rule-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    background: var(--accent-color);
+                    color: white;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+
+                .add-rule-btn:hover {
+                    background: var(--accent-hover);
+                }
+
+                .rule-editor {
+                    background: var(--surface-overlay);
+                    border: 1px solid var(--glass-border);
+                    border-radius: 8px;
+                    padding: 16px;
+                    margin-bottom: 12px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
+
+                .rule-form-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .rule-form-row label {
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--text-secondary);
+                    min-width: 40px;
+                }
+
+                .rule-label-text {
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--text-secondary);
+                    min-width: 40px;
+                }
+
+                .rule-input {
+                    flex: 1;
+                    padding: 6px 10px;
+                    border-radius: 6px;
+                    border: 1px solid var(--glass-border);
+                    background: rgb(var(--color-bg-base));
+                    color: var(--text-primary);
+                    font-size: 13px;
+                }
+
+                .rule-input:focus {
+                    outline: none;
+                    border-color: var(--accent-color);
+                }
+
+                .rule-select {
+                    padding: 6px 10px;
+                    border-radius: 6px;
+                    border: 1px solid var(--glass-border);
+                    background: rgb(var(--color-bg-base));
+                    color: var(--text-primary);
+                    font-size: 13px;
+                }
+
+                .rule-form-condition {
+                    flex-wrap: wrap;
+                }
+
+                .rule-input-value {
+                    min-width: 120px;
+                }
+
+                .rule-error {
+                    color: var(--color-danger);
+                    font-size: 12px;
+                    margin: 0;
+                }
+
+                .rule-form-actions {
+                    display: flex;
+                    gap: 8px;
+                    justify-content: flex-end;
+                    margin-top: 4px;
+                }
+
+                .rules-empty {
+                    color: var(--text-secondary);
+                    font-size: 13px;
+                    text-align: center;
+                    padding: 24px 0;
+                }
+
+                .rule-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 10px 12px;
+                    border: 1px solid var(--glass-border);
+                    border-radius: 8px;
+                    margin-bottom: 8px;
+                }
+
+                .rule-item-disabled {
+                    opacity: 0.5;
+                }
+
+                .rule-item-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex: 1;
+                    min-width: 0;
+                }
+
+                .rule-grip {
+                    color: var(--text-secondary);
+                    flex-shrink: 0;
+                }
+
+                .rule-toggle {
+                    width: 32px;
+                    height: 18px;
+                    border-radius: 9px;
+                    background: var(--glass-border);
+                    position: relative;
+                    cursor: pointer;
+                    padding: 0;
+                    flex-shrink: 0;
+                    transition: background 0.2s;
+                }
+
+                .rule-toggle:has(.rule-toggle-on) {
+                    background: var(--accent-color);
+                }
+
+                .rule-toggle-dot {
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 50%;
+                    background: white;
+                    transition: transform 0.2s;
+                    pointer-events: none;
+                }
+
+                .rule-toggle-on {
+                    transform: translateX(14px);
+                }
+
+                .rule-item-text {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                    min-width: 0;
+                }
+
+                .rule-name {
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--text-primary);
+                }
+
+                .rule-desc {
+                    font-size: 11px;
+                    color: var(--text-secondary);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .rule-item-actions {
+                    display: flex;
+                    gap: 4px;
+                    flex-shrink: 0;
+                }
+
+                .icon-btn {
+                    padding: 4px;
+                    border-radius: 4px;
+                    color: var(--text-secondary);
+                }
+
+                .icon-btn:hover {
+                    background: var(--hover-bg);
+                    color: var(--text-primary);
+                }
+
+                .icon-btn-danger:hover {
+                    color: var(--color-danger);
+                }
+
                 @media (prefers-reduced-motion: reduce) {
                     .settings-overlay,
                     .settings-modal {
@@ -1262,6 +1842,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     }
                     .test-spin {
                         animation-duration: 0s;
+                    }
+                    .notif-switch,
+                    .notif-switch-thumb,
+                    .rule-toggle,
+                    .rule-toggle-dot {
+                        transition: none;
                     }
                 }
             `}</style>

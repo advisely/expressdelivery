@@ -20,7 +20,10 @@
     "target": [
       "dmg"
     ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
+    "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    // Code signing: set CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD for notarization
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false
   },
   "win": {
     "icon": "build/icon.ico",
@@ -33,7 +36,8 @@
       }
     ],
     "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
-    "signAndEditExecutable": false
+    // Code signing: set CSC_LINK (path to .pfx) and CSC_KEY_PASSWORD env vars to enable
+    "signAndEditExecutable": true
   },
   "nsis": {
     "oneClick": false,
@@ -44,9 +48,21 @@
   "linux": {
     "icon": "build/icon.png",
     "target": [
-      "AppImage"
+      "AppImage",
+      "deb",
+      "rpm"
     ],
-    "artifactName": "${productName}-Linux-${version}.${ext}"
+    "artifactName": "${productName}-Linux-${version}.${ext}",
+    "category": "Network;Email"
+  },
+  "deb": {
+    "depends": ["libnotify4", "libsecret-1-0"]
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "expressdelivery",
+    "repo": "expressdelivery",
+    "releaseType": "release"
   },
   "npmRebuild": true,
   "buildDependenciesFromSource": false

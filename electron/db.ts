@@ -223,6 +223,90 @@ function runMigrations(db: DatabaseType) {
             version = 6;
         }
 
+        // Migration 7: Snooze support + scheduled sends + reminders + mail rules
+        if (version < 7) {
+            // is_snoozed column on emails
+            const emailCols7 = db.prepare("SELECT name FROM pragma_table_info('emails')").all() as { name: string }[];
+            const emailColNames7 = new Set(emailCols7.map(c => c.name));
+            if (!emailColNames7.has('is_snoozed')) {
+                db.exec("ALTER TABLE emails ADD COLUMN is_snoozed INTEGER DEFAULT 0");
+            }
+
+            // Snoozed emails table
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS snoozed_emails (
+                    id TEXT PRIMARY KEY,
+                    email_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    original_folder_id TEXT NOT NULL,
+                    snooze_until DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    restored INTEGER DEFAULT 0,
+                    FOREIGN KEY(email_id) REFERENCES emails(id) ON DELETE CASCADE,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+            db.exec("CREATE INDEX IF NOT EXISTS idx_snoozed_due ON snoozed_emails(snooze_until) WHERE restored = 0");
+
+            // Scheduled sends table
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS scheduled_sends (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    draft_id TEXT,
+                    to_email TEXT NOT NULL,
+                    cc TEXT,
+                    bcc TEXT,
+                    subject TEXT NOT NULL,
+                    body_html TEXT NOT NULL,
+                    attachments_json TEXT,
+                    send_at DATETIME NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    retry_count INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+            db.exec("CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_sends(send_at) WHERE status = 'pending'");
+
+            // Reminders table
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id TEXT PRIMARY KEY,
+                    email_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    remind_at DATETIME NOT NULL,
+                    note TEXT,
+                    is_triggered INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(email_id) REFERENCES emails(id) ON DELETE CASCADE,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+            db.exec("CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(remind_at) WHERE is_triggered = 0");
+
+            // Mail rules table
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS mail_rules (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    priority INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    match_field TEXT NOT NULL,
+                    match_operator TEXT NOT NULL,
+                    match_value TEXT NOT NULL,
+                    action_type TEXT NOT NULL,
+                    action_value TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+
+            version = 7;
+        }
+
         db.prepare(
             "INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         ).run(String(version));

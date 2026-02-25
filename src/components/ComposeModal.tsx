@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type FC } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp, CalendarClock } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import LinkExtension from '@tiptap/extension-link';
@@ -10,6 +11,7 @@ import { useEmailStore } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
 import { ContactAutocomplete } from './ContactAutocomplete';
 import { formatFileSize } from '../lib/formatFileSize';
+import DateTimePicker from './DateTimePicker';
 
 interface ComposeAttachment {
     id: string;
@@ -37,6 +39,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
     const [error, setError] = useState<string | null>(null);
     const [currentDraftId, setCurrentDraftId] = useState<string | null>(draftId ?? null);
     const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
+    const [showSchedulePicker, setShowSchedulePicker] = useState(false);
     const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const draftBodyRef = useRef(initialBody);
     const accounts = useEmailStore(s => s.accounts);
@@ -176,6 +179,57 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
             editor.chain().focus().setLink({ href: url }).run();
         }
     }, [editor]);
+
+    const handleScheduleSend = async (sendAt: string) => {
+        if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+        if (!to.trim()) { setError('Recipient is required'); return; }
+        if (!subject.trim()) { setError('Subject is required'); return; }
+
+        const accountId = accounts[0]?.id;
+        if (!accountId) { setError('No account configured'); return; }
+
+        setSending(true);
+        setError(null);
+        try {
+            let html = editor?.getHTML() ?? '';
+            if (accountSignature) {
+                html += `<hr /><div class="email-signature">${DOMPurify.sanitize(accountSignature)}</div>`;
+            }
+            const recipients = parseRecipients(to);
+            if (recipients.length === 0) { setError('Recipient is required'); setSending(false); return; }
+            const ccList = parseRecipients(cc);
+            const bccList = parseRecipients(bcc);
+            const result = await ipcInvoke<{ success: boolean; scheduledId: string }>('scheduled:create', {
+                accountId,
+                to: recipients.join(', '),
+                subject,
+                bodyHtml: html,
+                sendAt,
+                ...(ccList.length > 0 ? { cc: ccList.join(', ') } : {}),
+                ...(bccList.length > 0 ? { bcc: bccList.join(', ') } : {}),
+                ...(attachments.length > 0 ? {
+                    attachments: attachments.map(att => ({
+                        filename: att.filename,
+                        content: att.content,
+                        contentType: att.contentType,
+                    }))
+                } : {}),
+            });
+            if (result?.scheduledId) {
+                if (currentDraftId && accountId) {
+                    await ipcInvoke('drafts:delete', { draftId: currentDraftId, accountId });
+                }
+                onClose();
+            } else {
+                setError('Failed to schedule email');
+            }
+        } catch {
+            setError('An error occurred while scheduling');
+        } finally {
+            setSending(false);
+            setShowSchedulePicker(false);
+        }
+    };
 
     return (
         <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -328,10 +382,41 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                     )}
 
                     <div className="compose-modal__footer">
-                        <button className="send-btn" onClick={handleSend} disabled={sending}>
-                            <span>{sending ? 'Sending...' : 'Send'}</span>
-                            <Send size={14} />
-                        </button>
+                        {showSchedulePicker ? (
+                            <div className="schedule-picker-inline">
+                                <DateTimePicker
+                                    label="Schedule send for:"
+                                    onSelect={handleScheduleSend}
+                                    onCancel={() => setShowSchedulePicker(false)}
+                                />
+                            </div>
+                        ) : (
+                            <div className="send-btn-group">
+                                <button className="send-btn send-btn-main" onClick={handleSend} disabled={sending}>
+                                    <span>{sending ? 'Sending...' : 'Send'}</span>
+                                    <Send size={14} />
+                                </button>
+                                <DropdownMenu.Root>
+                                    <DropdownMenu.Trigger asChild>
+                                        <button className="send-btn send-btn-dropdown" disabled={sending} aria-label="Send options">
+                                            <ChevronDown size={14} />
+                                        </button>
+                                    </DropdownMenu.Trigger>
+                                    <DropdownMenu.Portal>
+                                        <DropdownMenu.Content className="send-dropdown-content" side="top" align="end" sideOffset={4}>
+                                            <DropdownMenu.Item className="send-dropdown-item" onSelect={handleSend}>
+                                                <Send size={14} />
+                                                <span>Send now</span>
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item className="send-dropdown-item" onSelect={() => setShowSchedulePicker(true)}>
+                                                <CalendarClock size={14} />
+                                                <span>Schedule send...</span>
+                                            </DropdownMenu.Item>
+                                        </DropdownMenu.Content>
+                                    </DropdownMenu.Portal>
+                                </DropdownMenu.Root>
+                            </div>
+                        )}
                     </div>
                 </Dialog.Content>
             </Dialog.Portal>
@@ -529,16 +614,30 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                     border-top: 1px solid var(--glass-border);
                 }
 
+                .send-btn-group {
+                    display: flex;
+                    align-items: stretch;
+                }
+
                 .send-btn {
                     background: var(--accent-color);
                     color: white;
-                    border-radius: 6px;
-                    padding: 8px 20px;
                     font-weight: 600;
                     font-size: 14px;
                     display: flex;
                     align-items: center;
                     gap: 8px;
+                }
+
+                .send-btn-main {
+                    padding: 8px 16px;
+                    border-radius: 6px 0 0 6px;
+                }
+
+                .send-btn-dropdown {
+                    padding: 8px 8px;
+                    border-radius: 0 6px 6px 0;
+                    border-left: 1px solid rgba(255, 255, 255, 0.25);
                 }
 
                 .send-btn:hover {
@@ -548,6 +647,37 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, initialTo = '', i
                 .send-btn:disabled {
                     opacity: 0.6;
                     cursor: not-allowed;
+                }
+
+                .send-dropdown-content {
+                    background: rgb(var(--color-bg-elevated));
+                    border: 1px solid var(--glass-border);
+                    border-radius: 8px;
+                    padding: 4px;
+                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+                    z-index: 1100;
+                    min-width: 180px;
+                }
+
+                .send-dropdown-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    color: var(--text-primary);
+                    cursor: pointer;
+                    outline: none;
+                }
+
+                .send-dropdown-item:hover,
+                .send-dropdown-item[data-highlighted] {
+                    background: var(--hover-bg);
+                }
+
+                .schedule-picker-inline {
+                    flex: 1;
                 }
 
                 @keyframes overlayFadeIn {

@@ -7,7 +7,9 @@ import {
   Trash2,
   Settings,
   Plus,
-  ChevronDown
+  ChevronDown,
+  Clock,
+  CalendarClock
 } from 'lucide-react';
 import { useEmailStore } from '../stores/emailStore';
 import { getProviderIcon } from '../lib/providerIcons';
@@ -39,6 +41,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [mcpCount, setMcpCount] = useState(0);
+  const [snoozedCount, setSnoozedCount] = useState(0);
+  const [scheduledCount, setScheduledCount] = useState(0);
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
 
@@ -61,6 +65,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
     const unsub = api?.on('email:new', () => { loadCounts(); });
 
     return () => { cancelled = true; unsub?.(); };
+  }, [selectedAccountId]);
+
+  // Snoozed & scheduled counts
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    let cancelled = false;
+    async function loadCounts() {
+      const snoozed = await ipcInvoke<Array<unknown>>('snoozed:list', selectedAccountId);
+      const scheduled = await ipcInvoke<Array<unknown>>('scheduled:list', selectedAccountId);
+      if (!cancelled) {
+        setSnoozedCount(snoozed?.length ?? 0);
+        setScheduledCount(scheduled?.length ?? 0);
+      }
+    }
+    loadCounts();
+    return () => { cancelled = true; };
   }, [selectedAccountId]);
 
   // MCP connection status
@@ -153,6 +173,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
               </button>
             ))
         }
+        {snoozedCount > 0 && (
+          <button className={`nav-item ${selectedFolderId === '__snoozed' ? 'active' : ''}`} onClick={() => selectFolder('__snoozed')}>
+            <Clock size={18} className="nav-icon" />
+            <span className="nav-label">Snoozed</span>
+            <span className="nav-badge">{snoozedCount}</span>
+          </button>
+        )}
+        {scheduledCount > 0 && (
+          <button className={`nav-item ${selectedFolderId === '__scheduled' ? 'active' : ''}`} onClick={() => selectFolder('__scheduled')}>
+            <CalendarClock size={18} className="nav-icon" />
+            <span className="nav-label">Scheduled</span>
+            <span className="nav-badge">{scheduledCount}</span>
+          </button>
+        )}
       </nav>
 
       <div className="sidebar-footer">

@@ -1,15 +1,15 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 3 complete (v0.3.0). 10 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (6 migrations), 4 themes, 14 test files (251 tests), 32 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 4 complete (v0.4.0). 12 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (7 migrations), 4 themes, 14 test files (251 tests), ~50 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
 | Layer     | Technology                                                                                   |
 | --------- | -------------------------------------------------------------------------------------------- |
-| Frontend  | React 19, TypeScript 5.9 strict, Zustand (theme + email stores), Radix UI (Dialog, Tabs), TipTap (rich text), Lucide icons, Tailwind CSS v4, DOMPurify, CSS custom properties |
-| Backend   | Electron 40, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5                    |
+| Frontend  | React 19, TypeScript 5.9 strict, Zustand (theme + email stores), Radix UI (Dialog, Tabs, Popover), TipTap (rich text), Lucide icons, Tailwind CSS v4, DOMPurify, react-i18next, CSS custom properties |
+| Backend   | Electron 40, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5, electron-updater    |
 | AI/MCP    | @modelcontextprotocol/sdk (multi-client SSE transport on port 3000), 8 tools (search, read, send, draft, summary, categorize, analytics, suggest_reply) |
-| Build     | Vite 7 + vite-plugin-electron, electron-builder (Windows NSIS, Linux AppImage, macOS DMG)    |
+| Build     | Vite 7 + vite-plugin-electron, electron-builder (Windows NSIS, Linux AppImage/deb/rpm, macOS DMG, GitHub Releases publish) |
 | Testing   | Vitest 4 + jsdom, @testing-library/react                                                     |
 
 ## Structure
@@ -17,11 +17,12 @@ Electron desktop email client with MCP (Model Context Protocol) integration for 
 ```
 electron/          # Main process (db, imap, smtp, crypto, mcp server, utils)
 src/               # Renderer process (React SPA)
-  components/      # UI components (8 files: Sidebar, ThreadList, ReadingPane, ComposeModal, ContactAutocomplete, SettingsModal, ThemeContext, OnboardingScreen)
+  components/      # UI components (10 files: Sidebar, ThreadList, ReadingPane, ComposeModal, ContactAutocomplete, SettingsModal, ThemeContext, OnboardingScreen, DateTimePicker, UpdateBanner)
   stores/          # Zustand stores (themeStore, emailStore)
-  lib/             # Shared utilities (ipc wrapper, providerPresets, providerIcons, useKeyboardShortcuts)
+  lib/             # Shared utilities (ipc wrapper, providerPresets, providerIcons, useKeyboardShortcuts, i18n)
   assets/          # Static assets
 public/            # Runtime assets (self-hosted fonts, icon.png)
+src/locales/       # i18n translation files (en, fr, es, de)
 build/             # electron-builder assets (icon.svg, icon.png, icon.ico, icon@2x.png)
 scripts/           # Dev tooling (generate-icons.mjs, clean-build.mjs)
 release/           # Built app artifacts
@@ -31,16 +32,20 @@ release/           # Built app artifacts
 
 | File                        | Purpose                                        |
 | --------------------------- | ---------------------------------------------- |
-| `electron/main.ts`         | Electron entry, window + tray + 28 IPC handlers |
-| `electron/db.ts`           | SQLite init, schema, 5 migrations (accounts, folders, emails, drafts, contacts, attachments, settings, FTS5) |
+| `electron/main.ts`         | Electron entry, window + tray + ~50 IPC handlers (snooze, scheduled sends, reminders, rules, update, notifications) |
+| `electron/db.ts`           | SQLite init, schema, 7 migrations (accounts, folders, emails, drafts, contacts, attachments, settings, snoozed_emails, scheduled_sends, reminders, mail_rules, FTS5) |
 | `electron/mcpServer.ts`    | MCP multi-client SSE server (Map-based dispatch, connection callback, timing-safe auth) |
 | `electron/mcpTools.ts`     | 8 MCP tool handlers + buildToolRegistry() Map factory |
-| `electron/imap.ts`         | IMAP client (connect, IDLE, sync body + folders + attachments + Content-ID, reconnect, connection test, on-demand download) |
+| `electron/imap.ts`         | IMAP client (connect, IDLE, sync body + folders + attachments + Content-ID, reconnect, connection test, on-demand download, applyRulesToEmail on insert) |
 | `electron/smtp.ts`         | SMTP sender via Nodemailer (host/port from DB, CC/BCC, attachments) |
 | `electron/crypto.ts`       | OS keychain encryption (safeStorage)            |
 | `electron/logger.ts`       | Shared debug logger (writes to `app.getPath('logs')`) |
 | `electron/preload.ts`      | IPC bridge (scoped typed API with channel allowlist) |
 | `electron/utils.ts`        | Shared utilities (FTS5 query sanitizer)         |
+| `electron/scheduler.ts`    | 30s polling scheduler for snooze wake, scheduled sends, and reminder notifications |
+| `electron/ruleEngine.ts`   | Mail rule matching + actions (from/subject/body/has_attachment x contains/equals/starts_with/ends_with) |
+| `electron/updater.ts`      | electron-updater wrapper (autoDownload: false, GitHub Releases) |
+| `electron/dbEncryption.ts` | SQLCipher migration stub (Phase 5 at-rest encryption) |
 | `src/App.tsx`              | Root component, error boundary, data loading, reply/forward plumbing |
 | `src/components/Sidebar.tsx`     | Multi-account switcher, folders with unread badges |
 | `src/components/ThreadList.tsx`  | Email list with search (wired to IPC)      |
@@ -49,6 +54,8 @@ release/           # Built app artifacts
 | `src/components/SettingsModal.tsx`| Account management (add/edit/test/delete) + theme settings |
 | `src/components/ThemeContext.tsx` | Layout context + theme class application   |
 | `src/components/OnboardingScreen.tsx` | First-run account setup (4-step wizard, 9 CSS animations) |
+| `src/components/DateTimePicker.tsx`   | Native datetime input with quick-select presets (1h, 3h, tomorrow, next week) |
+| `src/components/UpdateBanner.tsx`     | In-app update available/download progress/install banner |
 | `src/lib/providerPresets.ts`   | Email provider IMAP/SMTP presets (Gmail, Outlook, Yahoo, iCloud, Custom) |
 | `src/lib/providerIcons.tsx`    | Provider brand SVG icons (Gmail, Outlook, Yahoo, iCloud, Custom) |
 | `src/stores/themeStore.ts` | Zustand persisted theme + layout state          |
@@ -57,12 +64,13 @@ release/           # Built app artifacts
 | `src/lib/useKeyboardShortcuts.ts` | Global keyboard shortcut hook (mod/shift/alt combos) |
 | `src/lib/formatFileSize.ts` | Human-readable file size formatter (shared utility) |
 | `src/lib/ipc.ts`          | Typed IPC wrapper for renderer process          |
+| `src/lib/i18n.ts`         | react-i18next init with 4 locales (en, fr, es, de) |
 | `scripts/clean-build.mjs`  | Hydration + clean packaging (purge, rebuild native deps, package, verify) |
 | `src/index.css`            | Global styles, 4 themes, self-hosted Outfit font, layout modes |
 
 ## Data Models
 
-**SQLite Tables:** `accounts` (email, provider, encrypted password, IMAP/SMTP host/port, display_name, signature_html), `folders` (mailbox hierarchy), `emails` (messages + FTS5 index + has_attachments + ai_category + ai_priority + ai_labels, schema_version=6), `attachments` (metadata + BLOB cache + content_id, FK cascade to emails, schema_version=5), `drafts` (pending emails with cc/bcc, schema_version=2), `contacts` (auto-harvested from sent mail), `settings` (key-value, includes schema_version)
+**SQLite Tables:** `accounts` (email, provider, encrypted password, IMAP/SMTP host/port, display_name, signature_html), `folders` (mailbox hierarchy), `emails` (messages + FTS5 index + has_attachments + ai_category + ai_priority + ai_labels + is_snoozed, schema_version=7), `attachments` (metadata + BLOB cache + content_id, FK cascade to emails, schema_version=5), `drafts` (pending emails with cc/bcc, schema_version=2), `contacts` (auto-harvested from sent mail), `settings` (key-value, includes schema_version), `snoozed_emails` (email_id, snooze_until, created_at), `scheduled_sends` (draft_id, send_at, status), `reminders` (email_id, remind_at, note, status), `mail_rules` (account_id, conditions JSON, actions JSON, order, enabled)
 
 **Zustand Stores:**
 - `themeStore` — `themeName`, `layout`, persisted to localStorage
@@ -125,7 +133,7 @@ npm run lint             # eslint (strict, 0 warnings)
 - Components use inline `<style>` tags (CSS-in-JS via template literals)
 - Electron main process uses `.js` extension in imports (ESM)
 - Preload script exposes IPC via `contextBridge` (MUST build as CJS `.cjs` — Electron requires `require()` for preload in sandboxed mode; configured in `vite.config.ts`)
-- Database uses WAL mode + foreign keys + FTS5 triggers (6 migrations)
+- Database uses WAL mode + foreign keys + FTS5 triggers (7 migrations)
 - Passwords encrypted via `electron.safeStorage` (OS keychain)
 - MCP server runs on localhost:3000 with multi-client SSE + POST transport (timing-safe auth, account ownership enforcement)
 
@@ -257,16 +265,28 @@ Full reports in `.claude/`: `security-audit-report.md`, `code-review-report.md`,
 
 **Architecture gaps (Phase 3 resolved):** Multi-client MCP transport (Map-based), Map tool dispatch, timing-safe auth, account ownership on categorize/suggest_reply, attachment filename sanitization, body_text truncation, HTML body 500KB cap. **Remaining:** inline styles in every component
 
+**Code review remediation (2026-02-24 Phase 4):**
+- ~~Cross-account ownership missing on scheduled:cancel/update, reminders:cancel, rules:update/delete/reorder~~ -- Fixed: all handlers verify resource belongs to requesting account
+- ~~CRLF injection in scheduled:create subject~~ -- Fixed: stripCRLF applied to subject
+- ~~rules:update/rules:test accept arbitrary field/operator/action strings~~ -- Fixed: VALID_FIELDS, VALID_OPERATORS, VALID_ACTIONS guard sets in main.ts
+- ~~Scheduler snooze wake and scheduled sends not transactional~~ -- Fixed: status update + action wrapped in db.transaction()
+- ~~Scheduler sends all due emails concurrently~~ -- Fixed: sequential await loop for scheduled sends
+- ~~RuleEngine multi-rule apply not transactional~~ -- Fixed: batch apply wrapped in db.transaction()
+- ~~ComposeModal scheduled:create IPC contract mismatch~~ -- Fixed: payload aligned to IPC handler schema
+- ~~Toast timer overlap on rapid successive toasts~~ -- Fixed: clearTimeout before each new toast timer
+- ~~JSON.parse of conditions/actions not guarded~~ -- Fixed: try/catch with fallback to empty array in scheduler and ruleEngine
+
 ### Test Coverage: ~65% (14 files, 251 tests, target 70%)
 
 **Tested:** crypto, db, mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures), ReadingPane (CID + remote image blocking), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete
 **Untested critical paths:** IMAP client (P1), App orchestration (P2), ThemeContext (P3), OnboardingScreen (P3)
+**Phase 4 untested:** scheduler (P1 — polling logic, snooze wake, reminder dispatch), ruleEngine (P1 — condition matching, action dispatch), DateTimePicker (P3), UpdateBanner (P3)
 
 ## Feature Status Summary
 
 Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [Mailspring](https://github.com/Foundry376/Mailspring).
 
-### What's Done (Phase 1 complete, Phase 2 complete, Phase 3 complete -- v0.3.0)
+### What's Done (Phase 1 complete, Phase 2 complete, Phase 3 complete, Phase 4 complete -- v0.4.0)
 - Account management (add/remove/edit/test, 5 provider presets, brand icons)
 - IMAP connect + IDLE + body fetch + folder sync + reconnect with exponential backoff
 - Connection testing (10s timeout) — standalone Test Connection button + test-before-save, visual status (pass/fail/spinner)
@@ -297,11 +317,20 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - File attachments: send (file picker, 25MB/file, max 10) + receive (IMAP on-demand download, SQLite BLOB cache), attachment chips in compose/reading pane/thread list, MCP send_email with attachments
 - 251 tests across 14 files
 - All packages upgraded: React 19, Electron 40, Vite 7, TypeScript 5.9, ESLint 10 (flat config)
+- Snooze emails (30s polling scheduler, wake/unsnooze, snoozed virtual folder in Sidebar)
+- Send later (scheduled sends with DateTimePicker, quick-select presets, scheduled virtual folder)
+- Reminders (per-email, scheduled notifications, reminder management in ReadingPane)
+- Mail rules engine (from/subject/body/has_attachment conditions, mark-read/star/move/delete/label actions, account-scoped, priority-ordered)
+- i18n framework (react-i18next, 4 locales: en/fr/es/de, translation files in src/locales/)
+- OS notifications (system tray notifications via Electron Notification API, triggered by scheduler)
+- Auto-update banner (electron-updater, GitHub Releases, autoDownload: false, in-app UpdateBanner)
+- Code signing config in electron-builder.json5 (Windows + macOS signing fields)
+- Linux deb/rpm targets added to electron-builder.json5
+- SQLCipher migration stub (electron/dbEncryption.ts, Phase 5 implementation ready)
 
 ### What's Not Done Yet (by phase)
 - **Phase 3 (AI):** AI compose assistant (LLM-powered reply generation using suggest_reply context)
-- **Phase 4 (Polish):** Snooze, send later, reminders, mail rules, i18n, OS notifications, auto-update, code signing
-- **Phase 5 (Quality):** 70%+ test coverage, E2E tests, CSS modules migration, perf optimization
+- **Phase 5 (Quality):** 70%+ test coverage, E2E tests, CSS modules migration, perf optimization, i18n t() call wiring, auto-update GitHub Releases publish config, SQLCipher at-rest encryption
 
 ### Stubs (UI exists, not wired)
 - emailStore: isLoading/setLoading state
@@ -335,7 +364,7 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - [ ] Migrate inline `<style>` to CSS modules
 - [x] Multi-transport Map for MCP SSE connections
 - [x] Refactor tool dispatch to Map<name, handler>
-- [ ] Evaluate SQLCipher for at-rest DB encryption
+- [x] Evaluate SQLCipher for at-rest DB encryption -- Stubbed: electron/dbEncryption.ts documents migration path (Phase 5 implementation)
 - [x] Fix `exists` listener leak in `imap.ts`
 - [x] Self-host Outfit font (remove Google Fonts CDN)
 - [x] Add explicit `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` to BrowserWindow (preload MUST be `.cjs` for sandbox to work)
@@ -354,3 +383,9 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - [ ] Write tests for IMAP, SMTP, ComposeModal, App, ThemeContext
 - [x] Add port range constraints (min=1, max=65535) to IMAP/SMTP port inputs in SettingsModal
 - [ ] Remove dead `isLoading`/`setLoading` state from emailStore or wire to loading operations
+
+### Phase 4 (known limitations)
+- [ ] i18n strings not yet wired to component render output (t() calls needed in all components)
+- [ ] Virtual folders __snoozed/__scheduled have basic query support; advanced filtering pending
+- [ ] Auto-update requires GitHub Releases publish config to be set before functional
+- [ ] electron/dbEncryption.ts is a documentation stub; SQLCipher integration is Phase 5

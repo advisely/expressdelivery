@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ComposeModal } from './ComposeModal';
@@ -52,6 +53,26 @@ vi.mock('lucide-react', () => ({
     Link: () => <div data-testid="icon-Link">Lk</div>,
     ChevronDown: () => <div data-testid="icon-ChevronDown">CD</div>,
     ChevronUp: () => <div data-testid="icon-ChevronUp">CU</div>,
+    CalendarClock: () => <div data-testid="icon-CalendarClock">CC</div>,
+}));
+
+vi.mock('@radix-ui/react-dropdown-menu', () => ({
+    Root: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Trigger: ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => asChild ? <>{children}</> : <button>{children}</button>,
+    Portal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Content: ({ children, className }: { children: React.ReactNode; className?: string }) => <div className={className} role="menu">{children}</div>,
+    Item: ({ children, onSelect, className }: { children: React.ReactNode; onSelect?: () => void; className?: string }) => (
+        <div role="menuitem" className={className} onClick={onSelect}>{children}</div>
+    ),
+}));
+
+vi.mock('./DateTimePicker', () => ({
+    default: ({ label, onCancel }: { label?: string; onSelect?: (v: string) => void; onCancel?: () => void }) => (
+        <div data-testid="date-time-picker">
+            {label}
+            {onCancel && <button onClick={onCancel}>Cancel</button>}
+        </div>
+    ),
 }));
 
 // Mock ContactAutocomplete to a simple input for testing

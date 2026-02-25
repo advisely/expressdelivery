@@ -28,6 +28,10 @@ vi.mock('lucide-react', () => ({
     XCircle: () => <div data-testid="icon-XCircle">XC</div>,
     Loader: () => <div data-testid="icon-Loader">Lo</div>,
     Key: () => <div data-testid="icon-Key">K</div>,
+    Bell: () => <div data-testid="icon-Bell">B</div>,
+    Filter: () => <div data-testid="icon-Filter">F</div>,
+    GripVertical: () => <div data-testid="icon-GripVertical">GV</div>,
+    Pencil: () => <div data-testid="icon-Pencil">Pe</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
@@ -196,8 +200,9 @@ describe('SettingsModal Integration Tests', () => {
     // --- New tests for Test Connection feature ---
 
     it('resets test status to idle when a credential field changes after a successful test', async () => {
-        // Arrange: first call is the API key load (returns null), then connection test returns success
+        // Arrange: first call is the API key load (returns null), second is notification settings, then connection test returns success
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
         mockIpcInvoke.mockResolvedValueOnce({ success: true });
 
         renderSettings();
@@ -228,8 +233,9 @@ describe('SettingsModal Integration Tests', () => {
     });
 
     it('shows inline error and Failed label when the IPC call itself throws (network failure)', async () => {
-        // Arrange: first call is the API key load (returns null), then simulate a hard IPC-layer rejection
+        // Arrange: first call is the API key load (returns null), second is notification settings, then simulate a hard IPC-layer rejection
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
         mockIpcInvoke.mockRejectedValueOnce(new Error('IPC channel closed'));
 
         renderSettings();
@@ -260,6 +266,7 @@ describe('SettingsModal Integration Tests', () => {
         // A second accounts:test must NOT occur
         mockIpcInvoke
             .mockResolvedValueOnce(null)                 // apikeys:get-openrouter
+            .mockResolvedValueOnce(null)                 // settings:get notifications_enabled
             .mockResolvedValueOnce({ success: true })    // accounts:test
             .mockResolvedValueOnce({ id: 'new-acc-id' }) // accounts:add
             .mockResolvedValueOnce([]);                  // folders:list (post-add flow)
@@ -286,13 +293,13 @@ describe('SettingsModal Integration Tests', () => {
             expect(screen.getByText('Email Accounts')).toBeInTheDocument()
         );
 
-        // Call 1 is apikeys:get-openrouter, call 2 is accounts:test, call 3 is accounts:add
-        // — NOT a second accounts:test call
+        // Call 1 is apikeys:get-openrouter, call 2 is settings:get (notifications_enabled),
+        // call 3 is accounts:test, call 4 is accounts:add — NOT a second accounts:test call
         expect(mockIpcInvoke).toHaveBeenNthCalledWith(
-            2, 'accounts:test', expect.objectContaining({ email: 'user@gmail.com' })
+            3, 'accounts:test', expect.objectContaining({ email: 'user@gmail.com' })
         );
         expect(mockIpcInvoke).toHaveBeenNthCalledWith(
-            3, 'accounts:add', expect.objectContaining({ email: 'user@gmail.com' })
+            4, 'accounts:add', expect.objectContaining({ email: 'user@gmail.com' })
         );
         // Verify accounts:test was invoked exactly once across the whole flow
         const testCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'accounts:test');

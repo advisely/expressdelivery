@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, screen } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, screen, Notification } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -28,6 +28,8 @@ import { imapEngine } from './imap.js'
 import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query } from './utils.js'
+import { schedulerEngine } from './scheduler.js'
+import { initAutoUpdater, setUpdateCallback, checkForUpdates, downloadUpdate, installUpdate } from './updater.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -71,6 +73,24 @@ function getMimeType(filename: string): string {
     '.xml': 'application/xml',
   };
   return mimeMap[ext] ?? 'application/octet-stream';
+}
+
+function showNotification(title: string, body: string, emailId?: string) {
+  const db = getDatabase();
+  const enabled = db.prepare('SELECT value FROM settings WHERE key = ?').get('notifications_enabled') as { value: string } | undefined;
+  if (enabled?.value === 'false') return;
+
+  const notification = new Notification({ title, body, icon: path.join(process.env.VITE_PUBLIC, 'icon.png') });
+  notification.on('click', () => {
+    if (win && !win.isDestroyed()) {
+      win.show();
+      win.focus();
+      if (emailId) {
+        win.webContents.send('notification:click', { emailId });
+      }
+    }
+  });
+  notification.show();
 }
 
 function createWindow() {
@@ -143,6 +163,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', async () => {
   logDebug('before-quit: cleaning up...');
+  schedulerEngine.stop();
   if (tray) {
     tray.destroy();
     tray = null;
@@ -263,11 +284,34 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:list', (_event, folderId: string) => {
+    // Virtual folder: snoozed emails
+    if (folderId === '__snoozed') {
+      return db.prepare(
+        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+                e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels
+         FROM emails e
+         INNER JOIN snoozed_emails s ON s.email_id = e.id AND s.restored = 0
+         WHERE e.is_snoozed = 1
+         ORDER BY s.snooze_until ASC LIMIT 50`
+      ).all();
+    }
+    // Virtual folder: scheduled sends (return as email-like summaries)
+    if (folderId === '__scheduled') {
+      return db.prepare(
+        `SELECT id, '' AS thread_id, subject, '' AS from_name, to_email AS from_email, to_email,
+                send_at AS date, subject AS snippet, 0 AS is_read, 0 AS is_flagged, 0 AS has_attachments,
+                NULL AS ai_category, NULL AS ai_priority, NULL AS ai_labels
+         FROM scheduled_sends
+         WHERE status = 'pending'
+         ORDER BY send_at ASC LIMIT 50`
+      ).all();
+    }
     return db.prepare(
       `SELECT id, thread_id, subject, from_name, from_email, to_email,
               date, snippet, is_read, is_flagged, has_attachments,
               ai_category, ai_priority, ai_labels
-       FROM emails WHERE folder_id = ? ORDER BY date DESC LIMIT 50`
+       FROM emails WHERE folder_id = ? AND (is_snoozed = 0 OR is_snoozed IS NULL) ORDER BY date DESC LIMIT 50`
     ).all(folderId);
   });
 
@@ -379,7 +423,7 @@ function registerIpcHandlers() {
     return row?.value ?? null;
   });
 
-  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications']);
+  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale']);
   ipcMain.handle('settings:set', (_event, key: string, value: string) => {
     if (!ALLOWED_SETTINGS_KEYS.has(key)) {
       throw new Error(`Setting key not allowed: ${key}`);
@@ -732,9 +776,314 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
+  // --- Phase 4: Snooze handlers ---
+
+  ipcMain.handle('emails:snooze', (_event, params: { emailId: string; snoozeUntil: string }) => {
+    if (!params?.emailId || !params?.snoozeUntil) throw new Error('Missing required parameters');
+    const snoozeDate = new Date(params.snoozeUntil);
+    if (isNaN(snoozeDate.getTime()) || snoozeDate.getTime() <= Date.now()) {
+      throw new Error('Snooze time must be in the future');
+    }
+    const email = db.prepare('SELECT id, account_id, folder_id FROM emails WHERE id = ?')
+      .get(params.emailId) as { id: string; account_id: string; folder_id: string } | undefined;
+    if (!email) throw new Error('Email not found');
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO snoozed_emails (id, email_id, account_id, original_folder_id, snooze_until)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(id, email.id, email.account_id, email.folder_id, snoozeDate.toISOString());
+    db.prepare('UPDATE emails SET is_snoozed = 1 WHERE id = ?').run(email.id);
+    return { success: true, snoozedId: id };
+  });
+
+  ipcMain.handle('emails:unsnooze', (_event, emailId: string) => {
+    if (!emailId) throw new Error('Email ID required');
+    const snoozed = db.prepare(
+      'SELECT id, original_folder_id FROM snoozed_emails WHERE email_id = ? AND restored = 0'
+    ).get(emailId) as { id: string; original_folder_id: string } | undefined;
+    if (!snoozed) throw new Error('No active snooze for this email');
+
+    db.prepare('UPDATE emails SET is_snoozed = 0, folder_id = ? WHERE id = ?')
+      .run(snoozed.original_folder_id, emailId);
+    db.prepare('UPDATE snoozed_emails SET restored = 1 WHERE id = ?').run(snoozed.id);
+    return { success: true };
+  });
+
+  ipcMain.handle('snoozed:list', (_event, accountId: string) => {
+    if (!accountId) return [];
+    return db.prepare(
+      `SELECT s.id, s.email_id, s.snooze_until, s.created_at,
+              e.subject, e.from_name, e.from_email, e.snippet
+       FROM snoozed_emails s
+       JOIN emails e ON s.email_id = e.id
+       WHERE s.account_id = ? AND s.restored = 0
+       ORDER BY s.snooze_until ASC`
+    ).all(accountId);
+  });
+
+  // --- Phase 4: Scheduled send handlers ---
+
+  ipcMain.handle('scheduled:create', (_event, params: {
+    accountId: string; to: string; subject: string; bodyHtml: string;
+    cc?: string; bcc?: string; sendAt: string; draftId?: string;
+    attachments?: Array<{ filename: string; content: string; contentType: string }>;
+  }) => {
+    if (!params?.accountId || !params?.to || !params?.subject || !params?.sendAt) {
+      throw new Error('Missing required parameters');
+    }
+    const sendDate = new Date(params.sendAt);
+    if (isNaN(sendDate.getTime()) || sendDate.getTime() <= Date.now()) {
+      throw new Error('Send time must be in the future');
+    }
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(params.accountId);
+    if (!account) throw new Error('Account not found');
+
+    const id = crypto.randomUUID();
+    const attachmentsJson = params.attachments ? JSON.stringify(params.attachments) : null;
+    const stripCRLF = (s: string) => s.replace(/[\r\n\0]/g, '');
+    db.prepare(
+      `INSERT INTO scheduled_sends (id, account_id, draft_id, to_email, cc, bcc, subject, body_html, attachments_json, send_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, params.accountId, params.draftId ?? null, stripCRLF(params.to), params.cc ? stripCRLF(params.cc) : null,
+      params.bcc ? stripCRLF(params.bcc) : null, stripCRLF(params.subject), params.bodyHtml, attachmentsJson, sendDate.toISOString());
+    return { success: true, scheduledId: id };
+  });
+
+  ipcMain.handle('scheduled:cancel', (_event, scheduledId: string, accountId: string) => {
+    if (!scheduledId || !accountId) throw new Error('Scheduled ID and account ID required');
+    const row = db.prepare("SELECT id FROM scheduled_sends WHERE id = ? AND account_id = ? AND status = 'pending'")
+      .get(scheduledId, accountId);
+    if (!row) throw new Error('Scheduled send not found or already processed');
+    db.prepare("UPDATE scheduled_sends SET status = 'cancelled' WHERE id = ? AND account_id = ?").run(scheduledId, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('scheduled:list', (_event, accountId: string) => {
+    if (!accountId) return [];
+    return db.prepare(
+      `SELECT id, to_email, subject, send_at, status, error_message, created_at
+       FROM scheduled_sends WHERE account_id = ? AND status IN ('pending', 'sending')
+       ORDER BY send_at ASC`
+    ).all(accountId);
+  });
+
+  ipcMain.handle('scheduled:update', (_event, params: { scheduledId: string; accountId: string; sendAt: string }) => {
+    if (!params?.scheduledId || !params?.accountId || !params?.sendAt) throw new Error('Missing required parameters');
+    const sendDate = new Date(params.sendAt);
+    if (isNaN(sendDate.getTime()) || sendDate.getTime() <= Date.now()) {
+      throw new Error('Send time must be in the future');
+    }
+    const row = db.prepare("SELECT id FROM scheduled_sends WHERE id = ? AND account_id = ? AND status = 'pending'")
+      .get(params.scheduledId, params.accountId);
+    if (!row) throw new Error('Scheduled send not found or already processed');
+    db.prepare('UPDATE scheduled_sends SET send_at = ? WHERE id = ? AND account_id = ?')
+      .run(sendDate.toISOString(), params.scheduledId, params.accountId);
+    return { success: true };
+  });
+
+  // --- Phase 4: Reminder handlers ---
+
+  ipcMain.handle('reminders:create', (_event, params: {
+    emailId: string; remindAt: string; note?: string;
+  }) => {
+    if (!params?.emailId || !params?.remindAt) throw new Error('Missing required parameters');
+    const remindDate = new Date(params.remindAt);
+    if (isNaN(remindDate.getTime()) || remindDate.getTime() <= Date.now()) {
+      throw new Error('Reminder time must be in the future');
+    }
+    const email = db.prepare('SELECT id, account_id FROM emails WHERE id = ?')
+      .get(params.emailId) as { id: string; account_id: string } | undefined;
+    if (!email) throw new Error('Email not found');
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO reminders (id, email_id, account_id, remind_at, note)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(id, email.id, email.account_id, remindDate.toISOString(), params.note?.slice(0, 500) ?? null);
+    return { success: true, reminderId: id };
+  });
+
+  ipcMain.handle('reminders:cancel', (_event, reminderId: string, accountId: string) => {
+    if (!reminderId || !accountId) throw new Error('Reminder ID and account ID required');
+    db.prepare('DELETE FROM reminders WHERE id = ? AND account_id = ? AND is_triggered = 0').run(reminderId, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('reminders:list', (_event, accountId: string) => {
+    if (!accountId) return [];
+    return db.prepare(
+      `SELECT r.id, r.email_id, r.remind_at, r.note, r.created_at,
+              e.subject, e.from_name, e.from_email
+       FROM reminders r
+       JOIN emails e ON r.email_id = e.id
+       WHERE r.account_id = ? AND r.is_triggered = 0
+       ORDER BY r.remind_at ASC`
+    ).all(accountId);
+  });
+
+  // --- Phase 4: Mail rule handlers ---
+
+  ipcMain.handle('rules:list', (_event, accountId: string) => {
+    if (!accountId) return [];
+    return db.prepare(
+      'SELECT id, name, priority, is_active, match_field, match_operator, match_value, action_type, action_value FROM mail_rules WHERE account_id = ? ORDER BY priority ASC'
+    ).all(accountId);
+  });
+
+  ipcMain.handle('rules:create', (_event, params: {
+    accountId: string; name: string; matchField: string; matchOperator: string;
+    matchValue: string; actionType: string; actionValue?: string;
+  }) => {
+    if (!params?.accountId || !params?.name || !params?.matchField || !params?.matchOperator || !params?.matchValue || !params?.actionType) {
+      throw new Error('Missing required parameters');
+    }
+    const VALID_FIELDS = new Set(['from', 'subject', 'body', 'has_attachment']);
+    const VALID_OPERATORS = new Set(['contains', 'equals', 'starts_with', 'ends_with']);
+    const VALID_ACTIONS = new Set(['move', 'mark_read', 'flag', 'delete', 'label', 'categorize']);
+    if (!VALID_FIELDS.has(params.matchField)) throw new Error('Invalid match field');
+    if (!VALID_OPERATORS.has(params.matchOperator)) throw new Error('Invalid match operator');
+    if (!VALID_ACTIONS.has(params.actionType)) throw new Error('Invalid action type');
+
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(params.accountId);
+    if (!account) throw new Error('Account not found');
+
+    const maxPriority = db.prepare(
+      'SELECT MAX(priority) as maxP FROM mail_rules WHERE account_id = ?'
+    ).get(params.accountId) as { maxP: number | null } | undefined;
+    const priority = (maxPriority?.maxP ?? -1) + 1;
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO mail_rules (id, account_id, name, priority, match_field, match_operator, match_value, action_type, action_value)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, params.accountId, params.name.slice(0, 200), priority,
+      params.matchField, params.matchOperator, params.matchValue.slice(0, 500),
+      params.actionType, params.actionValue?.slice(0, 200) ?? null);
+    return { success: true, ruleId: id };
+  });
+
+  ipcMain.handle('rules:update', (_event, params: {
+    ruleId: string; accountId?: string; name?: string; isActive?: boolean;
+    matchField?: string; matchOperator?: string; matchValue?: string;
+    actionType?: string; actionValue?: string;
+  }) => {
+    if (!params?.ruleId) throw new Error('Rule ID required');
+    const VALID_FIELDS = new Set(['from', 'subject', 'body', 'has_attachment']);
+    const VALID_OPERATORS = new Set(['contains', 'equals', 'starts_with', 'ends_with']);
+    const VALID_ACTIONS = new Set(['move', 'mark_read', 'flag', 'delete', 'label', 'categorize']);
+    if (params.matchField !== undefined && !VALID_FIELDS.has(params.matchField)) throw new Error('Invalid match field');
+    if (params.matchOperator !== undefined && !VALID_OPERATORS.has(params.matchOperator)) throw new Error('Invalid match operator');
+    if (params.actionType !== undefined && !VALID_ACTIONS.has(params.actionType)) throw new Error('Invalid action type');
+
+    // Verify rule exists (and optionally verify account ownership)
+    const whereClause = params.accountId
+      ? 'SELECT id FROM mail_rules WHERE id = ? AND account_id = ?'
+      : 'SELECT id FROM mail_rules WHERE id = ?';
+    const whereArgs = params.accountId ? [params.ruleId, params.accountId] : [params.ruleId];
+    const rule = db.prepare(whereClause).get(...whereArgs);
+    if (!rule) throw new Error('Rule not found');
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (params.name !== undefined) { fields.push('name = ?'); values.push(params.name.slice(0, 200)); }
+    if (params.isActive !== undefined) { fields.push('is_active = ?'); values.push(params.isActive ? 1 : 0); }
+    if (params.matchField !== undefined) { fields.push('match_field = ?'); values.push(params.matchField); }
+    if (params.matchOperator !== undefined) { fields.push('match_operator = ?'); values.push(params.matchOperator); }
+    if (params.matchValue !== undefined) { fields.push('match_value = ?'); values.push(params.matchValue.slice(0, 500)); }
+    if (params.actionType !== undefined) { fields.push('action_type = ?'); values.push(params.actionType); }
+    if (params.actionValue !== undefined) { fields.push('action_value = ?'); values.push(params.actionValue?.slice(0, 200) ?? null); }
+
+    if (fields.length > 0) {
+      values.push(params.ruleId);
+      db.prepare(`UPDATE mail_rules SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('rules:delete', (_event, ruleId: string, accountId: string) => {
+    if (!ruleId || !accountId) throw new Error('Rule ID and account ID required');
+    db.prepare('DELETE FROM mail_rules WHERE id = ? AND account_id = ?').run(ruleId, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('rules:reorder', (_event, params: { ruleIds: string[]; accountId: string }) => {
+    if (!params?.ruleIds || !Array.isArray(params.ruleIds) || !params?.accountId) throw new Error('Rule IDs array and account ID required');
+    if (params.ruleIds.length > 1000) throw new Error('Too many rules');
+    const updateStmt = db.prepare('UPDATE mail_rules SET priority = ? WHERE id = ? AND account_id = ?');
+    db.transaction(() => {
+      for (let i = 0; i < params.ruleIds.length; i++) {
+        updateStmt.run(i, params.ruleIds[i], params.accountId);
+      }
+    })();
+    return { success: true };
+  });
+
+  ipcMain.handle('rules:test', (_event, params: {
+    accountId: string; matchField: string; matchOperator: string; matchValue: string;
+  }) => {
+    if (!params?.accountId || !params?.matchField || !params?.matchOperator || !params?.matchValue) {
+      throw new Error('Missing required parameters');
+    }
+    const VALID_MATCH_FIELDS = ['from', 'subject', 'body', 'has_attachment'];
+    const VALID_MATCH_OPS = ['contains', 'equals', 'starts_with', 'ends_with'];
+    if (!VALID_MATCH_FIELDS.includes(params.matchField)) throw new Error('Invalid match field');
+    if (!VALID_MATCH_OPS.includes(params.matchOperator)) throw new Error('Invalid operator');
+    // Build a WHERE clause to preview rule matches
+    let whereSql: string;
+    const value = params.matchValue;
+    const fieldMap: Record<string, string> = {
+      from: 'from_email', subject: 'subject', body: 'body_text', has_attachment: 'has_attachments',
+    };
+    const col = fieldMap[params.matchField]!;
+
+    if (params.matchField === 'has_attachment') {
+      whereSql = `has_attachments = ${value === '1' ? 1 : 0}`;
+    } else if (params.matchOperator === 'contains') {
+      whereSql = `${col} LIKE '%' || ? || '%'`;
+    } else if (params.matchOperator === 'equals') {
+      whereSql = `${col} = ?`;
+    } else if (params.matchOperator === 'starts_with') {
+      whereSql = `${col} LIKE ? || '%'`;
+    } else if (params.matchOperator === 'ends_with') {
+      whereSql = `${col} LIKE '%' || ?`;
+    } else {
+      throw new Error('Invalid operator');
+    }
+
+    const query = `SELECT id, subject, from_email, date FROM emails WHERE account_id = ? AND ${whereSql} ORDER BY date DESC LIMIT 10`;
+    if (params.matchField === 'has_attachment') {
+      return db.prepare(query).all(params.accountId);
+    }
+    return db.prepare(query).all(params.accountId, value);
+  });
+
   // --- MCP connection status handler ---
   ipcMain.handle('mcp:connected-count', () => {
     return { count: mcpServer.getConnectedCount() };
+  });
+
+  // --- Auto-update handlers ---
+  ipcMain.handle('update:check', async () => {
+    try {
+      const result = await checkForUpdates();
+      return { available: !!result?.updateInfo, version: result?.updateInfo?.version ?? null };
+    } catch {
+      return { available: false, version: null };
+    }
+  });
+
+  ipcMain.handle('update:download', async () => {
+    try {
+      await downloadUpdate();
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
+  });
+
+  ipcMain.handle('update:install', () => {
+    installUpdate();
   });
 
 }
@@ -785,7 +1134,41 @@ app.whenReady().then(() => {
     if (win && !win.isDestroyed()) {
       win.webContents.send('email:new', { accountId, folderId, count });
     }
+    if (count > 0) {
+      showNotification('New Email', `${count} new message${count > 1 ? 's' : ''} received`);
+    }
   });
+
+  // Start scheduler engine for snooze/send-later/reminders
+  schedulerEngine.setCallbacks({
+    onSnoozeRestore: (_emailId, accountId, folderId) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('email:new', { accountId, folderId, count: 1 });
+      }
+    },
+    onReminderDue: (emailId, accountId, subject, fromEmail) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('reminder:due', { emailId, accountId, subject, fromEmail });
+      }
+      showNotification('Reminder', (subject ?? 'Follow up on email').slice(0, 100), emailId);
+    },
+    onScheduledSendResult: (scheduledId, success, error) => {
+      if (win && !win.isDestroyed()) {
+        const channel = success ? 'scheduled:sent' : 'scheduled:failed';
+        win.webContents.send(channel, { scheduledId, error });
+      }
+      if (!success) {
+        showNotification('Scheduled Email Failed', error ?? 'Could not send scheduled email');
+      }
+    },
+  });
+  try {
+    schedulerEngine.start();
+    logDebug('Scheduler engine started successfully.');
+  } catch (err: unknown) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    logDebug(`[ERROR] Scheduler start failed: ${e.message}`);
+  }
 
   logDebug('Creating main window...');
   try {
@@ -794,6 +1177,23 @@ app.whenReady().then(() => {
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] Window creation failed: ${e.message}\n${e.stack}`);
+  }
+
+  // Initialize auto-updater (only in production)
+  if (!VITE_DEV_SERVER_URL) {
+    try {
+      initAutoUpdater();
+      setUpdateCallback((event, data) => {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send(event, data);
+        }
+      });
+      checkForUpdates().catch(() => { /* silent */ });
+      logDebug('Auto-updater initialized.');
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      logDebug(`[WARN] Auto-updater init failed: ${e.message}`);
+    }
   }
 
   // Connect saved accounts and sync folders on startup

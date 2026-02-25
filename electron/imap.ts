@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { getDatabase } from './db.js';
 import { decryptData } from './crypto.js';
 import { logDebug } from './logger.js';
+import { applyRulesToEmail } from './ruleEngine.js';
 
 interface AttachmentMeta {
     partNumber: string;
@@ -307,6 +308,9 @@ export class ImapEngine {
                             }
                         }
                     }
+
+                    // Apply mail rules to newly inserted email
+                    applyRulesToEmail(emailId, accountId);
                 }
 
                 if (uid > (this.lastSeenUid.get(accountId) ?? 0)) {

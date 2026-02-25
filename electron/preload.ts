@@ -37,12 +37,43 @@ const ALLOWED_INVOKE_CHANNELS = [
   'mcp:connected-count',
   'apikeys:get-openrouter',
   'apikeys:set-openrouter',
+  // Phase 4: Snooze
+  'emails:snooze',
+  'emails:unsnooze',
+  'snoozed:list',
+  // Phase 4: Scheduled send
+  'scheduled:create',
+  'scheduled:cancel',
+  'scheduled:list',
+  'scheduled:update',
+  // Phase 4: Reminders
+  'reminders:create',
+  'reminders:cancel',
+  'reminders:list',
+  // Phase 4: Mail rules
+  'rules:list',
+  'rules:create',
+  'rules:update',
+  'rules:delete',
+  'rules:reorder',
+  'rules:test',
+  // Phase 4: Auto-update
+  'update:check',
+  'update:download',
+  'update:install',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [
   'email:new',
   'sync:status',
   'mcp:status',
+  // Phase 4
+  'reminder:due',
+  'notification:click',
+  'update:available',
+  'update:downloaded',
+  'scheduled:sent',
+  'scheduled:failed',
 ] as const
 
 type InvokeChannel = typeof ALLOWED_INVOKE_CHANNELS[number]

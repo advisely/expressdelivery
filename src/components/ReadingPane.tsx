@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert } from 'lucide-react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, Clock, Bell } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Popover from '@radix-ui/react-popover';
 import { useEmailStore } from '../stores/emailStore';
 import type { Attachment, EmailFull, EmailSummary } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
 import { formatFileSize } from '../lib/formatFileSize';
+import DateTimePicker from './DateTimePicker';
 
 interface ReadingPaneProps {
     onReply?: (email: EmailFull) => void;
@@ -58,6 +60,8 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     const [cidMap, setCidMap] = useState<Record<string, string>>({});
     const [remoteImagesBlocked, setRemoteImagesBlocked] = useState(true);
     const [remoteImageCount, setRemoteImageCount] = useState(0);
+    const [snoozeOpen, setSnoozeOpen] = useState(false);
+    const [reminderOpen, setReminderOpen] = useState(false);
 
     // Reset state on email change
     useEffect(() => {
@@ -189,6 +193,38 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
         }
     };
 
+    const handleSnooze = async (snoozeUntil: string) => {
+        if (!selectedEmail) return;
+        setActionError(null);
+        setSnoozeOpen(false);
+        try {
+            const result = await ipcInvoke<{ success: boolean }>('emails:snooze', {
+                emailId: selectedEmail.id,
+                snoozeUntil,
+            });
+            if (result?.success) {
+                setSelectedEmail(null);
+                await refreshEmailList();
+            }
+        } catch {
+            setActionError('Failed to snooze email');
+        }
+    };
+
+    const handleReminder = async (remindAt: string) => {
+        if (!selectedEmail) return;
+        setActionError(null);
+        setReminderOpen(false);
+        try {
+            await ipcInvoke<{ success: boolean }>('reminders:create', {
+                emailId: selectedEmail.id,
+                remindAt,
+            });
+        } catch {
+            setActionError('Failed to set reminder');
+        }
+    };
+
     // Process HTML: sanitize -> CID replace -> remote image blocking
     const { processedHtml, detectedRemoteCount } = useMemo(() => {
         if (!sanitizedBodyHtml) return { processedHtml: null, detectedRemoteCount: 0 };
@@ -302,6 +338,38 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                             fill={selectedEmail.is_flagged ? 'currentColor' : 'none'}
                         />
                     </button>
+                    <Popover.Root open={snoozeOpen} onOpenChange={setSnoozeOpen}>
+                        <Popover.Trigger asChild>
+                            <button className="icon-btn" title="Snooze" aria-label="Snooze">
+                                <Clock size={18} />
+                            </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                            <Popover.Content className="rp-popover" sideOffset={5} align="start">
+                                <DateTimePicker
+                                    label="Snooze until"
+                                    onSelect={handleSnooze}
+                                    onCancel={() => setSnoozeOpen(false)}
+                                />
+                            </Popover.Content>
+                        </Popover.Portal>
+                    </Popover.Root>
+                    <Popover.Root open={reminderOpen} onOpenChange={setReminderOpen}>
+                        <Popover.Trigger asChild>
+                            <button className="icon-btn" title="Remind me" aria-label="Set reminder">
+                                <Bell size={18} />
+                            </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                            <Popover.Content className="rp-popover" sideOffset={5} align="start">
+                                <DateTimePicker
+                                    label="Remind me"
+                                    onSelect={handleReminder}
+                                    onCancel={() => setReminderOpen(false)}
+                                />
+                            </Popover.Content>
+                        </Popover.Portal>
+                    </Popover.Root>
                 </div>
             </div>
 
@@ -724,8 +792,17 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
           to { transform: rotate(360deg); }
         }
 
+        .rp-popover {
+          background: rgb(var(--color-bg-elevated));
+          border-radius: 10px;
+          box-shadow: 0 10px 38px -10px rgba(0,0,0,0.35), 0 10px 20px -15px rgba(0,0,0,0.2);
+          border: 1px solid var(--glass-border);
+          z-index: 100;
+          animation: menuFadeIn 0.15s ease-out;
+        }
+
         @media (prefers-reduced-motion: reduce) {
-          .move-menu {
+          .move-menu, .rp-popover {
             animation: none;
           }
           .attachment-spinner {

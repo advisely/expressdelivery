@@ -28,6 +28,8 @@ vi.mock('lucide-react', () => ({
     Download: () => <div data-testid="icon-Download">D</div>,
     FileText: () => <div data-testid="icon-FileText">FT</div>,
     ShieldAlert: () => <div data-testid="icon-ShieldAlert">SA</div>,
+    Clock: () => <div data-testid="icon-Clock">CL</div>,
+    Bell: () => <div data-testid="icon-Bell">B</div>,
 }));
 
 vi.mock('../lib/formatFileSize', () => ({
@@ -42,6 +44,17 @@ vi.mock('@radix-ui/react-dropdown-menu', () => ({
     Item: ({ children, onSelect, disabled, className }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean; className?: string }) => (
         <div role="menuitem" className={className} onClick={onSelect} aria-disabled={disabled}>{children}</div>
     ),
+}));
+
+vi.mock('@radix-ui/react-popover', () => ({
+    Root: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Trigger: ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => asChild ? <>{children}</> : <button>{children}</button>,
+    Portal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Content: ({ children, className }: { children: React.ReactNode; className?: string }) => <div className={className}>{children}</div>,
+}));
+
+vi.mock('./DateTimePicker', () => ({
+    default: ({ label }: { label?: string }) => <div data-testid="date-time-picker">{label}</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
