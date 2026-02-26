@@ -170,4 +170,12 @@ export class McpServerManager {
     }
 }
 
-export const mcpServer = new McpServerManager();
+let _mcpServer: McpServerManager | null = null;
+
+/** Lazy factory — MCP server is created on first access (deferred from module load time) */
+export function getMcpServer(): McpServerManager {
+    if (!_mcpServer) {
+        _mcpServer = new McpServerManager();
+    }
+    return _mcpServer;
+}

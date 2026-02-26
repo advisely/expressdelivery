@@ -75,14 +75,14 @@ function renderApp() {
     return render(<App />);
 }
 
-/** Render App with accounts pre-loaded (startup:load resolves with accounts) */
+/** Render App with accounts pre-loaded (startup:load resolves with accounts + settings) */
 async function renderAppWithAccounts() {
     mockIpcInvoke
         .mockResolvedValueOnce({
             accounts: mockAccounts, folders: [], emails: [],
             selectedAccountId: 'a1', selectedFolderId: null,
-        })              // startup:load
-        .mockResolvedValueOnce(null)   // settings:get (undo_send_delay)
+            settings: { undo_send_delay: '5' },
+        })              // startup:load (includes settings)
         .mockResolvedValueOnce([]);    // folders:list (triggered by selectedAccountId change)
     let result: ReturnType<typeof render>;
     await act(async () => { result = render(<App />); });
@@ -97,7 +97,7 @@ describe('App', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         // Default: startup:load returns empty (triggers onboarding)
-        mockIpcInvoke.mockResolvedValue({ accounts: [], folders: [], emails: [], selectedAccountId: null, selectedFolderId: null });
+        mockIpcInvoke.mockResolvedValue({ accounts: [], folders: [], emails: [], selectedAccountId: null, selectedFolderId: null, settings: { undo_send_delay: '5' } });
         mockIpcOn.mockReturnValue(vi.fn());
         // Reset email store to empty (no accounts = onboarding)
         useEmailStore.setState({
@@ -175,8 +175,8 @@ describe('App', () => {
             .mockResolvedValueOnce({
                 accounts: mockAccounts, folders: [], emails: [],
                 selectedAccountId: 'a1', selectedFolderId: null,
+                settings: { undo_send_delay: '5' },
             })
-            .mockResolvedValueOnce(null)   // settings:get
             .mockResolvedValueOnce([]);    // folders:list
         await act(async () => { renderApp(); });
 

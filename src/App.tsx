@@ -25,6 +25,12 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // Log renderer crashes to main process log file — pre-truncate each field so the most diagnostic parts survive
+    const msg = `[RENDERER CRASH] ${error.message} | Stack: ${(error.stack ?? '').slice(0, 800)} | Component: ${(info.componentStack ?? '').slice(0, 800)}`;
+    ipcInvoke('log:error', msg).catch(() => {});
+  }
+
   render() {
     if (this.state.hasError) {
       return (
@@ -126,15 +132,40 @@ function App() {
     }
   }, [setAccounts, selectAccount]);
 
-  // Single IPC call at startup: accounts + folders + inbox emails in one round-trip
+  // Single IPC call at startup: accounts + folders + inbox emails + settings in one round-trip
   useEffect(() => {
     let cancelled = false;
+
+    function updateSplash(text: string, percent: number) {
+      const splash = document.getElementById('splash');
+      if (!splash) return;
+      const textEl = document.getElementById('splash-text');
+      const barEl = document.getElementById('splash-progress-bar');
+      if (textEl) textEl.textContent = text;
+      if (barEl) barEl.style.width = `${percent}%`;
+      splash.setAttribute('aria-valuenow', String(percent));
+    }
+
+    function removeSplash() {
+      const splash = document.getElementById('splash');
+      if (splash) {
+        splash.classList.add('fade-out');
+        setTimeout(() => splash.remove(), 300);
+      }
+    }
+
     async function startupLoad() {
+      updateSplash('Loading accounts...', 30);
+
       const result = await ipcInvoke<{
         accounts: Account[]; folders: Folder[]; emails: EmailSummary[];
         selectedAccountId: string | null; selectedFolderId: string | null;
+        settings?: { undo_send_delay?: string };
       }>('startup:load');
       if (!result || cancelled) return;
+
+      updateSplash('Loading mailbox...', 60);
+
       if (result.accounts.length > 0) {
         setAccounts(result.accounts);
         selectAccount(result.selectedAccountId ?? result.accounts[0].id);
@@ -142,26 +173,24 @@ function App() {
         if (result.selectedFolderId) selectFolder(result.selectedFolderId);
         if (result.emails.length > 0) setEmails(result.emails);
       }
-      // Fade out and remove the HTML splash screen
+
+      // Apply bundled settings
+      if (result.settings?.undo_send_delay) {
+        setUndoSendDelay(Number(result.settings.undo_send_delay) || 5);
+      }
+
+      updateSplash('Ready', 100);
+
       if (!cancelled) {
         setStartupReady(true);
-        const splash = document.getElementById('splash');
-        if (splash) {
-          splash.classList.add('fade-out');
-          setTimeout(() => splash.remove(), 300);
-        }
+        removeSplash();
       }
     }
+
+    updateSplash('Initializing...', 10);
     startupLoad();
     return () => { cancelled = true; };
   }, [setAccounts, selectAccount, setFolders, selectFolder, setEmails]);
-
-  // Load undo send delay setting
-  useEffect(() => {
-    ipcInvoke<string | null>('settings:get', 'undo_send_delay').then(val => {
-      if (val !== null) setUndoSendDelay(Number(val) || 5);
-    });
-  }, []);
 
   // Clean up pending send timers on unmount
   useEffect(() => {

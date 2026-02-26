@@ -185,26 +185,12 @@
   color: var(--text-primary);
 }
 
-.email-body-html {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-primary);
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-}
-
-.email-body-html a {
-  color: var(--accent-color);
-}
-
-.email-body-html img {
-  max-width: 100%;
-  height: auto;
-}
-
-.email-body-html table {
-  max-width: 100%;
-  overflow-x: auto;
+.email-iframe {
+  width: 100%;
+  min-height: 100px;
+  border: none;
+  display: block;
+  overflow: hidden;
 }
 
 .remote-images-banner {
@@ -232,19 +218,6 @@
 }
 
 .load-images-btn:hover {
-  background: var(--accent-hover);
-}
-
-.action-button {
-  background: var(--accent-color);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.action-button:hover {
   background: var(--accent-hover);
 }
 
@@ -326,7 +299,6 @@
 .thread-conversation {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 .thread-message {

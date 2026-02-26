@@ -83,7 +83,10 @@ try {
   process.exit(1);
 }
 
+const appVersion = pkg.version || '0.0.0';
+
 console.log(`\nExpressDelivery Clean Build`);
+console.log(`  Version:  ${appVersion}`);
 console.log(`  Electron: ${electronVersion}`);
 console.log(`  Targets:  ${[buildLinux && 'Linux', buildWin && 'Windows', buildNsis && 'NSIS'].filter(Boolean).join(', ')}`);
 console.log(`  Restore host binary: ${restoreHost}`);
@@ -165,7 +168,7 @@ if (buildWin) {
 console.log('\n--- Step 7: Verify packaged binary ---');
 const winBinary = join(
   ROOT,
-  'release/0.0.0/win-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+  `release/${appVersion}/win-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node`
 );
 if (existsSync(winBinary)) {
   const stat = readFileSync(winBinary);
@@ -181,7 +184,7 @@ if (existsSync(winBinary)) {
 
 const linuxBinary = join(
   ROOT,
-  'release/0.0.0/linux-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+  `release/${appVersion}/linux-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node`
 );
 if (existsSync(linuxBinary)) {
   const stat = readFileSync(linuxBinary);
@@ -212,9 +215,9 @@ console.log('\n' + '='.repeat(60));
 console.log('  BUILD COMPLETE');
 console.log('='.repeat(60));
 if (buildWin) {
-  console.log(`  Windows: release/0.0.0/win-unpacked/ExpressDelivery.exe`);
+  console.log(`  Windows: release/${appVersion}/win-unpacked/ExpressDelivery.exe`);
 }
 if (buildLinux) {
-  console.log(`  Linux:   release/0.0.0/linux-unpacked/expressdelivery`);
+  console.log(`  Linux:   release/${appVersion}/linux-unpacked/expressdelivery`);
 }
 console.log();

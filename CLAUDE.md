@@ -1,6 +1,6 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 5 complete (v1.0.0). 12 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (7 migrations), 4 themes, 21 test files (337 tests), ~50 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 5 complete (v1.0.0). 12 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (9 migrations), 4 themes, 21 test files (338 tests), ~54 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
@@ -277,10 +277,53 @@ Full reports in `.claude/`: `security-audit-report.md`, `code-review-report.md`,
 - ~~Toast timer overlap on rapid successive toasts~~ -- Fixed: clearTimeout before each new toast timer
 - ~~JSON.parse of conditions/actions not guarded~~ -- Fixed: try/catch with fallback to empty array in scheduler and ruleEngine
 
-### Test Coverage: ~68% (21 files, 337 tests)
+**Code review remediation (2026-02-25 round 8 — v1.2.2 fixes):**
+- ~~Sync indicator "Not synced" after successful connection~~ -- Fixed: `accounts:add` and `accounts:update` now emit `sync:status` IPC events; extracted `sendSyncStatus()` helper
+- ~~Trash icon replaces date on hover~~ -- Fixed: date-col wrapper with `visibility: hidden/visible` instead of `display: none`, no height jitter
+- ~~DOMPurify FORBID_TAGS regression~~ -- Fixed: sandboxed iframe rendering (`sandbox="allow-scripts"`, no `allow-same-origin`); `<style>` allowed within iframe (style-isolated); `<link>` still forbidden; iframe CSP `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; frame-ancestors 'none';`
+- ~~uncaughtException kills app on non-fatal errors~~ -- Fixed: only exits for fatal (MODULE_NOT_FOUND via `err.code`, NODE_MODULE_VERSION, OOM regex)
+- ~~log:error IPC handler allows log injection~~ -- Fixed: strip `\r\n\0`, prepend `[RENDERER]`, 4000-char cap
+- ~~accounts:update catch block silently drops error~~ -- Fixed: added `logDebug` with error context
+- ~~IMAP client.on('error') logs unsanitized messages~~ -- Fixed: HTML entity strip + control char replace + 500-char truncation
+- ~~componentDidCatch stack truncated at 2000 chars~~ -- Fixed: pre-truncate stack and componentStack to 800 chars each
+- ~~window.error handler can throw if preload unavailable~~ -- Fixed: wrapped in try-catch
+- ~~child-process-gone not logged~~ -- Fixed: app event listener logs type/reason/exitCode
+- ~~Renderer crashes not forwarded to log file~~ -- Fixed: `log:error` IPC + global error/rejection handlers + ErrorBoundary componentDidCatch
+
+**Code review remediation (2026-02-25 round 9 — iframe sandbox):**
+- ~~Email HTML rendered via dangerouslySetInnerHTML~~ -- Fixed: `SandboxedEmailBody` component with `<iframe sandbox="allow-scripts">` + `postMessage`-based auto-resize (ResizeObserver)
+- ~~`allow-same-origin` on iframe creates latent parent-DOM access risk~~ -- Fixed: migrated to `allow-scripts` (no `allow-same-origin`) + ResizeObserver `postMessage` pattern
+- ~~"Load images" button broken (iframe CSP blocks remote images)~~ -- Fixed: `buildIframeSrcdoc` accepts `allowRemoteImages` flag, dynamically adds `https:` to `img-src` CSP
+- ~~`srcset` attribute bypasses remote image blocking~~ -- Fixed: `processRemoteImages()` now also strips `srcset` with remote URLs
+- ~~`body_text` treated as HTML in thread view~~ -- Fixed: plain text is `escapeHtml()`-escaped and wrapped in `<pre style="white-space:pre-wrap">`
+- ~~`PURIFY_CONFIG_THREAD` missing `ADD_URI_SAFE_ATTR`~~ -- Fixed: added `ADD_URI_SAFE_ATTR: ['src']` for CID data: URLs
+- ~~Redundant `remoteImageCount` state + sync effect~~ -- Fixed: eliminated state, use `detectedRemoteCount` directly from `useMemo`
+- ~~Dead CSS (`.email-body-html`, `.action-button`, `gap: 0`)~~ -- Fixed: removed from ReadingPane.module.css
+- ~~`as string[]` type casts on DOMPurify config arrays~~ -- Fixed: removed unnecessary type assertions
+- ~~No `will-navigate` / `setWindowOpenHandler` in main.ts~~ -- Fixed: defense-in-depth navigation blocking and window open denial
+- ~~Iframe CSP missing `frame-ancestors 'none'`~~ -- Fixed: added to `buildIframeSrcdoc` CSP
+- ~~`SandboxedEmailBody` not memoized~~ -- Fixed: wrapped with `React.memo`, `srcdoc` computed via `useMemo`
+- ~~`buildIframeSrcdoc` dense one-liner~~ -- Fixed: expanded to multiline `join('')` for auditability
+
+**Code review remediation (2026-02-25 round 10 — startup performance + charset):**
+- ~~IMAP body hardcoded UTF-8 decoding~~ -- Fixed: charset-aware `decodeBuffer()` reads charset from `bodyStructure.parameters`, SAFE_CHARSETS allowlist, UTF-8 fallback
+- ~~Sync indicator shows "Not synced" after successful connection~~ -- Fixed: 5-second IMAP status polling + push events, shows Connecting/Connected/Error/Last check
+- ~~Startup ~10s delay~~ -- Fixed: deferred IMAP body downloads (on-demand via `refetchEmailBody`), short-circuit migration runner, lazy MCP server init, batched startup:load IPC (includes settings), Vite `manualChunks` vendor splitting
+- ~~No loading progress indicator~~ -- Fixed: splash screen with progress bar (0-100%), step labels (Initializing/Loading accounts/Loading mailbox/Ready)
+- ~~`emails:repair-bodies` unbounded IMAP load~~ -- Fixed: capped at 200 emails, filters `WHERE body_html IS NULL`, hoisted prepared statements
+- ~~`TextDecoder` accepts exotic charsets~~ -- Fixed: `SAFE_CHARSETS` allowlist (30+ common charsets), rejects to UTF-8
+- ~~`needsBodyFetch` dead logic clause~~ -- Fixed: simplified to `!email.body_html && !email.body_text`
+- ~~`getMcpServer().stop()` unguarded in before-quit~~ -- Fixed: wrapped in try-catch
+- ~~`MAX_BODY_BYTES` declared 3 times locally~~ -- Fixed: hoisted to module-level constant
+- ~~`startup:load` undo_send_delay unbounded~~ -- Fixed: clamped `Math.min(Math.max(..., 0), 30)` server-side
+- ~~Favicon points to `/vite.svg`~~ -- Fixed: changed to `/icon.png`
+- ~~`getMcpServer()` called twice in startup~~ -- Fixed: cached to local `const mcp`
+- Added `emails:refetch-body` (single email) and `emails:repair-bodies` (batch) IPC handlers for garbled email repair
+
+### Test Coverage: ~68% (21 files, 338 tests)
 
 **Tested:** crypto, db, mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures), ReadingPane (CID + remote image blocking), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete, scheduler, ruleEngine, App, ThemeContext, DateTimePicker, UpdateBanner, OnboardingScreen
-**Untested critical paths:** IMAP client (P1 — integration complexity, deferred to E2E)
+**Untested critical paths:** IMAP client (P1 — integration complexity, deferred to E2E), ThreadList (P1 — no test file)
 
 ## Feature Status Summary
 
@@ -295,7 +338,7 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - Full-text search (FTS5, debounced)
 - Rich text email compose (TipTap: bold/italic/underline/lists/links) with To/CC/BCC + contact autocomplete (ARIA combobox), reply/forward prefill
 - Per-account email signatures (HTML, 10KB cap, DOMPurify-sanitized, preview in compose)
-- HTML email rendering with DOMPurify sanitization
+- HTML email rendering (sandboxed iframe with CSP + DOMPurify sanitization, postMessage auto-resize)
 - Inline CID image display (Content-ID extraction, IMAP on-demand download, MIME allowlist, data: URL rendering)
 - Remote image blocking (blocked by default, privacy banner, "Load images" button, CSP defense-in-depth)
 - Reply, Forward, Delete, Star/Flag, Archive, Move-to-folder actions wired

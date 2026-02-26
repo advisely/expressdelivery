@@ -44,4 +44,20 @@ export default defineConfig({
         : {},
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-popover',
+          ],
+          'vendor-i18n': ['i18next', 'react-i18next'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
+  },
 })

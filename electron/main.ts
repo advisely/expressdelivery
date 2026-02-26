@@ -10,7 +10,7 @@ import { logDebug } from './logger.js';
 logDebug('--- NEW APP STARTUP ---');
 logDebug(`Platform: ${process.platform}, Arch: ${process.arch}, App Path: ${app.getAppPath()}`);
 
-// Simple robust exception wrapper for silent startup crashes
+// Robust exception handler — log and try to continue (exit only for truly fatal errors)
 process.on('uncaughtException', (err) => {
   logDebug(`[UNCAUGHT EXCEPTION] ${err.message}\n${err.stack}`);
   const userDataLog = path.join(app.getPath('userData'), 'crash.log')
@@ -19,11 +19,36 @@ process.on('uncaughtException', (err) => {
   } catch {
     // Failsafe
   }
-  process.exit(1)
+  // Only exit for truly fatal errors that compromise process integrity
+  // (e.g. native module crashes, OOM). For JS-level errors, attempt to continue.
+  const errWithCode = err as NodeJS.ErrnoException;
+  const fatal = errWithCode.code === 'MODULE_NOT_FOUND'
+    || err.message?.includes('NODE_MODULE_VERSION')
+    || /out of memory|heap exhausted/i.test(err.message ?? '');
+  if (fatal) process.exit(1);
+})
+
+// Prevent silent crash from unhandled promise rejections (e.g. IMAP reconnect failures)
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : '';
+  logDebug(`[UNHANDLED REJECTION] ${msg}\n${stack}`);
+  const userDataLog = path.join(app.getPath('userData'), 'crash.log')
+  try {
+    fs.appendFileSync(userDataLog, `[REJECTION] ${new Date().toISOString()} - ${msg}\n${stack}\n`)
+  } catch {
+    // Failsafe
+  }
+  // Do NOT exit — just log and continue. This prevents IMAP reconnect failures from killing the app.
+})
+
+// Log child process crashes to debug unexpected app closures
+app.on('child-process-gone', (_event, details) => {
+  logDebug(`[CHILD PROCESS GONE] type=${details.type} reason=${details.reason} exitCode=${details.exitCode}`);
 })
 
 import { initDatabase, getDatabase, closeDatabase } from './db.js'
-import { mcpServer } from './mcpServer.js'
+import { getMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
 import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
@@ -48,6 +73,13 @@ let tray: Tray | null = null
 // Track last successful IMAP sync timestamp per account (module-level so it's
 // accessible from both the new-email callback and the imap:status IPC handler)
 const lastSyncTimestamps: Map<string, number> = new Map();
+
+// Helper: send sync status to renderer (guards destroyed window)
+function sendSyncStatus(accountId: string, status: 'connecting' | 'connected' | 'error', timestamp: number | null) {
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('sync:status', { accountId, status, timestamp });
+  }
+}
 
 function getMimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
@@ -156,6 +188,21 @@ function createWindow() {
     if (win?.isVisible()) { win.hide() } else { win?.show() }
   })
 
+  // Defense-in-depth: block unexpected navigation from email iframe or renderer
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = VITE_DEV_SERVER_URL
+      ? url.startsWith(VITE_DEV_SERVER_URL)
+      : url.startsWith('file://');
+    if (!allowed) {
+      logDebug(`[BLOCKED NAVIGATION] ${url}`);
+      event.preventDefault();
+    }
+  })
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    logDebug(`[BLOCKED WINDOW OPEN] ${url}`);
+    return { action: 'deny' };
+  })
+
   // Log renderer errors to debug log
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     logDebug(`[RENDERER LOAD FAIL] code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
@@ -191,7 +238,7 @@ app.on('before-quit', async () => {
     tray.destroy();
     tray = null;
   }
-  mcpServer.stop();
+  try { getMcpServer().stop(); } catch { /* best effort */ }
   try { await imapEngine.disconnectAll(); } catch { /* best effort */ }
   try { closeDatabase(); } catch { /* best effort */ }
   logDebug('before-quit: cleanup complete.');
@@ -228,7 +275,16 @@ function registerIpcHandlers() {
          ORDER BY date DESC LIMIT 50`
       ).all(inbox.id)
       : [];
-    return { accounts, folders, emails, selectedAccountId: firstAccountId, selectedFolderId: inbox?.id ?? null };
+    // Bundle settings into the startup response to avoid a second IPC round-trip
+    // Only non-sensitive keys here (undo_send_delay is a numeric timer, not a secret)
+    const undoDelayRow = db.prepare("SELECT value FROM settings WHERE key = 'undo_send_delay'").get() as { value: string } | undefined;
+    const undoDelay = Math.min(Math.max(parseInt(undoDelayRow?.value ?? '5', 10) || 5, 0), 30);
+    return {
+      accounts, folders, emails,
+      selectedAccountId: firstAccountId,
+      selectedFolderId: inbox?.id ?? null,
+      settings: { undo_send_delay: String(undoDelay) },
+    };
   });
 
   ipcMain.handle('accounts:list', () => {
@@ -276,6 +332,7 @@ function registerIpcHandlers() {
 
     // Post-add: connect IMAP, sync folders, sync INBOX
     try {
+      sendSyncStatus(id, 'connecting', null);
       const connected = await imapEngine.connectAccount(id);
       if (connected) {
         const folders = await imapEngine.listAndSyncFolders(id);
@@ -283,9 +340,15 @@ function registerIpcHandlers() {
         if (inbox) {
           await imapEngine.syncNewEmails(id, inbox.path.replace(/^\//, ''));
         }
+        const now = Date.now();
+        lastSyncTimestamps.set(id, now);
+        sendSyncStatus(id, 'connected', now);
+      } else {
+        sendSyncStatus(id, 'error', null);
       }
     } catch (err) {
       logDebug(`Post-add IMAP sync error: ${err instanceof Error ? err.message : String(err)}`);
+      sendSyncStatus(id, 'error', null);
     }
 
     return { id };
@@ -321,9 +384,20 @@ function registerIpcHandlers() {
     // Reconnect IMAP if server settings changed
     if (account.imap_host !== undefined || account.imap_port !== undefined || account.password || account.email !== undefined) {
       try {
+        sendSyncStatus(account.id, 'connecting', null);
         await imapEngine.disconnectAccount(account.id);
-        await imapEngine.connectAccount(account.id);
-      } catch { /* best effort reconnect */ }
+        const connected = await imapEngine.connectAccount(account.id);
+        if (connected) {
+          const now = Date.now();
+          lastSyncTimestamps.set(account.id, now);
+          sendSyncStatus(account.id, 'connected', now);
+        } else {
+          sendSyncStatus(account.id, 'error', null);
+        }
+      } catch (err) {
+        logDebug(`Post-update IMAP reconnect error for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
+        sendSyncStatus(account.id, 'error', null);
+      }
     }
 
     return { success: true };
@@ -424,24 +498,29 @@ function registerIpcHandlers() {
       }
     }
 
-    // On-demand body fetch: if body_html is null, try to download it from IMAP
-    if (email.body_html === null || email.body_html === undefined) {
-      const uidForFetch = uid;
-      if (uidForFetch > 0) {
-        const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id as string) as { path: string } | undefined;
-        if (folder) {
-          const mailbox = folder.path.replace(/^\//, '');
-          try {
-            const html = await imapEngine.fetchBodyHtml(email.account_id as string, uidForFetch, mailbox);
-            if (html && html.includes('<')) {
-              db.prepare('UPDATE emails SET body_html = ? WHERE id = ?').run(html, emailId);
-              email.body_html = html;
-            }
-          } catch { /* best effort */ }
-        }
+    // On-demand body fetch: if body is missing, download from IMAP with charset-aware decoding
+    const needsBodyFetch = !email.body_html && !email.body_text;
+    if (needsBodyFetch && uid > 0) {
+      const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id as string) as { path: string } | undefined;
+      if (folder) {
+        const mailbox = folder.path.replace(/^\//, '');
+        try {
+          const result = await Promise.race([
+            imapEngine.refetchEmailBody(email.account_id as string, uid, mailbox),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+          ]);
+          if (result) {
+            db.prepare('UPDATE emails SET body_text = ?, body_html = ? WHERE id = ?').run(
+              result.bodyText, result.bodyHtml, emailId
+            );
+            email.body_text = result.bodyText;
+            email.body_html = result.bodyHtml;
+          }
+        } catch { /* best effort */ }
       }
     }
 
+    // Always return the email row even if on-demand body fetch failed
     return email;
   });
 
@@ -607,6 +686,72 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
+  // Re-fetch email body from IMAP with charset-aware decoding (repair garbled emails)
+  ipcMain.handle('emails:refetch-body', async (_event, emailId: string) => {
+    const email = db.prepare(
+      'SELECT id, account_id, folder_id FROM emails WHERE id = ?'
+    ).get(emailId) as { id: string; account_id: string; folder_id: string } | undefined;
+    if (!email) return { success: false, error: 'Email not found' };
+
+    const folder = db.prepare(
+      'SELECT path FROM folders WHERE id = ?'
+    ).get(email.folder_id) as { path: string } | undefined;
+    if (!folder) return { success: false, error: 'Folder not found' };
+
+    const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
+    const uid = parseInt(uidStr ?? '0', 10);
+    if (uid <= 0) return { success: false, error: 'Invalid UID' };
+
+    const result = await imapEngine.refetchEmailBody(
+      email.account_id, uid, folder.path.replace(/^\//, '')
+    );
+    if (!result) return { success: false, error: 'IMAP refetch failed' };
+
+    db.prepare('UPDATE emails SET body_text = ?, body_html = ? WHERE id = ?').run(
+      result.bodyText, result.bodyHtml, emailId
+    );
+    return { success: true };
+  });
+
+  // Batch repair garbled email bodies (re-fetches emails with missing bodies, capped at 200)
+  ipcMain.handle('emails:repair-bodies', async (_event, accountId: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+
+    // Only repair emails with missing/empty bodies, capped at 200 to prevent IMAP overload
+    const emails = db.prepare(
+      `SELECT id, folder_id FROM emails WHERE account_id = ?
+       AND (body_html IS NULL OR body_html = '') AND (body_text IS NULL OR body_text = '')
+       LIMIT 200`
+    ).all(accountId) as Array<{ id: string; folder_id: string }>;
+
+    let repaired = 0;
+    let failed = 0;
+
+    const folderStmt = db.prepare('SELECT path FROM folders WHERE id = ?');
+    const updateStmt = db.prepare('UPDATE emails SET body_text = ?, body_html = ? WHERE id = ?');
+
+    for (const email of emails) {
+      const folder = folderStmt.get(email.folder_id) as { path: string } | undefined;
+      if (!folder) { failed++; continue; }
+
+      const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
+      const uid = parseInt(uidStr ?? '0', 10);
+      if (uid <= 0) { failed++; continue; }
+
+      const result = await imapEngine.refetchEmailBody(
+        accountId, uid, folder.path.replace(/^\//, '')
+      );
+      if (result) {
+        updateStmt.run(result.bodyText, result.bodyHtml, email.id);
+        repaired++;
+      } else {
+        failed++;
+      }
+    }
+
+    return { success: true, repaired, failed, total: emails.length };
+  });
+
   ipcMain.handle('folders:unread-counts', (_event, accountId: string) => {
     return db.prepare(
       'SELECT folder_id, COUNT(*) as count FROM emails WHERE account_id = ? AND is_read = 0 GROUP BY folder_id'
@@ -622,9 +767,16 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('imap:status', (_event, accountId: string) => {
-    const connected = imapEngine.isConnected(accountId);
     const lastSync = lastSyncTimestamps.get(accountId) ?? null;
-    return { status: connected ? 'connected' : 'error', lastSync };
+
+    // 4-state status: none (no account setup), connecting (reconnecting), connected, error
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(accountId);
+    if (!account) return { status: 'none', lastSync };
+
+    if (imapEngine.isConnected(accountId)) return { status: 'connected', lastSync };
+    if (imapEngine.isReconnecting(accountId)) return { status: 'connecting', lastSync };
+
+    return { status: 'error', lastSync };
   });
 
   const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key']);
@@ -1294,9 +1446,18 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
+  // --- Renderer error logging handler ---
+  ipcMain.handle('log:error', (_event, message: string) => {
+    const safe = typeof message === 'string'
+      ? `[RENDERER] ${message.replace(/[\r\n\0]/g, ' ').slice(0, 4000)}`
+      : '[RENDERER] [invalid log message]';
+    logDebug(safe);
+    return { success: true };
+  });
+
   // --- MCP connection status handler ---
   ipcMain.handle('mcp:connected-count', () => {
-    return { count: mcpServer.getConnectedCount() };
+    return { count: getMcpServer().getConnectedCount() };
   });
 
   // --- Auto-update handlers ---
@@ -1365,8 +1526,8 @@ app.whenReady().then(() => {
     lastSyncTimestamps.set(accountId, now);
     if (win && !win.isDestroyed()) {
       win.webContents.send('email:new', { accountId, folderId, count });
-      win.webContents.send('sync:status', { accountId, status: 'connected', timestamp: now });
     }
+    sendSyncStatus(accountId, 'connected', now);
     if (count > 0) {
       showNotification('New Email', `${count} new message${count > 1 ? 's' : ''} received`);
     }
@@ -1374,8 +1535,9 @@ app.whenReady().then(() => {
 
   // Defer non-critical services to after window creation
   try {
-    mcpServer.start();
-    mcpServer.setConnectionCallback((count) => {
+    const mcp = getMcpServer();
+    mcp.start();
+    mcp.setConnectionCallback((count: number) => {
       if (win && !win.isDestroyed()) {
         win.webContents.send('mcp:status', { connectedAgents: count });
       }
@@ -1432,6 +1594,7 @@ app.whenReady().then(() => {
     const db = getDatabase();
     const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
     for (const account of accounts) {
+      sendSyncStatus(account.id, 'connecting', null);
       imapEngine.connectAccount(account.id)
         .then(async (connected) => {
           if (connected) {
@@ -1441,14 +1604,15 @@ app.whenReady().then(() => {
               await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
               const now = Date.now();
               lastSyncTimestamps.set(account.id, now);
-              if (win && !win.isDestroyed()) {
-                win.webContents.send('sync:status', { accountId: account.id, status: 'connected', timestamp: now });
-              }
+              sendSyncStatus(account.id, 'connected', now);
             }
+          } else {
+            sendSyncStatus(account.id, 'error', null);
           }
         })
         .catch((err) => {
           logDebug(`[WARN] Startup IMAP connect failed for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
+          sendSyncStatus(account.id, 'error', null);
         });
     }
   } catch (err: unknown) {

@@ -4,6 +4,8 @@ import { decryptData } from './crypto.js';
 import { logDebug } from './logger.js';
 import { applyRulesToEmail } from './ruleEngine.js';
 
+const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
+
 interface AttachmentMeta {
     partNumber: string;
     filename: string;
@@ -38,10 +40,12 @@ function stripCidBrackets(cid: string): string {
 interface MimePartInfo {
     textPart: string | null;
     htmlPart: string | null;
+    textCharset: string | null;
+    htmlCharset: string | null;
 }
 
 function findTextParts(structure: BodyStructureNode): MimePartInfo {
-    const result: MimePartInfo = { textPart: null, htmlPart: null };
+    const result: MimePartInfo = { textPart: null, htmlPart: null, textCharset: null, htmlCharset: null };
 
     function walk(node: BodyStructureNode) {
         // Skip attachments
@@ -51,8 +55,10 @@ function findTextParts(structure: BodyStructureNode): MimePartInfo {
 
         if (type === 'text/html' && node.part && !result.htmlPart) {
             result.htmlPart = node.part;
+            result.htmlCharset = node.parameters?.charset ?? null;
         } else if (type === 'text/plain' && node.part && !result.textPart) {
             result.textPart = node.part;
+            result.textCharset = node.parameters?.charset ?? null;
         }
 
         if (node.childNodes) {
@@ -64,6 +70,31 @@ function findTextParts(structure: BodyStructureNode): MimePartInfo {
 
     walk(structure);
     return result;
+}
+
+/** Safe subset of IANA charset labels accepted by TextDecoder */
+const SAFE_CHARSETS = new Set([
+    'utf-8', 'utf-16', 'utf-16le', 'utf-16be',
+    'iso-8859-1', 'iso-8859-2', 'iso-8859-3', 'iso-8859-4', 'iso-8859-5',
+    'iso-8859-6', 'iso-8859-7', 'iso-8859-8', 'iso-8859-9', 'iso-8859-10',
+    'iso-8859-13', 'iso-8859-14', 'iso-8859-15',
+    'windows-1250', 'windows-1251', 'windows-1252', 'windows-1253', 'windows-1254',
+    'windows-1255', 'windows-1256', 'windows-1257', 'windows-1258',
+    'koi8-r', 'koi8-u', 'ascii', 'us-ascii',
+    'shift_jis', 'shift-jis', 'euc-jp', 'iso-2022-jp',
+    'gb2312', 'gbk', 'gb18030', 'big5', 'euc-kr',
+    'macintosh', 'x-mac-roman',
+]);
+
+/** Decode a Buffer using the charset from MIME bodyStructure, falling back to UTF-8 */
+function decodeBuffer(buf: Buffer, charset: string | null): string {
+    const label = (charset ?? 'utf-8').trim().toLowerCase();
+    const safeLabel = SAFE_CHARSETS.has(label) ? label : 'utf-8';
+    try {
+        return new TextDecoder(safeLabel).decode(buf);
+    } catch {
+        return new TextDecoder('utf-8').decode(buf);
+    }
 }
 
 function extractAttachments(structure: BodyStructureNode): AttachmentMeta[] {
@@ -136,6 +167,10 @@ export class ImapEngine {
         return this.clients.has(accountId);
     }
 
+    isReconnecting(accountId: string): boolean {
+        return this.retryTimeouts.has(accountId);
+    }
+
     async testConnection(params: {
         email: string;
         password: string;
@@ -203,8 +238,15 @@ export class ImapEngine {
 
             // Set up reconnect on unexpected close
             client.on('close', () => {
+                logDebug(`IMAP connection closed for ${accountId}, scheduling reconnect`);
                 this.clients.delete(accountId);
                 this.scheduleReconnect(accountId);
+            });
+
+            // Log IMAP errors that don't trigger 'close'
+            client.on('error', (err: Error) => {
+                const safe = err.message.replace(/[<>"'&]/g, '').replace(/[\r\n\0]/g, ' ').slice(0, 500);
+                logDebug(`IMAP client error for ${accountId}: ${safe}`);
             });
 
             this.startIdle(accountId, 'INBOX');
@@ -308,34 +350,11 @@ export class ImapEngine {
                 const env = message.envelope;
                 if (!env) continue;
 
-                // Determine text/html MIME parts from bodyStructure
-                let bodyText = '';
-                let bodyHtml: string | null = null;
-                if (message.bodyStructure) {
-                    const parts = findTextParts(message.bodyStructure as BodyStructureNode);
-                    // Download HTML part (auto-decodes base64/quoted-printable)
-                    if (parts.htmlPart) {
-                        try {
-                            const { content: htmlContent } = await client.download(String(uid), parts.htmlPart, { uid: true });
-                            const htmlChunks: Buffer[] = [];
-                            for await (const chunk of htmlContent) {
-                                htmlChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                            }
-                            bodyHtml = Buffer.concat(htmlChunks).toString('utf-8');
-                        } catch { /* ignore download errors */ }
-                    }
-                    // Download text part
-                    if (parts.textPart) {
-                        try {
-                            const { content: textContent } = await client.download(String(uid), parts.textPart, { uid: true });
-                            const textChunks: Buffer[] = [];
-                            for await (const chunk of textContent) {
-                                textChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                            }
-                            bodyText = Buffer.concat(textChunks).toString('utf-8');
-                        } catch { /* ignore download errors */ }
-                    }
-                }
+                // Body text/html are fetched on-demand when the user reads the email
+                // (see emails:read IPC handler + refetchEmailBody method).
+                // At sync time we only fetch envelope + bodyStructure for speed.
+                const bodyText = '';
+                const bodyHtml: string | null = null;
 
                 // Compute thread_id: inherit from parent via In-Reply-To, otherwise use own messageId
                 const messageId = env.messageId ?? emailId;
@@ -467,12 +486,12 @@ export class ImapEngine {
         accountId: string,
         emailUid: number,
         mailbox: string,
-        partNumber: string
+        partNumber: string,
+        charset?: string | null
     ): Promise<string | null> {
         const client = this.clients.get(accountId);
         if (!client) return null;
 
-        const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
         const lock = await client.getMailboxLock(mailbox);
         try {
             const { content } = await client.download(String(emailUid), partNumber, { uid: true });
@@ -484,7 +503,7 @@ export class ImapEngine {
                 if (totalBytes > MAX_BODY_BYTES) break;
                 chunks.push(buf);
             }
-            return Buffer.concat(chunks).toString('utf-8');
+            return decodeBuffer(Buffer.concat(chunks), charset ?? null);
         } catch {
             return null;
         } finally {
@@ -496,14 +515,20 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) return null;
 
-        const lock = await client.getMailboxLock(mailbox);
+        // Timeout the lock acquisition itself — prevents hanging when IMAP is disconnected
+        const lock = await Promise.race([
+            client.getMailboxLock(mailbox),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
+        ]);
         try {
-            // Fetch bodyStructure to find the correct HTML part
+            // Fetch bodyStructure to find the correct HTML part + charset
             let htmlPart: string | null = null;
+            let htmlCharset: string | null = null;
             for await (const message of client.fetch(String(emailUid), { bodyStructure: true, uid: true })) {
                 if (message.bodyStructure) {
                     const parts = findTextParts(message.bodyStructure as BodyStructureNode);
                     htmlPart = parts.htmlPart;
+                    htmlCharset = parts.htmlCharset;
                 }
             }
             if (!htmlPart) return null;
@@ -512,14 +537,13 @@ export class ImapEngine {
             const { content } = await client.download(String(emailUid), htmlPart, { uid: true });
             const chunks: Buffer[] = [];
             let totalBytes = 0;
-            const MAX_BODY_BYTES = 2 * 1024 * 1024;
             for await (const chunk of content) {
                 const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
                 totalBytes += buf.length;
                 if (totalBytes > MAX_BODY_BYTES) break;
                 chunks.push(buf);
             }
-            return Buffer.concat(chunks).toString('utf-8');
+            return decodeBuffer(Buffer.concat(chunks), htmlCharset);
         } catch {
             return null;
         } finally {
@@ -531,7 +555,10 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) return false;
 
-        const lock = await client.getMailboxLock(mailbox);
+        const lock = await Promise.race([
+            client.getMailboxLock(mailbox),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
+        ]);
         try {
             await client.messageFlagsAdd(String(emailUid), ['\\Seen'], { uid: true });
             return true;
@@ -553,6 +580,64 @@ export class ImapEngine {
             return true;
         } catch {
             return false;
+        } finally {
+            lock.release();
+        }
+    }
+
+    /** Re-fetch body for a single email (for repairing garbled charset decoding) */
+    async refetchEmailBody(
+        accountId: string,
+        emailUid: number,
+        mailbox: string
+    ): Promise<{ bodyText: string; bodyHtml: string | null } | null> {
+        const client = this.clients.get(accountId);
+        if (!client) return null;
+
+        const lock = await Promise.race([
+            client.getMailboxLock(mailbox),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
+        ]);
+        try {
+            let parts: MimePartInfo = { textPart: null, htmlPart: null, textCharset: null, htmlCharset: null };
+            for await (const message of client.fetch(String(emailUid), { bodyStructure: true, uid: true })) {
+                if (message.bodyStructure) {
+                    parts = findTextParts(message.bodyStructure as BodyStructureNode);
+                }
+            }
+
+            let bodyText = '';
+            let bodyHtml: string | null = null;
+
+            if (parts.htmlPart) {
+                const { content } = await client.download(String(emailUid), parts.htmlPart, { uid: true });
+                const chunks: Buffer[] = [];
+                let totalBytes = 0;
+                for await (const chunk of content) {
+                    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                    totalBytes += buf.length;
+                    if (totalBytes > MAX_BODY_BYTES) break;
+                    chunks.push(buf);
+                }
+                bodyHtml = decodeBuffer(Buffer.concat(chunks), parts.htmlCharset);
+            }
+
+            if (parts.textPart) {
+                const { content } = await client.download(String(emailUid), parts.textPart, { uid: true });
+                const chunks: Buffer[] = [];
+                let totalBytes = 0;
+                for await (const chunk of content) {
+                    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                    totalBytes += buf.length;
+                    if (totalBytes > MAX_BODY_BYTES) break;
+                    chunks.push(buf);
+                }
+                bodyText = decodeBuffer(Buffer.concat(chunks), parts.textCharset);
+            }
+
+            return { bodyText, bodyHtml };
+        } catch {
+            return null;
         } finally {
             lock.release();
         }

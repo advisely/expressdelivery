@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, Clock, Bell } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -38,6 +38,22 @@ function replaceCids(html: string, cidMap: Record<string, string>): string {
 
 const PLACEHOLDER_SVG = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E';
 
+// DOMPurify configs — email HTML is rendered inside a sandboxed iframe for style isolation,
+// so <style> tags are safe (cannot bleed into app chrome or exfiltrate via @import).
+// <link> is still forbidden to prevent external stylesheet loading.
+const PURIFY_CONFIG = {
+    FORBID_TAGS: ['link'],
+    FORBID_ATTR: ['onerror', 'onload'],
+    ADD_URI_SAFE_ATTR: ['src'],
+};
+
+// Thread view config — includes ADD_URI_SAFE_ATTR for CID data: URLs in inline images
+const PURIFY_CONFIG_THREAD = {
+    FORBID_TAGS: ['link'],
+    FORBID_ATTR: ['onerror', 'onload'],
+    ADD_URI_SAFE_ATTR: ['src'],
+};
+
 function escapeAttr(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
@@ -45,12 +61,96 @@ function escapeAttr(s: string): string {
 function processRemoteImages(html: string, block: boolean): { html: string; count: number } {
     let count = 0;
     if (!block) return { html, count };
-    const processed = html.replace(/<img\s([^>]*?)src=["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (_full, before: string, url: string, after: string) => {
+    // Block remote src= URLs
+    let processed = html.replace(/<img\s([^>]*?)src=["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (_full, before: string, url: string, after: string) => {
         count++;
         return `<img ${before}src="${PLACEHOLDER_SVG}" data-blocked-src="${escapeAttr(url)}"${after}>`;
     });
+    // Block remote srcset= URLs
+    processed = processed.replace(/(<img\s[^>]*?)srcset=["']([^"']+)["']/gi, (_full, before: string, srcset: string) => {
+        const hasRemote = /https?:\/\//i.test(srcset);
+        if (hasRemote) {
+            count++;
+            return `${before}data-blocked-srcset="${escapeAttr(srcset)}"`;
+        }
+        return _full;
+    });
     return { html: processed, count };
 }
+
+// Wrap sanitized email HTML in a minimal document for iframe srcdoc.
+// SECURITY: sandbox="allow-scripts" (no allow-same-origin) prevents parent DOM access.
+// The only script is our injected ResizeObserver that posts height via postMessage.
+// @param sanitizedBodyHtml — MUST be DOMPurify-sanitized before calling.
+// @param allowRemoteImages — when true, adds https: to img-src CSP (user consented).
+function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
+    const imgSrc = allowRemoteImages ? 'img-src data: https:;' : 'img-src data:;';
+    return [
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; ${imgSrc} frame-ancestors 'none';">`,
+        '<style>',
+        'body{margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;',
+        'font-size:14px;line-height:1.6;color:#1a1a1a;background:#fff;',
+        'word-wrap:break-word;overflow-wrap:break-word}',
+        'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5}',
+        '</style>',
+        '<script>new ResizeObserver(function(){',
+        'window.parent.postMessage({type:"iframe-height",height:document.body.scrollHeight},"*");',
+        '}).observe(document.body);</script>',
+        '</head><body>',
+        sanitizedBodyHtml,
+        '</body></html>',
+    ].join('');
+}
+
+// HTML-escape plain text for safe rendering inside iframe <pre> block
+function escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Sandboxed iframe for rendering email HTML — provides complete style isolation.
+// Uses postMessage for height resize (no allow-same-origin needed).
+const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
+    html,
+    allowRemoteImages = false,
+}: {
+    html: string;
+    allowRemoteImages?: boolean;
+}) {
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+    const [height, setHeight] = useState(100);
+
+    const srcdoc = useMemo(
+        () => buildIframeSrcdoc(html, allowRemoteImages),
+        [html, allowRemoteImages],
+    );
+
+    useEffect(() => {
+        function handleMessage(e: MessageEvent) {
+            if (
+                e.source === iframeRef.current?.contentWindow &&
+                e.data?.type === 'iframe-height' &&
+                typeof e.data.height === 'number'
+            ) {
+                setHeight(Math.max(e.data.height + 16, 100));
+            }
+        }
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
+
+    return (
+        <iframe
+            ref={iframeRef}
+            sandbox="allow-scripts"
+            srcDoc={srcdoc}
+            style={{ height }}
+            className={styles['email-iframe']}
+            title="Email content"
+        />
+    );
+});
 
 export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) => {
     const { t } = useTranslation();
@@ -62,7 +162,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const [cidMap, setCidMap] = useState<Record<string, string>>({});
     const [remoteImagesBlocked, setRemoteImagesBlocked] = useState(true);
-    const [remoteImageCount, setRemoteImageCount] = useState(0);
     const [snoozeOpen, setSnoozeOpen] = useState(false);
     const [reminderOpen, setReminderOpen] = useState(false);
     const [threadEmails, setThreadEmails] = useState<EmailFull[]>([]);
@@ -72,7 +171,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
         setAttachments([]);
         setCidMap({});
         setRemoteImagesBlocked(true);
-        setRemoteImageCount(0);
         const emailId = selectedEmail?.id;
         if (!emailId || !selectedEmail?.has_attachments) return;
         let cancelled = false;
@@ -99,11 +197,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     // Sanitize body_html once for CID extraction (ensures CIDs are extracted from safe HTML)
     const sanitizedBodyHtml = useMemo(() => {
         if (!selectedEmail?.body_html) return null;
-        return DOMPurify.sanitize(selectedEmail.body_html, {
-            FORBID_TAGS: ['style'],
-            FORBID_ATTR: ['onerror', 'onload'],
-            ADD_URI_SAFE_ATTR: ['src'],
-        });
+        return DOMPurify.sanitize(selectedEmail.body_html, PURIFY_CONFIG);
     }, [selectedEmail?.body_html]);
 
     // Resolve CID images (from sanitized HTML)
@@ -248,11 +342,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
         const { html: blocked, count } = processRemoteImages(html, remoteImagesBlocked);
         return { processedHtml: blocked, detectedRemoteCount: count };
     }, [sanitizedBodyHtml, cidMap, remoteImagesBlocked]);
-
-    // Sync detected remote image count to state (separate from useMemo)
-    useEffect(() => {
-        setRemoteImageCount(detectedRemoteCount);
-    }, [detectedRemoteCount]);
 
     const handleLoadRemoteImages = () => {
         setRemoteImagesBlocked(false);
@@ -418,7 +507,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     </div>
                 )}
 
-                {remoteImageCount > 0 && remoteImagesBlocked && (
+                {detectedRemoteCount > 0 && remoteImagesBlocked && (
                     <div className={styles['remote-images-banner']} role="status">
                         <ShieldAlert size={16} />
                         <span>{t('readingPane.remoteImagesBlocked')}</span>
@@ -440,25 +529,24 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                                         {te.date ? new Date(te.date).toLocaleString() : ''}
                                     </span>
                                 </div>
-                                <div
-                                    className={styles['email-body']}
-                                    dangerouslySetInnerHTML={{
-                                        __html: DOMPurify.sanitize(te.body_html || te.body_text || '', {
-                                            FORBID_TAGS: ['style'],
-                                            FORBID_ATTR: ['onerror', 'onload'],
-                                        }),
-                                    }}
-                                />
+                                {te.body_html ? (
+                                    <SandboxedEmailBody
+                                        html={DOMPurify.sanitize(te.body_html, PURIFY_CONFIG_THREAD)}
+                                    />
+                                ) : te.body_text ? (
+                                    <SandboxedEmailBody
+                                        html={`<pre style="white-space:pre-wrap;margin:0">${escapeHtml(te.body_text)}</pre>`}
+                                    />
+                                ) : (
+                                    <div className={styles['email-body']}>(no content)</div>
+                                )}
                             </div>
                         ))}
                     </div>
                 ) : (
                     <div className={styles['email-body']}>
                         {processedHtml ? (
-                            <div
-                                className={styles['email-body-html']}
-                                dangerouslySetInnerHTML={{ __html: processedHtml }}
-                            />
+                            <SandboxedEmailBody html={processedHtml} allowRemoteImages={!remoteImagesBlocked} />
                         ) : (
                             <div style={{ whiteSpace: 'pre-wrap' }}>
                                 {selectedEmail.body_text || '(no content)'}

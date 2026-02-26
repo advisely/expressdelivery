@@ -179,10 +179,18 @@ describe('ReadingPane', () => {
         expect(inboxItem).toBeUndefined();
     });
 
-    it('renders HTML email content', () => {
+    it('renders HTML email content in sandboxed iframe', () => {
         useEmailStore.setState({ selectedEmail: mockEmail });
         renderReadingPane();
-        expect(screen.getByText('Hello world')).toBeInTheDocument();
+        const iframe = screen.getByTitle('Email content') as HTMLIFrameElement;
+        expect(iframe).toBeInTheDocument();
+        expect(iframe.tagName).toBe('IFRAME');
+        expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
+        const srcdoc = iframe.getAttribute('srcdoc') ?? '';
+        expect(srcdoc).toContain('Hello world');
+        expect(srcdoc).toContain('Content-Security-Policy');
+        expect(srcdoc).toContain('img-src data:');
+        expect(srcdoc).toContain("frame-ancestors 'none'");
     });
 
     it('renders plain text when no body_html', () => {
@@ -305,5 +313,25 @@ describe('ReadingPane', () => {
         await waitFor(() => {
             expect(screen.queryByText('readingPane.remoteImagesBlocked')).not.toBeInTheDocument();
         });
+    });
+
+    it('blocks remote images in srcset attribute and shows banner', async () => {
+        const emailWithSrcset: EmailFull = {
+            ...mockEmail,
+            body_html: '<p>Hello</p><img srcset="https://example.com/photo-2x.png 2x, https://example.com/photo-1x.png 1x" src="https://example.com/photo.png" />',
+        };
+        useEmailStore.setState({ selectedEmail: emailWithSrcset });
+        renderReadingPane();
+        await waitFor(() => {
+            expect(screen.getByText('readingPane.remoteImagesBlocked')).toBeInTheDocument();
+        });
+        const iframe = screen.getByTitle('Email content') as HTMLIFrameElement;
+        const srcdoc = iframe.getAttribute('srcdoc') ?? '';
+        // The original srcset= attribute should be replaced with data-blocked-srcset=
+        expect(srcdoc).toContain('data-blocked-srcset=');
+        expect(srcdoc).toContain('data-blocked-src=');
+        // Ensure no bare srcset= remains (only data-blocked-srcset= should exist)
+        const withoutBlocked = srcdoc.replace(/data-blocked-srcset=/g, '');
+        expect(withoutBlocked).not.toContain('srcset=');
     });
 });

@@ -21,15 +21,6 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect, onDele
         onClick={() => onSelect(thread.id)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(thread.id); } }}
     >
-        <button
-            className={styles['thread-delete-btn']}
-            onClick={(e) => { e.stopPropagation(); onDelete(thread.id); }}
-            title="Delete"
-            aria-label="Delete email"
-            type="button"
-        >
-            <Trash2 size={14} />
-        </button>
         <div className={styles['thread-item-header']}>
             <span className={styles['sender']}>{thread.from_name || thread.from_email}</span>
             <span className={styles['thread-meta']}>
@@ -49,7 +40,18 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect, onDele
                 {thread.has_attachments === 1 && (
                     <Paperclip size={12} className={styles['attachment-indicator']} aria-label="Has attachments" />
                 )}
-                <span className={styles['date']}>{thread.date ? new Date(thread.date).toLocaleDateString() : ''}</span>
+                <span className={styles['date-col']}>
+                    <span className={styles['date']}>{thread.date ? new Date(thread.date).toLocaleDateString() : ''}</span>
+                    <button
+                        className={styles['thread-delete-btn']}
+                        onClick={(e) => { e.stopPropagation(); onDelete(thread.id); }}
+                        title="Delete"
+                        aria-label="Delete email"
+                        type="button"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                </span>
             </span>
         </div>
         <div className={styles['subject']}>

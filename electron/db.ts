@@ -126,6 +126,8 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
+const CURRENT_SCHEMA_VERSION = 9;
+
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
         const versionRow = db.prepare(
@@ -133,6 +135,9 @@ function runMigrations(db: DatabaseType) {
         ).get() as { value: string } | undefined;
 
         let version = versionRow ? parseInt(versionRow.value, 10) : 0;
+
+        // Skip all migrations if schema is already up-to-date
+        if (version >= CURRENT_SCHEMA_VERSION) return;
 
         // Migration 1: Add IMAP/SMTP columns to accounts (for pre-existing DBs)
         if (version < 1) {

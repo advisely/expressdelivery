@@ -72,6 +72,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   'templates:delete',
   // IMAP connection status
   'imap:status',
+  // Email body repair
+  'emails:refetch-body',
+  'emails:repair-bodies',
+  // Error logging
+  'log:error',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [
