@@ -293,3 +293,10 @@
 .sync-label {
   font-size: 12px;
 }
+
+.version-label {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}

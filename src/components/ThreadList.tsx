@@ -62,7 +62,9 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, onSelect, onDele
                 </span>
             )}
         </div>
-        <div className={styles['snippet']}>{thread.snippet}</div>
+        {thread.snippet && thread.snippet !== thread.subject && (
+            <div className={styles['snippet']}>{thread.snippet}</div>
+        )}
         {!thread.is_read && <div className={styles['unread-dot']} />}
     </div>
 ));

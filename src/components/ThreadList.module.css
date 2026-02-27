@@ -59,11 +59,6 @@
   border-left: 3px solid var(--accent-color);
 }
 
-.unread .sender {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
 .unread .subject {
   font-weight: 600;
   color: var(--text-primary);
@@ -78,7 +73,8 @@
 
 .sender {
   font-size: 14px;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .thread-meta {

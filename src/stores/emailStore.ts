@@ -34,6 +34,7 @@ export interface EmailFull extends EmailSummary {
     folder_id: string
     body_text: string | null
     body_html: string | null
+    bodyFetchStatus?: 'ok' | 'fetched' | 'imap_disconnected' | 'no_parts' | 'timeout'
 }
 
 export interface Account {
@@ -79,6 +80,7 @@ interface EmailState {
     isLoading: boolean
     searchQuery: string
     drafts: Draft[]
+    appVersion: string
 
     setAccounts: (accounts: Account[]) => void
     addAccount: (account: Account) => void
@@ -95,6 +97,7 @@ interface EmailState {
     setDrafts: (drafts: Draft[]) => void
     addDraft: (draft: Draft) => void
     removeDraft: (draftId: string) => void
+    setAppVersion: (version: string) => void
 }
 
 export const useEmailStore = create<EmailState>()((set) => ({
@@ -108,6 +111,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     isLoading: false,
     searchQuery: '',
     drafts: [],
+    appVersion: '',
 
     setAccounts: (accounts) => set({ accounts }),
     addAccount: (account) => set((state) => ({ accounts: [...state.accounts, account] })),
@@ -140,4 +144,5 @@ export const useEmailStore = create<EmailState>()((set) => ({
     setDrafts: (drafts) => set({ drafts }),
     addDraft: (draft) => set((state) => ({ drafts: [draft, ...state.drafts] })),
     removeDraft: (draftId) => set((state) => ({ drafts: state.drafts.filter(d => d.id !== draftId) })),
+    setAppVersion: (appVersion) => set({ appVersion }),
 }))

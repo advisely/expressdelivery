@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow';
+import { simpleParser } from 'mailparser';
 import { getDatabase } from './db.js';
 import { decryptData } from './crypto.js';
 import { logDebug } from './logger.js';
@@ -35,66 +36,6 @@ function sanitizeAttFilename(raw: string): string {
 
 function stripCidBrackets(cid: string): string {
     return cid.replace(/^<|>$/g, '');
-}
-
-interface MimePartInfo {
-    textPart: string | null;
-    htmlPart: string | null;
-    textCharset: string | null;
-    htmlCharset: string | null;
-}
-
-function findTextParts(structure: BodyStructureNode): MimePartInfo {
-    const result: MimePartInfo = { textPart: null, htmlPart: null, textCharset: null, htmlCharset: null };
-
-    function walk(node: BodyStructureNode) {
-        // Skip attachments
-        if (node.disposition?.toLowerCase() === 'attachment') return;
-
-        const type = (node.type || '').toLowerCase();
-
-        if (type === 'text/html' && node.part && !result.htmlPart) {
-            result.htmlPart = node.part;
-            result.htmlCharset = node.parameters?.charset ?? null;
-        } else if (type === 'text/plain' && node.part && !result.textPart) {
-            result.textPart = node.part;
-            result.textCharset = node.parameters?.charset ?? null;
-        }
-
-        if (node.childNodes) {
-            for (const child of node.childNodes) {
-                walk(child);
-            }
-        }
-    }
-
-    walk(structure);
-    return result;
-}
-
-/** Safe subset of IANA charset labels accepted by TextDecoder */
-const SAFE_CHARSETS = new Set([
-    'utf-8', 'utf-16', 'utf-16le', 'utf-16be',
-    'iso-8859-1', 'iso-8859-2', 'iso-8859-3', 'iso-8859-4', 'iso-8859-5',
-    'iso-8859-6', 'iso-8859-7', 'iso-8859-8', 'iso-8859-9', 'iso-8859-10',
-    'iso-8859-13', 'iso-8859-14', 'iso-8859-15',
-    'windows-1250', 'windows-1251', 'windows-1252', 'windows-1253', 'windows-1254',
-    'windows-1255', 'windows-1256', 'windows-1257', 'windows-1258',
-    'koi8-r', 'koi8-u', 'ascii', 'us-ascii',
-    'shift_jis', 'shift-jis', 'euc-jp', 'iso-2022-jp',
-    'gb2312', 'gbk', 'gb18030', 'big5', 'euc-kr',
-    'macintosh', 'x-mac-roman',
-]);
-
-/** Decode a Buffer using the charset from MIME bodyStructure, falling back to UTF-8 */
-function decodeBuffer(buf: Buffer, charset: string | null): string {
-    const label = (charset ?? 'utf-8').trim().toLowerCase();
-    const safeLabel = SAFE_CHARSETS.has(label) ? label : 'utf-8';
-    try {
-        return new TextDecoder(safeLabel).decode(buf);
-    } catch {
-        return new TextDecoder('utf-8').decode(buf);
-    }
 }
 
 function extractAttachments(structure: BodyStructureNode): AttachmentMeta[] {
@@ -169,6 +110,23 @@ export class ImapEngine {
 
     isReconnecting(accountId: string): boolean {
         return this.retryTimeouts.has(accountId);
+    }
+
+    /** Ensure IMAP client is connected, attempting reconnect if needed */
+    async ensureConnected(accountId: string): Promise<boolean> {
+        if (this.clients.has(accountId)) return true;
+        // Cancel any pending scheduled reconnect — we'll do it now
+        const pending = this.retryTimeouts.get(accountId);
+        if (pending) {
+            clearTimeout(pending);
+            this.retryTimeouts.delete(accountId);
+        }
+        this.retryCounts.delete(accountId);
+        try {
+            return await this.connectAccount(accountId);
+        } catch {
+            return false;
+        }
     }
 
     async testConnection(params: {
@@ -249,7 +207,9 @@ export class ImapEngine {
                 logDebug(`IMAP client error for ${accountId}: ${safe}`);
             });
 
-            this.startIdle(accountId, 'INBOX');
+            // Note: IDLE is NOT started here. The 5-second polling sync in main.ts
+            // handles new email detection. IDLE + polling conflict because both
+            // compete for mailbox locks and cause "Command failed" errors.
             return true;
         } catch (error) {
             logDebug(`Failed to connect to IMAP for ${accountId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -337,10 +297,20 @@ export class ImapEngine {
             const markAttStmt = db.prepare(
                 'UPDATE emails SET has_attachments = 1 WHERE id = ?'
             );
+            const updateBodyStmt = db.prepare(
+                `UPDATE emails SET body_text = ?, body_html = ?
+                 WHERE id = ? AND (body_html IS NULL OR body_html = '')`
+            );
 
-            for await (const message of client.fetch(range, {
+            // Fetch envelope + bodyStructure + full message source in ONE command.
+            // Individual UID FETCH commands fail on some servers (e.g. privateemail.com)
+            // with "Invalid messageset", so we must get everything in the batch fetch.
+            // source maxLength caps download to 2MB per message to avoid OOM on huge emails.
+            // IMAPFlow throws "Command failed" if the UID range has no matches.
+            try { for await (const message of client.fetch(range, {
                 envelope: true,
                 bodyStructure: true,
+                source: { maxLength: MAX_BODY_BYTES },
                 uid: true,
             })) {
                 const uid = message.uid;
@@ -350,11 +320,22 @@ export class ImapEngine {
                 const env = message.envelope;
                 if (!env) continue;
 
-                // Body text/html are fetched on-demand when the user reads the email
-                // (see emails:read IPC handler + refetchEmailBody method).
-                // At sync time we only fetch envelope + bodyStructure for speed.
-                const bodyText = '';
-                const bodyHtml: string | null = null;
+                // Parse body from raw RFC822 source using mailparser
+                let bodyText = '';
+                let bodyHtml: string | null = null;
+                if (message.source && message.source.length > 0) {
+                    try {
+                        const parsed = await simpleParser(message.source, {
+                            skipHtmlToText: true,
+                            skipTextToHtml: true,
+                            skipImageLinks: true,
+                        });
+                        bodyText = parsed.text ?? '';
+                        bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
+                    } catch (parseErr) {
+                        logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+                    }
+                }
 
                 // Compute thread_id: inherit from parent via In-Reply-To, otherwise use own messageId
                 const messageId = env.messageId ?? emailId;
@@ -374,7 +355,7 @@ export class ImapEngine {
                     env.from?.[0]?.address ?? '',
                     env.to?.[0]?.address ?? '',
                     env.date?.toISOString() ?? new Date().toISOString(),
-                    (env.subject ?? '').slice(0, 100),
+                    (bodyText || '').replace(/\s+/g, ' ').trim().slice(0, 150),
                     bodyText,
                     bodyHtml,
                 );
@@ -396,10 +377,22 @@ export class ImapEngine {
 
                     // Apply mail rules to newly inserted email
                     applyRulesToEmail(emailId, accountId);
+                } else if (bodyText || bodyHtml) {
+                    // Row already exists but may have empty body from a previous sync
+                    // that didn't fetch source. Backfill the body content.
+                    updateBodyStmt.run(bodyText, bodyHtml, emailId);
                 }
 
                 if (uid > (this.lastSeenUid.get(accountId) ?? 0)) {
                     this.lastSeenUid.set(accountId, uid);
+                }
+            }
+            } catch (fetchErr) {
+                // "Command failed" is normal when there are no new messages
+                // (UID range beyond existing messages). Only log non-standard errors.
+                const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                if (msg !== 'Command failed') {
+                    logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
                 }
             }
         } finally {
@@ -482,75 +475,6 @@ export class ImapEngine {
         }
     }
 
-    async downloadPart(
-        accountId: string,
-        emailUid: number,
-        mailbox: string,
-        partNumber: string,
-        charset?: string | null
-    ): Promise<string | null> {
-        const client = this.clients.get(accountId);
-        if (!client) return null;
-
-        const lock = await client.getMailboxLock(mailbox);
-        try {
-            const { content } = await client.download(String(emailUid), partNumber, { uid: true });
-            const chunks: Buffer[] = [];
-            let totalBytes = 0;
-            for await (const chunk of content) {
-                const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-                totalBytes += buf.length;
-                if (totalBytes > MAX_BODY_BYTES) break;
-                chunks.push(buf);
-            }
-            return decodeBuffer(Buffer.concat(chunks), charset ?? null);
-        } catch {
-            return null;
-        } finally {
-            lock.release();
-        }
-    }
-
-    async fetchBodyHtml(accountId: string, emailUid: number, mailbox: string): Promise<string | null> {
-        const client = this.clients.get(accountId);
-        if (!client) return null;
-
-        // Timeout the lock acquisition itself — prevents hanging when IMAP is disconnected
-        const lock = await Promise.race([
-            client.getMailboxLock(mailbox),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
-        ]);
-        try {
-            // Fetch bodyStructure to find the correct HTML part + charset
-            let htmlPart: string | null = null;
-            let htmlCharset: string | null = null;
-            for await (const message of client.fetch(String(emailUid), { bodyStructure: true, uid: true })) {
-                if (message.bodyStructure) {
-                    const parts = findTextParts(message.bodyStructure as BodyStructureNode);
-                    htmlPart = parts.htmlPart;
-                    htmlCharset = parts.htmlCharset;
-                }
-            }
-            if (!htmlPart) return null;
-
-            // Download that specific part (ImapFlow auto-decodes base64/quoted-printable)
-            const { content } = await client.download(String(emailUid), htmlPart, { uid: true });
-            const chunks: Buffer[] = [];
-            let totalBytes = 0;
-            for await (const chunk of content) {
-                const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-                totalBytes += buf.length;
-                if (totalBytes > MAX_BODY_BYTES) break;
-                chunks.push(buf);
-            }
-            return decodeBuffer(Buffer.concat(chunks), htmlCharset);
-        } catch {
-            return null;
-        } finally {
-            lock.release();
-        }
-    }
-
     async markAsRead(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const client = this.clients.get(accountId);
         if (!client) return false;
@@ -599,44 +523,35 @@ export class ImapEngine {
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
         ]);
         try {
-            let parts: MimePartInfo = { textPart: null, htmlPart: null, textCharset: null, htmlCharset: null };
-            for await (const message of client.fetch(String(emailUid), { bodyStructure: true, uid: true })) {
-                if (message.bodyStructure) {
-                    parts = findTextParts(message.bodyStructure as BodyStructureNode);
+            // Use range format "uid:uid" and fetch full source — some IMAP servers
+            // (e.g. privateemail.com) reject single-UID FETCH but accept ranges.
+            // Parse the RFC822 source with mailparser for charset-aware body extraction.
+            const uidRange = `${emailUid}:${emailUid}`;
+            let source: Buffer | null = null;
+            for await (const message of client.fetch(uidRange, {
+                source: { maxLength: MAX_BODY_BYTES },
+                uid: true,
+            })) {
+                if (message.source && message.source.length > 0) {
+                    source = message.source;
                 }
             }
 
-            let bodyText = '';
-            let bodyHtml: string | null = null;
+            if (!source) return null;
 
-            if (parts.htmlPart) {
-                const { content } = await client.download(String(emailUid), parts.htmlPart, { uid: true });
-                const chunks: Buffer[] = [];
-                let totalBytes = 0;
-                for await (const chunk of content) {
-                    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-                    totalBytes += buf.length;
-                    if (totalBytes > MAX_BODY_BYTES) break;
-                    chunks.push(buf);
-                }
-                bodyHtml = decodeBuffer(Buffer.concat(chunks), parts.htmlCharset);
-            }
+            const parsed = await simpleParser(source, {
+                skipHtmlToText: true,
+                skipTextToHtml: true,
+                skipImageLinks: true,
+            });
 
-            if (parts.textPart) {
-                const { content } = await client.download(String(emailUid), parts.textPart, { uid: true });
-                const chunks: Buffer[] = [];
-                let totalBytes = 0;
-                for await (const chunk of content) {
-                    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-                    totalBytes += buf.length;
-                    if (totalBytes > MAX_BODY_BYTES) break;
-                    chunks.push(buf);
-                }
-                bodyText = decodeBuffer(Buffer.concat(chunks), parts.textCharset);
-            }
+            const bodyText = parsed.text ?? '';
+            const bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
 
+            if (!bodyText && !bodyHtml) return null;
             return { bodyText, bodyHtml };
-        } catch {
+        } catch (err) {
+            logDebug(`[refetchEmailBody] error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
             return null;
         } finally {
             lock.release();

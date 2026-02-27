@@ -41,7 +41,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const { t } = useTranslation();
-  const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount } = useEmailStore();
+  const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion } = useEmailStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [mcpCount, setMcpCount] = useState(0);
@@ -82,9 +82,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
     loadUnifiedCount();
 
     const api = (window as unknown as { electronAPI?: { on: (ch: string, cb: (...args: unknown[]) => void) => () => void } }).electronAPI;
-    const unsub = api?.on('email:new', () => { loadCounts(); loadUnifiedCount(); });
+    const unsubNew = api?.on('email:new', () => { loadCounts(); loadUnifiedCount(); });
+    const unsubRead = api?.on('email:read', () => { loadCounts(); loadUnifiedCount(); });
 
-    return () => { cancelled = true; unsub?.(); };
+    return () => { cancelled = true; unsubNew?.(); unsubRead?.(); };
   }, [selectedAccountId]);
 
   // Unified inbox unread count (only relevant with 2+ accounts)
@@ -322,6 +323,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
         <button className={styles['nav-item']} onClick={onSettings}>
           <Settings size={18} className={styles['nav-icon']} />
           <span className={styles['nav-label']}>{t('sidebar.settings')}</span>
+          {appVersion && <span className={styles['version-label']}>v{appVersion}</span>}
         </button>
       </div>
     </aside>

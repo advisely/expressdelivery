@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { ReadingPane } from './ReadingPane';
+import { ReadingPane, _resetAllowedRemoteImages } from './ReadingPane';
 import { ThemeProvider } from './ThemeContext';
 import { useEmailStore } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
@@ -91,6 +91,7 @@ function renderReadingPane(props: Partial<Parameters<typeof ReadingPane>[0]> = {
 describe('ReadingPane', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        _resetAllowedRemoteImages();
         mockIpcInvoke.mockResolvedValue(null);
         useEmailStore.setState({
             selectedEmail: null,

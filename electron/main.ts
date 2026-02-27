@@ -284,6 +284,7 @@ function registerIpcHandlers() {
       selectedAccountId: firstAccountId,
       selectedFolderId: inbox?.id ?? null,
       settings: { undo_send_delay: String(undoDelay) },
+      appVersion: app.getVersion(),
     };
   });
 
@@ -477,7 +478,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:read', async (_event, emailId: string) => {
+    const wasUnread = db.prepare('SELECT is_read FROM emails WHERE id = ?').get(emailId) as { is_read: number } | undefined;
     db.prepare('UPDATE emails SET is_read = 1 WHERE id = ?').run(emailId);
+    // Notify renderer to refresh unread counts if this email was actually unread
+    if (wasUnread && !wasUnread.is_read && win && !win.isDestroyed()) {
+      win.webContents.send('email:read', { emailId });
+    }
 
     const email = db.prepare(
       `SELECT id, account_id, folder_id, thread_id, subject,
@@ -500,28 +506,46 @@ function registerIpcHandlers() {
 
     // On-demand body fetch: if body is missing, download from IMAP with charset-aware decoding
     const needsBodyFetch = !email.body_html && !email.body_text;
+    let bodyFetchStatus: 'ok' | 'fetched' | 'imap_disconnected' | 'no_parts' | 'timeout' = 'ok';
     if (needsBodyFetch && uid > 0) {
       const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id as string) as { path: string } | undefined;
       if (folder) {
         const mailbox = folder.path.replace(/^\//, '');
-        try {
-          const result = await Promise.race([
-            imapEngine.refetchEmailBody(email.account_id as string, uid, mailbox),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
-          ]);
-          if (result) {
-            db.prepare('UPDATE emails SET body_text = ?, body_html = ? WHERE id = ?').run(
-              result.bodyText, result.bodyHtml, emailId
-            );
-            email.body_text = result.bodyText;
-            email.body_html = result.bodyHtml;
-          }
-        } catch { /* best effort */ }
+        // Attempt reconnection if IMAP is disconnected
+        const connected = await imapEngine.ensureConnected(email.account_id as string);
+        if (!connected) {
+          bodyFetchStatus = 'imap_disconnected';
+        } else {
+          try {
+            const result = await Promise.race([
+              imapEngine.refetchEmailBody(email.account_id as string, uid, mailbox),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+            ]);
+            if (result) {
+              db.prepare('UPDATE emails SET body_text = ?, body_html = ? WHERE id = ?').run(
+                result.bodyText, result.bodyHtml, emailId
+              );
+              email.body_text = result.bodyText;
+              email.body_html = result.bodyHtml;
+              bodyFetchStatus = 'fetched';
+            } else {
+              bodyFetchStatus = imapEngine.isConnected(email.account_id as string) ? 'no_parts' : 'timeout';
+            }
+          } catch { bodyFetchStatus = 'timeout'; }
+        }
+        // Update sync status after reconnect attempt
+        if (connected) {
+          const now = Date.now();
+          lastSyncTimestamps.set(email.account_id as string, now);
+          sendSyncStatus(email.account_id as string, 'connected', now);
+        } else {
+          sendSyncStatus(email.account_id as string, 'error', null);
+        }
       }
     }
 
     // Always return the email row even if on-demand body fetch failed
-    return email;
+    return { ...email as object, bodyFetchStatus };
   });
 
   ipcMain.handle('emails:search', (_event, query: string) => {
@@ -1595,29 +1619,78 @@ app.whenReady().then(() => {
     const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
     for (const account of accounts) {
       sendSyncStatus(account.id, 'connecting', null);
+      logDebug(`[STARTUP] Connecting IMAP for ${account.id}...`);
       imapEngine.connectAccount(account.id)
         .then(async (connected) => {
+          logDebug(`[STARTUP] IMAP connect result for ${account.id}: ${connected}`);
           if (connected) {
             const folders = await imapEngine.listAndSyncFolders(account.id);
             const inbox = folders.find(f => f.type === 'inbox');
             if (inbox) {
+              logDebug(`[STARTUP] Syncing inbox for ${account.id}: ${inbox.path}`);
               await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
               const now = Date.now();
               lastSyncTimestamps.set(account.id, now);
               sendSyncStatus(account.id, 'connected', now);
+              logDebug(`[STARTUP] Sync complete for ${account.id}`);
             }
           } else {
             sendSyncStatus(account.id, 'error', null);
           }
         })
         .catch((err) => {
-          logDebug(`[WARN] Startup IMAP connect failed for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
+          logDebug(`[WARN] Startup IMAP connect failed for ${account.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
           sendSyncStatus(account.id, 'error', null);
         });
     }
   } catch (err: unknown) {
     logDebug(`[ERROR] Startup IMAP sync failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  // 5-second polling sync: check all connected accounts for new emails
+  // and update sync timestamps. This replaces reliance on IDLE (which dies
+  // after reconnect exhaustion) with a reliable periodic poll.
+  // Delay first poll to let startup IMAP connect finish
+  let pollSyncRunning = false;
+  setInterval(async () => {
+    if (pollSyncRunning) return; // skip if previous poll is still running
+    pollSyncRunning = true;
+    try {
+      const db = getDatabase();
+      const accts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
+      for (const acct of accts) {
+        try {
+          // Skip reconnection if already connected — just sync
+          if (!imapEngine.isConnected(acct.id)) {
+            // Skip if currently reconnecting (startup or scheduled reconnect in progress)
+            if (imapEngine.isReconnecting(acct.id)) continue;
+            const connected = await imapEngine.ensureConnected(acct.id);
+            if (!connected) {
+              sendSyncStatus(acct.id, 'error', lastSyncTimestamps.get(acct.id) ?? null);
+              continue;
+            }
+          }
+          // Find inbox folder for this account
+          const inbox = db.prepare(
+            "SELECT path FROM folders WHERE account_id = ? AND type = 'inbox' LIMIT 1"
+          ).get(acct.id) as { path: string } | undefined;
+          if (!inbox) continue;
+          const mailbox = inbox.path.replace(/^\//, '');
+          await imapEngine.syncNewEmails(acct.id, mailbox);
+          const now = Date.now();
+          lastSyncTimestamps.set(acct.id, now);
+          sendSyncStatus(acct.id, 'connected', now);
+
+          // Body fetch for emails with missing content is handled inside
+          // syncNewEmails (second pass within the same mailbox lock).
+        } catch (err: unknown) {
+          logDebug(`[WARN] Periodic sync error for ${acct.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
+        }
+      }
+    } finally {
+      pollSyncRunning = false;
+    }
+  }, 5_000);
 }).catch((err) => {
   logDebug(`[ERROR] app.whenReady() rejected: ${err.message}\n${err.stack}`);
 });

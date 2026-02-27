@@ -81,6 +81,7 @@ const ALLOWED_INVOKE_CHANNELS = [
 
 const ALLOWED_ON_CHANNELS = [
   'email:new',
+  'email:read',
   'sync:status',
   'mcp:status',
   // Phase 4

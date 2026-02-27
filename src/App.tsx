@@ -161,6 +161,7 @@ function App() {
         accounts: Account[]; folders: Folder[]; emails: EmailSummary[];
         selectedAccountId: string | null; selectedFolderId: string | null;
         settings?: { undo_send_delay?: string };
+        appVersion?: string;
       }>('startup:load');
       if (!result || cancelled) return;
 
@@ -177,6 +178,9 @@ function App() {
       // Apply bundled settings
       if (result.settings?.undo_send_delay) {
         setUndoSendDelay(Number(result.settings.undo_send_delay) || 5);
+      }
+      if (result.appVersion) {
+        useEmailStore.getState().setAppVersion(result.appVersion);
       }
 
       updateSplash('Ready', 100);

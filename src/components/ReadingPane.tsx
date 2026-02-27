@@ -11,6 +11,12 @@ import { formatFileSize } from '../lib/formatFileSize';
 import DateTimePicker from './DateTimePicker';
 import styles from './ReadingPane.module.css';
 
+// Track which emails the user has consented to show remote images for.
+// Persists across email switches within the same app session.
+const allowedRemoteImageEmails = new Set<string>();
+/** @internal — exposed for test cleanup only */
+export function _resetAllowedRemoteImages() { allowedRemoteImageEmails.clear(); }
+
 interface ReadingPaneProps {
     onReply?: (email: EmailFull) => void;
     onForward?: (email: EmailFull) => void;
@@ -119,7 +125,7 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
     allowRemoteImages?: boolean;
 }) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [height, setHeight] = useState(100);
+    const [contentHeight, setContentHeight] = useState(0);
 
     const srcdoc = useMemo(
         () => buildIframeSrcdoc(html, allowRemoteImages),
@@ -133,12 +139,30 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
                 e.data?.type === 'iframe-height' &&
                 typeof e.data.height === 'number'
             ) {
-                setHeight(Math.max(e.data.height + 16, 100));
+                setContentHeight(e.data.height + 16);
             }
         }
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, []);
+
+    // Use the larger of content height or remaining viewport space
+    // The iframe's top position determines available space below it
+    const [minHeight, setMinHeight] = useState(300);
+    useEffect(() => {
+        function measure() {
+            const el = iframeRef.current;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            // Fill from iframe top to bottom of viewport, minus 24px margin
+            setMinHeight(Math.max(window.innerHeight - rect.top - 24, 200));
+        }
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
+
+    const height = Math.max(contentHeight, minHeight);
 
     return (
         <iframe
@@ -166,11 +190,11 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
     const [reminderOpen, setReminderOpen] = useState(false);
     const [threadEmails, setThreadEmails] = useState<EmailFull[]>([]);
 
-    // Reset state on email change
+    // Reset state on email change — restore remote image preference if previously allowed
     useEffect(() => {
         setAttachments([]);
         setCidMap({});
-        setRemoteImagesBlocked(true);
+        setRemoteImagesBlocked(selectedEmail?.id ? !allowedRemoteImageEmails.has(selectedEmail.id) : true);
         const emailId = selectedEmail?.id;
         if (!emailId || !selectedEmail?.has_attachments) return;
         let cancelled = false;
@@ -345,6 +369,9 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
 
     const handleLoadRemoteImages = () => {
         setRemoteImagesBlocked(false);
+        if (selectedEmail?.id) {
+            allowedRemoteImageEmails.add(selectedEmail.id);
+        }
     };
 
     if (!selectedEmail) {
@@ -547,9 +574,19 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                     <div className={styles['email-body']}>
                         {processedHtml ? (
                             <SandboxedEmailBody html={processedHtml} allowRemoteImages={!remoteImagesBlocked} />
-                        ) : (
+                        ) : selectedEmail.body_text ? (
                             <div style={{ whiteSpace: 'pre-wrap' }}>
-                                {selectedEmail.body_text || '(no content)'}
+                                {selectedEmail.body_text}
+                            </div>
+                        ) : (
+                            <div style={{ whiteSpace: 'pre-wrap', color: 'rgba(var(--color-text), 0.5)', fontStyle: 'italic' }}>
+                                {selectedEmail.bodyFetchStatus === 'imap_disconnected'
+                                    ? t('readingPane.imapDisconnected', 'Could not load email — IMAP disconnected. Reconnecting...')
+                                    : selectedEmail.bodyFetchStatus === 'timeout'
+                                        ? t('readingPane.bodyTimeout', 'Could not load email body — request timed out.')
+                                        : selectedEmail.bodyFetchStatus === 'no_parts'
+                                            ? t('readingPane.noParts', 'This email has no readable content.')
+                                            : t('readingPane.noContent', '(no content)')}
                             </div>
                         )}
                     </div>
