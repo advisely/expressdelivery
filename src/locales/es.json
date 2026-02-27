@@ -15,12 +15,30 @@
     "unread_one": "{{count}} sin leer",
     "unread_other": "{{count}} sin leer",
     "emptyTrash": "Vaciar papelera",
-    "emptyTrashConfirm": "¿Eliminar permanentemente todos los correos de la papelera?"
+    "emptyTrashConfirm": "¿Eliminar permanentemente todos los correos de la papelera?",
+    "folderActions": "Acciones de carpeta",
+    "markAllRead": "Marcar todo como leído",
+    "renameFolder": "Renombrar carpeta",
+    "deleteFolder": "Eliminar carpeta",
+    "deleteFolderConfirm": "¿Eliminar la carpeta \"{{name}}\"? Debe estar vacía.",
+    "createSubfolder": "Crear subcarpeta",
+    "newFolderName": "Nombre de la nueva carpeta"
   },
   "threadList": {
     "search": "Buscar correos...",
     "noEmails": "No hay correos en esta carpeta",
-    "noResults": "Sin resultados"
+    "noResults": "Sin resultados",
+    "emptyInbox": "Todo al dia!",
+    "emptyTrash": "La papelera esta vacia",
+    "emptySent": "No hay correos enviados",
+    "emptyDrafts": "No hay borradores",
+    "star": "Destacar",
+    "unstar": "Quitar destacado",
+    "markRead": "Marcar como leído",
+    "markUnread": "Marcar como no leído",
+    "selected": "{{count}} seleccionados",
+    "selectAll": "Seleccionar todo",
+    "clearSelection": "Limpiar selección"
   },
   "readingPane": {
     "noSelection": "Selecciona un correo",
@@ -30,10 +48,14 @@
     "star": "Destacar",
     "unstar": "Quitar estrella",
     "archive": "Archivar",
+    "print": "Imprimir",
     "snooze": "Posponer",
     "reminder": "Recordatorio",
     "loadImages": "Cargar imágenes",
     "remoteImagesBlocked": "Imágenes remotas bloqueadas por privacidad",
+    "emailDeleted": "Correo movido a la papelera",
+    "emailArchived": "Correo archivado",
+    "emailMoved": "Correo movido",
     "attachments": "Adjuntos",
     "download": "Descargar",
     "moveTo": "Mover a..."
@@ -183,7 +205,8 @@
     "reminderNote": "Recordatorio: {{note}}",
     "reminderSubject": "Recordatorio: {{subject}}",
     "reminderDefault": "Recordatorio: seguimiento de correo",
-    "dismissNotification": "Cerrar notificación"
+    "dismissNotification": "Cerrar notificación",
+    "undo": "Deshacer"
   },
   "datetime": {
     "laterToday": "Más tarde hoy",
@@ -220,5 +243,21 @@
     "french": "Francés",
     "spanish": "Español",
     "german": "Alemán"
+  },
+  "shortcuts": {
+    "title": "Atajos de teclado",
+    "navigation": "Navegacion",
+    "nextEmail": "Correo siguiente",
+    "prevEmail": "Correo anterior",
+    "deselect": "Deseleccionar / cerrar",
+    "actions": "Acciones",
+    "reply": "Responder",
+    "forward": "Reenviar",
+    "archive": "Archivar",
+    "delete": "Eliminar",
+    "compose": "Redaccion",
+    "newEmail": "Nuevo correo",
+    "settings": "Configuracion",
+    "help": "Esta ayuda"
   }
 }

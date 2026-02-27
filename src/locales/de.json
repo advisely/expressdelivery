@@ -15,12 +15,30 @@
     "unread_one": "{{count}} ungelesen",
     "unread_other": "{{count}} ungelesen",
     "emptyTrash": "Papierkorb leeren",
-    "emptyTrashConfirm": "Alle E-Mails im Papierkorb endgültig löschen?"
+    "emptyTrashConfirm": "Alle E-Mails im Papierkorb endgültig löschen?",
+    "folderActions": "Ordneraktionen",
+    "markAllRead": "Alle als gelesen markieren",
+    "renameFolder": "Ordner umbenennen",
+    "deleteFolder": "Ordner löschen",
+    "deleteFolderConfirm": "Ordner \"{{name}}\" löschen? Er muss leer sein.",
+    "createSubfolder": "Unterordner erstellen",
+    "newFolderName": "Name des neuen Ordners"
   },
   "threadList": {
     "search": "E-Mails suchen...",
     "noEmails": "Keine E-Mails in diesem Ordner",
-    "noResults": "Keine Ergebnisse"
+    "noResults": "Keine Ergebnisse",
+    "emptyInbox": "Alles erledigt!",
+    "emptyTrash": "Papierkorb ist leer",
+    "emptySent": "Keine gesendeten E-Mails",
+    "emptyDrafts": "Keine Entwurfe",
+    "star": "Mit Stern markieren",
+    "unstar": "Stern entfernen",
+    "markRead": "Als gelesen markieren",
+    "markUnread": "Als ungelesen markieren",
+    "selected": "{{count}} ausgewählt",
+    "selectAll": "Alle auswählen",
+    "clearSelection": "Auswahl aufheben"
   },
   "readingPane": {
     "noSelection": "E-Mail zum Lesen auswählen",
@@ -30,10 +48,14 @@
     "star": "Markieren",
     "unstar": "Markierung entfernen",
     "archive": "Archivieren",
+    "print": "Drucken",
     "snooze": "Zurückstellen",
     "reminder": "Erinnerung",
     "loadImages": "Bilder laden",
     "remoteImagesBlocked": "Remote-Bilder aus Datenschutzgründen blockiert",
+    "emailDeleted": "E-Mail in den Papierkorb verschoben",
+    "emailArchived": "E-Mail archiviert",
+    "emailMoved": "E-Mail verschoben",
     "attachments": "Anhänge",
     "download": "Herunterladen",
     "moveTo": "Verschieben nach..."
@@ -183,7 +205,8 @@
     "reminderNote": "Erinnerung: {{note}}",
     "reminderSubject": "Erinnerung: {{subject}}",
     "reminderDefault": "Erinnerung: E-Mail nachverfolgen",
-    "dismissNotification": "Benachrichtigung schließen"
+    "dismissNotification": "Benachrichtigung schließen",
+    "undo": "Rückgängig"
   },
   "datetime": {
     "laterToday": "Später heute",
@@ -220,5 +243,21 @@
     "french": "Französisch",
     "spanish": "Spanisch",
     "german": "Deutsch"
+  },
+  "shortcuts": {
+    "title": "Tastenkurzbefehle",
+    "navigation": "Navigation",
+    "nextEmail": "Nachste E-Mail",
+    "prevEmail": "Vorherige E-Mail",
+    "deselect": "Abwahlen / schliessen",
+    "actions": "Aktionen",
+    "reply": "Antworten",
+    "forward": "Weiterleiten",
+    "archive": "Archivieren",
+    "delete": "Loschen",
+    "compose": "Verfassen",
+    "newEmail": "Neue E-Mail",
+    "settings": "Einstellungen",
+    "help": "Diese Hilfe"
   }
 }

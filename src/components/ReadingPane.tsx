@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, Clock, Bell } from 'lucide-react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, Clock, Bell, Printer } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
@@ -20,6 +20,7 @@ export function _resetAllowedRemoteImages() { allowedRemoteImageEmails.clear(); 
 interface ReadingPaneProps {
     onReply?: (email: EmailFull) => void;
     onForward?: (email: EmailFull) => void;
+    onToast?: (message: string, undo?: () => void) => void;
 }
 
 function extractCids(html: string): string[] {
@@ -53,12 +54,8 @@ const PURIFY_CONFIG = {
     ADD_URI_SAFE_ATTR: ['src'],
 };
 
-// Thread view config — includes ADD_URI_SAFE_ATTR for CID data: URLs in inline images
-const PURIFY_CONFIG_THREAD = {
-    FORBID_TAGS: ['link'],
-    FORBID_ATTR: ['onerror', 'onload'],
-    ADD_URI_SAFE_ATTR: ['src'],
-};
+// Thread view uses same sanitization config
+const PURIFY_CONFIG_THREAD = PURIFY_CONFIG;
 
 function escapeAttr(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -176,7 +173,7 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
     );
 });
 
-export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) => {
+export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, onToast }) => {
     const { t } = useTranslation();
     const selectedEmail = useEmailStore(s => s.selectedEmail);
     const folders = useEmailStore(s => s.folders);
@@ -278,6 +275,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
+                onToast?.(t('readingPane.emailDeleted'));
             }
         } catch {
             setActionError('Failed to delete email');
@@ -304,6 +302,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
+                onToast?.(t('readingPane.emailArchived'));
             }
         } catch {
             setActionError('Failed to archive email');
@@ -321,6 +320,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
+                onToast?.(t('readingPane.emailMoved'));
             }
         } catch {
             setActionError('Failed to move email');
@@ -458,6 +458,14 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward }) 
                             size={18}
                             fill={selectedEmail.is_flagged ? 'currentColor' : 'none'}
                         />
+                    </button>
+                    <button
+                        className={styles['icon-btn']}
+                        title={t('readingPane.print')}
+                        aria-label={t('readingPane.print')}
+                        onClick={() => ipcInvoke('print:email')}
+                    >
+                        <Printer size={18} />
                     </button>
                     <Popover.Root open={snoozeOpen} onOpenChange={setSnoozeOpen}>
                         <Popover.Trigger asChild>

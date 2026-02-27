@@ -81,6 +81,12 @@ function sendSyncStatus(accountId: string, status: 'connecting' | 'connected' | 
   }
 }
 
+/** Extract IMAP UID from a composite email ID (e.g. "acc123_42" → 42) */
+function extractUid(emailId: string): number {
+  const uidStr = emailId.includes('_') ? emailId.split('_').pop() : emailId;
+  return parseInt(uidStr ?? '0', 10);
+}
+
 function getMimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -111,7 +117,7 @@ function getMimeType(filename: string): string {
   return mimeMap[ext] ?? 'application/octet-stream';
 }
 
-function showNotification(title: string, body: string, emailId?: string) {
+function showNotification(title: string, body: string, meta?: { emailId?: string; accountId?: string; folderId?: string }) {
   const db = getDatabase();
   const enabled = db.prepare('SELECT value FROM settings WHERE key = ?').get('notifications_enabled') as { value: string } | undefined;
   if (enabled?.value === 'false') return;
@@ -121,8 +127,8 @@ function showNotification(title: string, body: string, emailId?: string) {
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
-      if (emailId) {
-        win.webContents.send('notification:click', { emailId });
+      if (meta) {
+        win.webContents.send('notification:click', meta);
       }
     }
   });
@@ -420,6 +426,127 @@ function registerIpcHandlers() {
     ).all(accountId);
   });
 
+  // Folder CRUD operations
+  const PROTECTED_FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive']);
+
+  ipcMain.handle('folders:create', async (_event, accountId: string, folderName: string, parentPath?: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (!folderName || typeof folderName !== 'string') throw new Error('Invalid folder name');
+    const safeName = folderName.replace(/[\r\n\0/\\]/g, '').trim().slice(0, 100);
+    if (!safeName) throw new Error('Invalid folder name');
+
+    // Sanitize and verify parentPath ownership
+    let fullPath = safeName;
+    if (parentPath && typeof parentPath === 'string') {
+      const safeParent = parentPath.replace(/[\r\n\0]/g, '').trim().slice(0, 200);
+      // Verify the parent folder belongs to this account
+      const parentFolder = db.prepare('SELECT id FROM folders WHERE account_id = ? AND path = ?').get(accountId, safeParent) as { id: string } | undefined;
+      if (!parentFolder) return { success: false, error: 'Parent folder not found or does not belong to this account' };
+      fullPath = `${safeParent}/${safeName}`;
+    }
+
+    const ok = await imapEngine.createMailbox(accountId, fullPath);
+    if (!ok) return { success: false, error: 'Failed to create folder on server' };
+
+    const folderId = `${accountId}_${fullPath}`;
+    db.prepare(
+      'INSERT OR IGNORE INTO folders (id, account_id, name, path, type) VALUES (?, ?, ?, ?, ?)'
+    ).run(folderId, accountId, safeName, fullPath, 'other');
+    return { success: true, folderId };
+  });
+
+  ipcMain.handle('folders:rename', async (_event, folderId: string, newName: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    if (!newName || typeof newName !== 'string') throw new Error('Invalid folder name');
+    const safeName = newName.replace(/[\r\n\0/\\]/g, '').trim().slice(0, 100);
+    if (!safeName) throw new Error('Invalid folder name');
+
+    const folder = db.prepare('SELECT id, account_id, path, type FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; path: string; type: string } | undefined;
+    if (!folder) return { success: false, error: 'Folder not found' };
+    if (PROTECTED_FOLDER_TYPES.has(folder.type)) return { success: false, error: 'Cannot rename system folder' };
+
+    const parts = folder.path.split('/');
+    parts[parts.length - 1] = safeName;
+    const newPath = parts.join('/');
+
+    const ok = await imapEngine.renameMailbox(folder.account_id, folder.path, newPath);
+    if (!ok) return { success: false, error: 'Failed to rename folder on server' };
+
+    const newFolderId = `${folder.account_id}_${newPath}`;
+    // PK rename requires: insert new → migrate children → delete old (FK-safe)
+    db.transaction(() => {
+      db.prepare('INSERT INTO folders (id, account_id, name, path, type) VALUES (?, ?, ?, ?, ?)').run(newFolderId, folder.account_id, safeName, newPath, folder.type);
+      db.prepare('UPDATE emails SET folder_id = ? WHERE folder_id = ?').run(newFolderId, folderId);
+      db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
+    })();
+    return { success: true, folderId: newFolderId };
+  });
+
+  ipcMain.handle('folders:delete', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+
+    const folder = db.prepare('SELECT id, account_id, path, type FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; path: string; type: string } | undefined;
+    if (!folder) return { success: false, error: 'Folder not found' };
+    if (PROTECTED_FOLDER_TYPES.has(folder.type)) return { success: false, error: 'Cannot delete system folder' };
+
+    const emailCount = (db.prepare('SELECT COUNT(*) as count FROM emails WHERE folder_id = ?').get(folderId) as { count: number }).count;
+    if (emailCount > 0) return { success: false, error: 'Folder is not empty' };
+
+    const ok = await imapEngine.deleteMailbox(folder.account_id, folder.path);
+    if (!ok) return { success: false, error: 'Failed to delete folder on server' };
+
+    db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
+    return { success: true };
+  });
+
+  ipcMain.handle('emails:mark-all-read', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+
+    const folder = db.prepare('SELECT id, account_id, path FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; path: string } | undefined;
+    if (!folder) return { success: false, error: 'Folder not found' };
+
+    await imapEngine.markAllRead(folder.account_id, folder.path.replace(/^\//, ''));
+    db.prepare('UPDATE emails SET is_read = 1 WHERE folder_id = ? AND is_read = 0').run(folderId);
+    return { success: true };
+  });
+
+  // Lightweight mark-as-read (DB + IMAP flag only, no body fetch)
+  ipcMain.handle('emails:mark-read', async (_event, emailId: string) => {
+    if (!emailId || typeof emailId !== 'string') throw new Error('Invalid email ID');
+    db.prepare('UPDATE emails SET is_read = 1 WHERE id = ?').run(emailId);
+
+    const email = db.prepare('SELECT account_id, folder_id FROM emails WHERE id = ?').get(emailId) as { account_id: string; folder_id: string } | undefined;
+    if (email) {
+      const uid = extractUid(emailId);
+      if (uid > 0) {
+        const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id) as { path: string } | undefined;
+        if (folder) {
+          imapEngine.markAsRead(email.account_id, uid, folder.path.replace(/^\//, '')).catch(() => {});
+        }
+      }
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('emails:mark-unread', async (_event, emailId: string) => {
+    if (!emailId || typeof emailId !== 'string') throw new Error('Invalid email ID');
+
+    // Mark on IMAP server first, then update DB on success
+    const email = db.prepare('SELECT account_id, folder_id FROM emails WHERE id = ?').get(emailId) as { account_id: string; folder_id: string } | undefined;
+    if (email) {
+      const uid = extractUid(emailId);
+      if (uid > 0) {
+        const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id) as { path: string } | undefined;
+        if (folder) {
+          imapEngine.markAsUnread(email.account_id, uid, folder.path.replace(/^\//, '')).catch(() => {});
+        }
+      }
+    }
+
+    db.prepare('UPDATE emails SET is_read = 0 WHERE id = ?').run(emailId);
+    return { success: true };
+  });
+
   ipcMain.handle('emails:list', (_event, folderId: string) => {
     // Virtual folder: unified inbox (all accounts)
     if (folderId === '__unified') {
@@ -495,8 +622,7 @@ function registerIpcHandlers() {
     if (!email) return null;
 
     // Mark as read on IMAP server
-    const uidStr = emailId.includes('_') ? emailId.split('_').pop() : emailId;
-    const uid = parseInt(uidStr ?? '0', 10);
+    const uid = extractUid(emailId);
     if (uid > 0) {
       const folder = db.prepare('SELECT path FROM folders WHERE id = ?').get(email.folder_id as string) as { path: string } | undefined;
       if (folder) {
@@ -635,8 +761,7 @@ function registerIpcHandlers() {
 
     if (currentFolder?.type === 'trash') {
       // Permanent delete from Trash: delete on IMAP server + local DB
-      const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-      const uid = parseInt(uidStr ?? '0', 10);
+      const uid = extractUid(email.id);
       if (uid > 0) {
         await imapEngine.deleteMessage(email.account_id, uid, currentFolder.path.replace(/^\//, '')).catch(() => {});
       }
@@ -659,8 +784,7 @@ function registerIpcHandlers() {
       'SELECT path FROM folders WHERE id = ?'
     ).get(email.folder_id) as { path: string } | undefined;
 
-    const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-    const uid = parseInt(uidStr ?? '0', 10);
+    const uid = extractUid(email.id);
 
     if (uid > 0 && sourceFolder) {
       const moved = await imapEngine.moveMessage(
@@ -693,8 +817,7 @@ function registerIpcHandlers() {
     ).all(trashFolder.id) as Array<{ id: string }>;
 
     for (const email of trashEmails) {
-      const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-      const uid = parseInt(uidStr ?? '0', 10);
+      const uid = extractUid(email.id);
       if (uid > 0) {
         await imapEngine.deleteMessage(accountId, uid, trashFolder.path.replace(/^\//, '')).catch(() => {});
       }
@@ -722,8 +845,7 @@ function registerIpcHandlers() {
     ).get(email.folder_id) as { path: string } | undefined;
     if (!folder) return { success: false, error: 'Folder not found' };
 
-    const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-    const uid = parseInt(uidStr ?? '0', 10);
+    const uid = extractUid(email.id);
     if (uid <= 0) return { success: false, error: 'Invalid UID' };
 
     const result = await imapEngine.refetchEmailBody(
@@ -758,8 +880,7 @@ function registerIpcHandlers() {
       const folder = folderStmt.get(email.folder_id) as { path: string } | undefined;
       if (!folder) { failed++; continue; }
 
-      const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-      const uid = parseInt(uidStr ?? '0', 10);
+      const uid = extractUid(email.id);
       if (uid <= 0) { failed++; continue; }
 
       const result = await imapEngine.refetchEmailBody(
@@ -774,6 +895,33 @@ function registerIpcHandlers() {
     }
 
     return { success: true, repaired, failed, total: emails.length };
+  });
+
+  // Print email
+  ipcMain.handle('print:email', async () => {
+    if (!win) return { success: false };
+    win.webContents.print({}, (success) => {
+      logDebug(`[print:email] print result: ${success}`);
+    });
+    return { success: true };
+  });
+
+  ipcMain.handle('print:email-pdf', async (_event, subject: string) => {
+    if (!win) return { success: false };
+    const safeName = (subject || 'email').replace(/[<>:"/\\|?*\r\n]/g, '_').slice(0, 100);
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: `${safeName}.pdf`,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (result.canceled || !result.filePath) return { success: false };
+    try {
+      const pdfData = await win.webContents.printToPDF({ printBackground: true });
+      fs.writeFileSync(result.filePath, pdfData);
+      return { success: true, filePath: result.filePath };
+    } catch (err) {
+      logDebug(`[print:email-pdf] error: ${err instanceof Error ? err.message : String(err)}`);
+      return { success: false, error: 'Failed to save PDF' };
+    }
   });
 
   ipcMain.handle('folders:unread-counts', (_event, accountId: string) => {
@@ -839,8 +987,7 @@ function registerIpcHandlers() {
     ).get(email.folder_id) as { path: string } | undefined;
     if (!sourceFolder) throw new Error('Source folder not found');
 
-    const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-    const uid = parseInt(uidStr ?? '0', 10);
+    const uid = extractUid(email.id);
     if (!uid || isNaN(uid)) throw new Error('Invalid email UID');
 
     const moved = await imapEngine.moveMessage(
@@ -872,8 +1019,7 @@ function registerIpcHandlers() {
     if (!sourceFolder || !destFolder) throw new Error('Folder not found');
     if (destFolder.account_id !== email.account_id) throw new Error('Cross-account move not allowed');
 
-    const uidStr = email.id.includes('_') ? email.id.split('_').pop() : email.id;
-    const uid = parseInt(uidStr ?? '0', 10);
+    const uid = extractUid(email.id);
     if (!uid || isNaN(uid)) throw new Error('Invalid email UID');
 
     const moved = await imapEngine.moveMessage(
@@ -1001,8 +1147,7 @@ function registerIpcHandlers() {
     ).get(email.folder_id) as { path: string } | undefined;
     if (!folder) throw new Error('Folder not found');
 
-    const uidStr = params.emailId.includes('_') ? params.emailId.split('_').pop() : params.emailId;
-    const uid = parseInt(uidStr ?? '0', 10);
+    const uid = extractUid(params.emailId);
     if (!uid || isNaN(uid)) throw new Error('Invalid email UID');
 
     const mailbox = folder.path.replace(/^\//, '');
@@ -1119,8 +1264,7 @@ function registerIpcHandlers() {
       ).get(email.folder_id) as { path: string } | undefined;
       if (!folder) continue;
 
-      const uidStr = params.emailId.includes('_') ? params.emailId.split('_').pop() : params.emailId;
-      const uid = parseInt(uidStr ?? '0', 10);
+      const uid = extractUid(params.emailId);
       if (!uid || isNaN(uid)) continue;
 
       const mailbox = folder.path.replace(/^\//, '');
@@ -1553,7 +1697,7 @@ app.whenReady().then(() => {
     }
     sendSyncStatus(accountId, 'connected', now);
     if (count > 0) {
-      showNotification('New Email', `${count} new message${count > 1 ? 's' : ''} received`);
+      showNotification('New Email', `${count} new message${count > 1 ? 's' : ''} received`, { accountId, folderId });
     }
   });
 
@@ -1580,7 +1724,7 @@ app.whenReady().then(() => {
       if (win && !win.isDestroyed()) {
         win.webContents.send('reminder:due', { emailId, accountId, subject, fromEmail });
       }
-      showNotification('Reminder', (subject ?? 'Follow up on email').slice(0, 100), emailId);
+      showNotification('Reminder', (subject ?? 'Follow up on email').slice(0, 100), { emailId, accountId });
     },
     onScheduledSendResult: (scheduledId, success, error) => {
       if (win && !win.isDestroyed()) {
@@ -1690,7 +1834,7 @@ app.whenReady().then(() => {
     } finally {
       pollSyncRunning = false;
     }
-  }, 5_000);
+  }, 15_000);
 }).catch((err) => {
   logDebug(`[ERROR] app.whenReady() rejected: ${err.message}\n${err.stack}`);
 });

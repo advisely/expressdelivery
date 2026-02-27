@@ -1,12 +1,12 @@
 # ExpressDelivery Feature Roadmap
 
-Feature comparison against Mailspring (reference email client) and implementation status.
+Feature comparison against Mailspring and Mozilla Thunderbird (reference email clients) and implementation status.
 
-Last updated: 2026-02-24
+Last updated: 2026-02-27
 
 ---
 
-## Feature Matrix: ExpressDelivery vs Mailspring
+## Feature Matrix: ExpressDelivery vs Mailspring vs Thunderbird
 
 ### Legend
 
@@ -167,6 +167,66 @@ Last updated: 2026-02-24
 | E2E tests | Yes | No | **Planned** | No Playwright/Spectron |
 | Coverage thresholds | Unknown | Yes | **Done** | @vitest/coverage-v8, 70% line threshold, `npm run test:coverage` |
 
+### Thunderbird Gap Analysis (added 2026-02-27)
+
+Features Mozilla Thunderbird has that ExpressDelivery is missing, prioritized by user impact.
+
+#### Folder & Message Management
+
+| Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
+|---------|------------|----------------|--------|----------|-------|
+| Folder context menu (create/rename/delete) | Yes | No | **Planned** | **P0** | No folder CRUD IPC handlers, no IMAP mailbox operations |
+| Mark all as read (per folder) | Yes | No | **Planned** | **P1** | Basic QoL missing |
+| Multi-select emails (bulk actions) | Yes | No | **Planned** | **P1** | No Shift/Ctrl+click, no bulk delete/move/read |
+| Right-click context menu on emails | Yes | No | **Planned** | **P1** | No contextmenu on ThreadList rows |
+| Drag-and-drop emails to folders | Yes | No | **Planned** | **P2** | Move-to-folder exists but not via drag |
+| Empty trash (purge) | Yes | Yes | **Done** | -- | Fixed 2026-02-27: UI now refreshes after purge |
+| Conversation/thread grouping UI | Yes | Partial | **Partial** | **P1** | thread_id exists but UI doesn't group |
+| Saved searches / smart folders | Yes | No | **Planned** | **P2** | Search exists but no saved queries |
+| Folder colors | Yes | No | **Planned** | **P3** | Visual organization |
+
+#### Security & Privacy
+
+| Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
+|---------|------------|----------------|--------|----------|-------|
+| Spam/junk filtering (Bayesian) | Yes (ML-based) | No | **Planned** | **P1** | No spam detection, no junk folder logic |
+| Scam/phishing detection | Yes | No | **Planned** | **P2** | No URL analysis or warning banners |
+| PGP/S-MIME encryption | Yes (OpenPGP built-in) | No | **Deferred** | -- | Complex; deferred indefinitely |
+
+#### Quality of Life
+
+| Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
+|---------|------------|----------------|--------|----------|-------|
+| Print / Print-to-PDF | Yes | No | **Planned** | **P1** | Basic desktop client feature |
+| Notification click navigates to email | Yes | No | **Planned** | **P1** | OS notification fires but doesn't focus the email |
+| Sound alerts on new mail | Yes | No | **Planned** | **P2** | OS notification exists but no audio |
+| Undo send (delay queue) | Yes (via add-on) | No | **Planned** | **P1** | Already in Mailspring comparison |
+| Keyboard shortcut help overlay | Yes | No | **Planned** | **P2** | `?` to show shortcut cheat sheet |
+| Empty state illustrations | No | No | **Planned** | **P2** | Helpful message when folder is empty |
+| Loading skeleton placeholders | No | No | **Planned** | **P2** | Skeleton UI while emails load |
+| Confirmation toasts for actions | Partial | No | **Planned** | **P2** | Visual feedback for move/archive/delete |
+| Zoom / font size control | Yes | No | **Planned** | **P3** | User-adjustable reading pane text size |
+| Compact/comfortable density modes | Yes (3 modes) | No | **Planned** | **P3** | Fixed density currently |
+| User-defined tags/labels | Yes (color-coded) | AI labels only | **Planned** | **P2** | No manual tag system |
+
+#### Data Portability
+
+| Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
+|---------|------------|----------------|--------|----------|-------|
+| Email export (EML/MBOX) | Yes | No | **Planned** | **P2** | No data export |
+| Email import (EML/MBOX) | Yes | No | **Planned** | **P2** | Can't migrate from other clients |
+| Contact import/export (vCard/CSV) | Yes | No | **Planned** | **P2** | Contacts are local-only |
+| Message source viewer (raw headers) | Yes | No | **Planned** | **P2** | Debugging/power-user tool |
+
+#### Protocols & Sync
+
+| Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
+|---------|------------|----------------|--------|----------|-------|
+| POP3 protocol | Yes | No | **Deferred** | -- | IMAP-only; POP3 is legacy |
+| CardDAV contact sync | Yes | No | **Deferred** | -- | Contacts are local-only |
+| CalDAV calendar sync | Yes | No | **Deferred** | -- | No calendar feature |
+| NNTP / RSS feeds | Yes | No | **Deferred** | -- | Out of scope |
+
 ---
 
 ## Priority Roadmap
@@ -255,19 +315,58 @@ Ship-ready with full test coverage, i18n, CSS modules, CI/CD, and performance.
 - [x] Upgrade Vite to 7 (from 5)
 - [x] Upgrade TypeScript to 5.9 (from 5.2)
 
+### Phase 6: Foundation & QoL (v1.4.0)
+Essential desktop email client features and quality-of-life improvements identified from Thunderbird comparison.
+
+- [ ] **Bug fix: Empty Trash UI refresh** (purge succeeds but email list doesn't update) -- Fixed 2026-02-27
+- [ ] Folder context menu (three-dot icon on hover: rename, delete, create subfolder, mark all read)
+- [ ] Folder CRUD IPC handlers (`folders:create`, `folders:rename`, `folders:delete`) + IMAP mailbox operations
+- [ ] Mark all as read (per-folder action via folder context menu + keyboard shortcut)
+- [ ] Right-click context menu on ThreadList emails (reply, forward, delete, move, star, mark read/unread)
+- [ ] Multi-select emails in ThreadList (Shift+click range, Ctrl+click toggle, bulk toolbar: delete/move/read/star)
+- [ ] Print email / Print-to-PDF (Electron `webContents.print()` + `printToPDF()`)
+- [ ] Notification click navigates to email (pass email ID in notification, focus window + select email on click)
+- [ ] Confirmation toasts for destructive/move actions (archive, delete, move — with undo option)
+- [ ] Empty state illustrations (friendly message + icon when folder has no emails)
+- [ ] Conversation thread grouping in UI (collapse/expand thread, reply count badge)
+- [ ] Keyboard shortcut help overlay (`?` key shows shortcut cheat sheet modal)
+- [ ] Undo send (configurable delay 5-30s, cancel button in toast, delayed SMTP dispatch)
+
+### Phase 7: Power User & Portability (v1.5.0)
+Advanced features for power users, data portability, and enhanced filtering.
+
+- [ ] User-defined tags/labels (create, color-pick, assign to emails, filter by tag)
+- [ ] Spam/junk filtering (Bayesian classifier, train from user actions, junk folder)
+- [ ] Email export (EML single, MBOX folder, right-click "Save as...")
+- [ ] Email import (EML/MBOX file picker, import to selected folder)
+- [ ] Contact import/export (vCard, CSV)
+- [ ] Drag-and-drop emails to folders (HTML5 drag API, visual drop indicator)
+- [ ] Saved searches / smart folders (persist search queries, virtual folder in sidebar)
+- [ ] Message source viewer (raw headers + MIME parts, modal or tab)
+- [ ] Sound alerts on new mail (configurable, system default or custom audio file)
+- [ ] Scam/phishing URL detection (warn on suspicious links in reading pane)
+- [ ] Loading skeleton placeholders (shimmer UI while emails load)
+- [ ] Compact / comfortable / relaxed density modes (3 settings, persisted)
+- [ ] Zoom / font size control in reading pane
+- [ ] Folder colors (color picker on folder, custom sidebar accents)
+- [ ] Mailing list unsubscribe (parse `List-Unsubscribe` header, one-click action)
+
 ---
 
-## What ExpressDelivery Has That Mailspring Doesn't
+## What ExpressDelivery Has That Mailspring & Thunderbird Don't
 
 1. **MCP/AI Integration** -- 8 AI-accessible tools via Model Context Protocol (search, read, send, draft, summary, categorize, analytics, suggest reply). Multi-client SSE with real-time connection status. No other desktop email client offers this.
-2. **Modern React + Zustand** -- Mailspring uses older React class components + Flux stores. ExpressDelivery uses hooks, Zustand, and Radix UI primitives.
-3. **Glassmorphism Design** -- Premium visual design with backdrop blur, floating organic shapes, gradient animations.
+2. **Modern React 19 + Zustand** -- Mailspring uses older React class components + Flux stores. Thunderbird uses XUL/XHTML. ExpressDelivery uses hooks, Zustand, and Radix UI primitives.
+3. **Glassmorphism Design** -- Premium visual design with backdrop blur, floating organic shapes, gradient animations. Neither Mailspring nor Thunderbird has this aesthetic.
 4. **Premium Onboarding** -- 4-step animated wizard with provider presets, brand colors, 9 CSS animations, WCAG 2.1 accessibility.
-5. **SQLite FTS5** -- Full-text search built into the local database (Mailspring relies on its C++ sync engine for search).
-6. **Simpler Architecture** -- Single TypeScript codebase (no separate C++ sync engine to maintain).
+5. **SQLite FTS5** -- Full-text search built into the local database (Mailspring relies on its C++ sync engine; Thunderbird uses Gloda/SQLite but with different architecture).
+6. **Simpler Architecture** -- Single TypeScript codebase (no separate C++ sync engine like Mailspring, no XUL legacy like Thunderbird).
+7. **AI Email Categorization** -- Automated priority/category/label assignment via MCP tools. Thunderbird has basic tagging but no AI classification.
+8. **Sandboxed Email Rendering** -- Iframe sandbox with CSP for email HTML. More isolated than Thunderbird's rendering approach.
 
-## What Mailspring Has That We Need
+## What Mailspring & Thunderbird Have That We Need
 
+### Completed (Phases 1-5)
 1. ~~**Full IMAP sync**~~ -- Done: body fetch, all folders, reconnect, connection testing
 2. ~~**HTML email rendering**~~ -- Done: DOMPurify sanitization
 3. ~~**Reply/Forward/Delete**~~ -- Done: wired to ComposeModal + IPC
@@ -278,3 +377,20 @@ Ship-ready with full test coverage, i18n, CSS modules, CI/CD, and performance.
 8. ~~**Snooze/Send Later/Reminders**~~ -- Done: scheduler engine, DateTimePicker, snooze/send-later/reminder flows
 9. ~~**Localization**~~ -- Done: i18n framework (4 locales), all components wired to t() calls
 10. ~~**Auto-update + Code signing**~~ -- Done: electron-updater + UpdateBanner + GitHub Actions release.yml; code signing certs pending
+
+### Phase 6 (in progress)
+11. **Folder management** -- Thunderbird has full CRUD; we have read-only folder list
+12. **Mark all as read** -- Both Mailspring and Thunderbird have this
+13. **Multi-select + bulk actions** -- Standard in both reference clients
+14. **Right-click context menus** -- Standard in both reference clients
+15. **Print / Print-to-PDF** -- Standard desktop feature
+16. **Notification click → email** -- Thunderbird navigates to the email on click
+17. **Thread grouping UI** -- Both reference clients group conversations visually
+18. **Undo send** -- Mailspring Pro feature; Thunderbird via add-on
+
+### Phase 7 (planned)
+19. **User-defined tags** -- Thunderbird has color-coded custom tags
+20. **Spam filtering** -- Thunderbird has Bayesian ML filter
+21. **Data portability** -- Both clients support EML/MBOX import/export
+22. **Drag-and-drop** -- Standard in both reference clients
+23. **Density modes** -- Thunderbird has 3 density settings

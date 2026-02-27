@@ -493,6 +493,24 @@ export class ImapEngine {
         }
     }
 
+    async markAsUnread(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+
+        const lock = await Promise.race([
+            client.getMailboxLock(mailbox),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
+        ]);
+        try {
+            await client.messageFlagsRemove(String(emailUid), ['\\Seen'], { uid: true });
+            return true;
+        } catch {
+            return false;
+        } finally {
+            lock.release();
+        }
+    }
+
     async deleteMessage(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const client = this.clients.get(accountId);
         if (!client) return false;
@@ -579,6 +597,60 @@ export class ImapEngine {
         if (lower.includes('junk') || lower.includes('spam')) return 'junk';
         if (lower.includes('archive')) return 'archive';
         return 'other';
+    }
+
+    async createMailbox(accountId: string, path: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+        try {
+            await client.mailboxCreate(path);
+            return true;
+        } catch (err) {
+            logDebug(`[createMailbox] error: ${err instanceof Error ? err.message : String(err)}`);
+            return false;
+        }
+    }
+
+    async renameMailbox(accountId: string, oldPath: string, newPath: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+        try {
+            await client.mailboxRename(oldPath, newPath);
+            return true;
+        } catch (err) {
+            logDebug(`[renameMailbox] error: ${err instanceof Error ? err.message : String(err)}`);
+            return false;
+        }
+    }
+
+    async deleteMailbox(accountId: string, path: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+        try {
+            await client.mailboxDelete(path);
+            return true;
+        } catch (err) {
+            logDebug(`[deleteMailbox] error: ${err instanceof Error ? err.message : String(err)}`);
+            return false;
+        }
+    }
+
+    async markAllRead(accountId: string, mailbox: string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+        const lock = await Promise.race([
+            client.getMailboxLock(mailbox),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
+        ]);
+        try {
+            await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: true });
+            return true;
+        } catch (err) {
+            logDebug(`[markAllRead] error: ${err instanceof Error ? err.message : String(err)}`);
+            return false;
+        } finally {
+            lock.release();
+        }
     }
 
     private scheduleReconnect(accountId: string) {

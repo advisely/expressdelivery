@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { SettingsModal } from './SettingsModal';
 import { ThemeProvider } from './ThemeContext';
 import { useThemeStore } from '../stores/themeStore';
@@ -45,9 +46,11 @@ function renderSettings(onClose = () => { }) {
     );
 }
 
-function switchToAppearanceTab() {
+async function switchToAppearanceTab() {
+    const user = userEvent.setup();
     const appearanceTab = screen.getByRole('tab', { name: /appearance/i });
-    fireEvent.click(appearanceTab);
+    await user.click(appearanceTab);
+    await waitFor(() => expect(screen.getByText('Light')).toBeInTheDocument());
 }
 
 describe('SettingsModal Integration Tests', () => {
@@ -58,9 +61,9 @@ describe('SettingsModal Integration Tests', () => {
         mockIpcInvoke.mockResolvedValue(null);
     });
 
-    it('renders all customized themes and pane layouts correctly', () => {
+    it('renders all customized themes and pane layouts correctly', async () => {
         renderSettings();
-        switchToAppearanceTab();
+        await switchToAppearanceTab();
 
         expect(screen.getByText('Light')).toBeInTheDocument();
         expect(screen.getByText('Cream')).toBeInTheDocument();
@@ -71,11 +74,11 @@ describe('SettingsModal Integration Tests', () => {
         expect(screen.getByText('Horizontal Split')).toBeInTheDocument();
     });
 
-    it('updates global Zustand store when new themes are clicked', () => {
+    it('updates global Zustand store when new themes are clicked', async () => {
         useThemeStore.setState({ themeName: 'light' });
 
         renderSettings();
-        switchToAppearanceTab();
+        await switchToAppearanceTab();
 
         fireEvent.click(screen.getByText('Midnight'));
         expect(useThemeStore.getState().themeName).toBe('midnight');
@@ -92,11 +95,11 @@ describe('SettingsModal Integration Tests', () => {
         expect(mockClose).toHaveBeenCalledTimes(1);
     });
 
-    it('applies the active state only to the selected theme and layout options', () => {
+    it('applies the active state only to the selected theme and layout options', async () => {
         useThemeStore.setState({ themeName: 'light' });
 
         renderSettings();
-        switchToAppearanceTab();
+        await switchToAppearanceTab();
 
         const lightBtn = screen.getByText('Light').closest('button');
         const midnightBtn = screen.getByText('Midnight').closest('button');
@@ -201,10 +204,10 @@ describe('SettingsModal Integration Tests', () => {
     // --- New tests for Test Connection feature ---
 
     it('resets test status to idle when a credential field changes after a successful test', async () => {
-        // Arrange: first call is the API key load (returns null), second is notification settings, third is templates:list, then connection test returns success
+        // Arrange: first call is the API key load (returns null), second is notification settings, third is undo_send_delay, then connection test returns success
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
-        mockIpcInvoke.mockResolvedValueOnce(null); // templates:list
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get undo_send_delay
         mockIpcInvoke.mockResolvedValueOnce({ success: true }); // accounts:test
 
         renderSettings();
@@ -235,10 +238,10 @@ describe('SettingsModal Integration Tests', () => {
     });
 
     it('shows inline error and Failed label when the IPC call itself throws (network failure)', async () => {
-        // Arrange: first call is the API key load (returns null), second is notification settings, third is templates:list, then simulate a hard IPC-layer rejection
+        // Arrange: first call is the API key load (returns null), second is notification settings, third is undo_send_delay, then simulate a hard IPC-layer rejection
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
-        mockIpcInvoke.mockResolvedValueOnce(null); // templates:list
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get undo_send_delay
         mockIpcInvoke.mockRejectedValueOnce(new Error('IPC channel closed')); // accounts:test
 
         renderSettings();
@@ -270,7 +273,7 @@ describe('SettingsModal Integration Tests', () => {
         mockIpcInvoke
             .mockResolvedValueOnce(null)                 // apikeys:get-openrouter
             .mockResolvedValueOnce(null)                 // settings:get notifications_enabled
-            .mockResolvedValueOnce(null)                 // templates:list
+            .mockResolvedValueOnce(null)                 // settings:get undo_send_delay
             .mockResolvedValueOnce({ success: true })    // accounts:test
             .mockResolvedValueOnce({ id: 'new-acc-id' }) // accounts:add
             .mockResolvedValueOnce([]);                  // folders:list (post-add flow)
@@ -298,7 +301,7 @@ describe('SettingsModal Integration Tests', () => {
         );
 
         // Call 1 is apikeys:get-openrouter, call 2 is settings:get (notifications_enabled),
-        // call 3 is templates:list, call 4 is accounts:test, call 5 is accounts:add — NOT a second accounts:test call
+        // call 3 is settings:get (undo_send_delay), call 4 is accounts:test, call 5 is accounts:add
         expect(mockIpcInvoke).toHaveBeenNthCalledWith(
             4, 'accounts:test', expect.objectContaining({ email: 'user@gmail.com' })
         );
@@ -308,5 +311,24 @@ describe('SettingsModal Integration Tests', () => {
         // Verify accounts:test was invoked exactly once across the whole flow
         const testCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'accounts:test');
         expect(testCalls).toHaveLength(1);
+    });
+
+    it('does not load rules or templates on mount (lazy loading)', async () => {
+        mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get undo_send_delay
+
+        renderSettings();
+
+        // Wait for mount effects to settle
+        await waitFor(() => {
+            expect(mockIpcInvoke).toHaveBeenCalledWith('apikeys:get-openrouter');
+        });
+
+        // Neither rules:list nor templates:list should have been called on mount
+        const rulesCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'rules:list');
+        const templatesCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'templates:list');
+        expect(rulesCalls).toHaveLength(0);
+        expect(templatesCalls).toHaveLength(0);
     });
 });

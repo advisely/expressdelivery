@@ -129,4 +129,17 @@ describe('Local SQLite Database Engine', () => {
         results = searchStmt.all('terrible');
         expect(results.length).toBe(0);
     });
+
+    it('should have performance indexes after migration 10', () => {
+        const indexes = db.prepare(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
+        ).all() as { name: string }[];
+        const indexNames = indexes.map(i => i.name);
+        expect(indexNames).toContain('idx_emails_folder_snooze_date');
+        expect(indexNames).toContain('idx_emails_thread_folder_date');
+        expect(indexNames).toContain('idx_emails_account_read_folder');
+        expect(indexNames).toContain('idx_folders_account_type');
+        expect(indexNames).toContain('idx_folders_account_path');
+        expect(indexNames).toContain('idx_rules_account_active');
+    });
 });

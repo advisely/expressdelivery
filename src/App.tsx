@@ -68,14 +68,21 @@ function App() {
   const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
   const [startupReady, setStartupReady] = useState(false);
-  const [toast, setToast] = useState<{ message: string; emailId?: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; emailId?: string; undo?: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const [undoSendDelay, setUndoSendDelay] = useState(5);
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
-  const isModalOpen = composeState !== null || isSettingsOpen;
+  const showToast = useCallback((message: string, undo?: () => void) => {
+    clearTimeout(toastTimerRef.current);
+    setToast({ message, undo });
+    toastTimerRef.current = setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const isModalOpen = composeState !== null || isSettingsOpen || showShortcutHelp;
 
   // Listen for reminder:due events
   useEffect(() => {
@@ -85,18 +92,26 @@ function App() {
       const msg = data.note
         ? t('toast.reminderNote', { note: data.note })
         : data.subject ? t('toast.reminderSubject', { subject: data.subject }) : t('toast.reminderDefault');
-      clearTimeout(toastTimerRef.current);
-      setToast({ message: msg, emailId: data.emailId });
-      toastTimerRef.current = setTimeout(() => setToast(null), 8000);
+      showToast(msg);
     });
     return () => { cleanup?.(); };
-  }, [t]);
+  }, [t, showToast]);
 
   // Listen for notification:click to navigate to email
   useEffect(() => {
     const cleanup = ipcOn('notification:click', (...args: unknown[]) => {
-      const data = args[0] as { emailId?: string } | undefined;
-      if (data?.emailId) {
+      const data = args[0] as { emailId?: string; accountId?: string; folderId?: string } | undefined;
+      if (!data) return;
+      // Switch account if needed
+      if (data.accountId && data.accountId !== useEmailStore.getState().selectedAccountId) {
+        selectAccount(data.accountId);
+      }
+      // Switch folder if needed
+      if (data.folderId) {
+        selectFolder(data.folderId);
+      }
+      // Select email if specified
+      if (data.emailId) {
         selectEmail(data.emailId);
         ipcInvoke<EmailFull>('emails:read', data.emailId).then(full => {
           if (full) setSelectedEmail(full);
@@ -104,25 +119,21 @@ function App() {
       }
     });
     return () => { cleanup?.(); };
-  }, [selectEmail, setSelectedEmail]);
+  }, [selectEmail, selectAccount, selectFolder, setSelectedEmail]);
 
   // Listen for scheduled:sent and scheduled:failed events
   useEffect(() => {
     const cleanupSent = ipcOn('scheduled:sent', (...args: unknown[]) => {
       const data = args[0] as { scheduledId?: string } | undefined;
       void data;
-      clearTimeout(toastTimerRef.current);
-      setToast({ message: t('toast.scheduledSent') });
-      toastTimerRef.current = setTimeout(() => setToast(null), 5000);
+      showToast(t('toast.scheduledSent'));
     });
     const cleanupFailed = ipcOn('scheduled:failed', (...args: unknown[]) => {
       const data = args[0] as { error?: string } | undefined;
-      clearTimeout(toastTimerRef.current);
-      setToast({ message: t('toast.scheduledFailed', { error: (data?.error ?? 'unknown error').slice(0, 200) }) });
-      toastTimerRef.current = setTimeout(() => setToast(null), 8000);
+      showToast(t('toast.scheduledFailed', { error: (data?.error ?? 'unknown error').slice(0, 200) }));
     });
     return () => { cleanupSent?.(); cleanupFailed?.(); };
-  }, [t]);
+  }, [t, showToast]);
 
   const loadAccounts = useCallback(async () => {
     const result = await ipcInvoke<Account[]>('accounts:list');
@@ -357,11 +368,13 @@ function App() {
     'j': () => handleNavigateEmail('next'),
     'k': () => handleNavigateEmail('prev'),
     'escape': () => {
-      if (composeState !== null) setComposeState(null);
+      if (showShortcutHelp) setShowShortcutHelp(false);
+      else if (composeState !== null) setComposeState(null);
       else if (isSettingsOpen) setIsSettingsOpen(false);
       else setSelectedEmail(null);
     },
-  }), [handleReply, handleForward, handleDeleteSelected, handleArchiveSelected, handleNavigateEmail, composeState, isSettingsOpen, setSelectedEmail]);
+    'shift+?': () => setShowShortcutHelp(v => !v),
+  }), [handleReply, handleForward, handleDeleteSelected, handleArchiveSelected, handleNavigateEmail, composeState, isSettingsOpen, showShortcutHelp, setSelectedEmail]);
 
   useKeyboardShortcuts(shortcuts, !isModalOpen);
 
@@ -385,8 +398,8 @@ function App() {
           onSettings={() => setIsSettingsOpen(true)}
         />
         <div className="main-content">
-          <ThreadList />
-          <ReadingPane onReply={handleReply} onForward={handleForward} />
+          <ThreadList onReply={handleReply} onForward={handleForward} />
+          <ReadingPane onReply={handleReply} onForward={handleForward} onToast={showToast} />
         </div>
 
         <Suspense fallback={null}>
@@ -418,9 +431,43 @@ function App() {
         {toast && (
           <div className={appStyles['toast-notification']} role="alert" aria-live="polite">
             <span>{toast.message}</span>
+            {toast.undo && (
+              <button className={appStyles['toast-action']} onClick={() => { toast.undo?.(); setToast(null); }}>
+                {t('toast.undo')}
+              </button>
+            )}
             <button className={appStyles['toast-close']} onClick={() => setToast(null)} aria-label={t('toast.dismissNotification')}>
               &times;
             </button>
+          </div>
+        )}
+
+        {showShortcutHelp && (
+          <div className={appStyles['shortcut-overlay']} onClick={() => setShowShortcutHelp(false)} role="dialog" aria-label={t('shortcuts.title')}>
+            <div className={appStyles['shortcut-modal']} onClick={(e) => e.stopPropagation()}>
+              <h2 className={appStyles['shortcut-title']}>{t('shortcuts.title')}</h2>
+              <div className={appStyles['shortcut-grid']}>
+                <div className={appStyles['shortcut-section']}>
+                  <h3>{t('shortcuts.navigation')}</h3>
+                  <div className={appStyles['shortcut-row']}><kbd>J</kbd> <span>{t('shortcuts.nextEmail')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>K</kbd> <span>{t('shortcuts.prevEmail')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Esc</kbd> <span>{t('shortcuts.deselect')}</span></div>
+                </div>
+                <div className={appStyles['shortcut-section']}>
+                  <h3>{t('shortcuts.actions')}</h3>
+                  <div className={appStyles['shortcut-row']}><kbd>R</kbd> <span>{t('shortcuts.reply')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>F</kbd> <span>{t('shortcuts.forward')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>E</kbd> <span>{t('shortcuts.archive')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Del</kbd> <span>{t('shortcuts.delete')}</span></div>
+                </div>
+                <div className={appStyles['shortcut-section']}>
+                  <h3>{t('shortcuts.compose')}</h3>
+                  <div className={appStyles['shortcut-row']}><kbd>Ctrl+N</kbd> <span>{t('shortcuts.newEmail')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Ctrl+,</kbd> <span>{t('shortcuts.settings')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>?</kbd> <span>{t('shortcuts.help')}</span></div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

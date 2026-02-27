@@ -72,6 +72,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     // Notification settings state
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
+    // Undo send delay
+    const [undoSendDelay, setUndoSendDelay] = useState(5);
+
+    // Controlled tab state for lazy loading
+    const [activeTab, setActiveTab] = useState('accounts');
+    const [rulesLoaded, setRulesLoaded] = useState(false);
+    const [templatesLoaded, setTemplatesLoaded] = useState(false);
+
     // Mail rules state
     interface MailRule {
         id: string;
@@ -113,8 +121,13 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             const val = await ipcInvoke<string | null>('settings:get', 'notifications_enabled');
             if (!cancelled) setNotificationsEnabled(val !== 'false');
         }
+        async function loadUndoDelay() {
+            const val = await ipcInvoke<string | null>('settings:get', 'undo_send_delay');
+            if (!cancelled && val != null) setUndoSendDelay(Number(val) || 5);
+        }
         loadApiKey();
         loadNotifSettings();
+        loadUndoDelay();
         return () => { cancelled = true; };
     }, []);
 
@@ -126,26 +139,31 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         };
     }, []);
 
-    // Load rules for first account
+    // Load rules when Rules tab is first activated
     const rulesAccountId = accounts[0]?.id;
     useEffect(() => {
-        if (!rulesAccountId) return;
+        if (activeTab !== 'rules' || rulesLoaded || !rulesAccountId) return;
         let cancelled = false;
         async function loadRules() {
             const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
             if (result && !cancelled) setRules(result);
+            if (!cancelled) setRulesLoaded(true);
         }
         loadRules();
         return () => { cancelled = true; };
-    }, [rulesAccountId]);
+    }, [activeTab, rulesLoaded, rulesAccountId]);
 
-    // Load reply templates on mount
+    // Load templates when Templates tab is first activated
     useEffect(() => {
+        if (activeTab !== 'templates' || templatesLoaded) return;
         let cancelled = false;
         ipcInvoke<ReplyTemplate[]>('templates:list')
-            .then(result => { if (result && !cancelled) setTemplateList(result); });
+            .then(result => {
+                if (result && !cancelled) setTemplateList(result);
+                if (!cancelled) setTemplatesLoaded(true);
+            });
         return () => { cancelled = true; };
-    }, []);
+    }, [activeTab, templatesLoaded]);
 
     const handleSaveTemplate = async () => {
         if (!editingTemplate) return;
@@ -505,7 +523,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                         </Dialog.Close>
                     </div>
 
-                    <Tabs.Root className={styles['settings-body']} defaultValue="accounts" orientation="vertical">
+                    <Tabs.Root className={styles['settings-body']} value={activeTab} onValueChange={setActiveTab} orientation="vertical">
                         <Tabs.List className={styles['settings-tabs']} aria-label="Settings sections">
                             <Tabs.Trigger className={styles['tab-btn']} value="accounts">
                                 <Mail size={16} />
@@ -533,7 +551,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             </Tabs.Trigger>
                         </Tabs.List>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="accounts" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="accounts">
                             {!isAddingAccount && (
                                 <div className="accounts-list-view">
                                     <h3 className={styles['section-title']}>{t('settings.emailAccounts')}</h3>
@@ -762,7 +780,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             )}
                         </Tabs.Content>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="appearance" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="appearance">
                             <div className="appearance-view">
                                 <div className={styles['setting-group']}>
                                     <h3 className={styles['section-title']}>Interface Theme</h3>
@@ -818,10 +836,29 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         <option value="de">Deutsch</option>
                                     </select>
                                 </div>
+
+                                <div className={styles['setting-group']}>
+                                    <h3 className={styles['section-title']}>{t('settings.undoSendDelay')}</h3>
+                                    <div className={styles['options-grid']}>
+                                        {[0, 5, 10, 15, 30].map(seconds => (
+                                            <button
+                                                key={seconds}
+                                                className={`${styles['option-btn']} ${undoSendDelay === seconds ? styles['option-btn-active'] : ''}`}
+                                                onClick={() => {
+                                                    setUndoSendDelay(seconds);
+                                                    ipcInvoke('settings:set', 'undo_send_delay', String(seconds));
+                                                }}
+                                                aria-pressed={undoSendDelay === seconds}
+                                            >
+                                                <span>{seconds === 0 ? t('settings.undoSendOff') : t('settings.undoSendSeconds', { seconds })}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="ai" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="ai">
                             <div className={styles['ai-keys-view']}>
                                 <h3 className={styles['section-title']}>{t('settings.openrouterKey')}</h3>
                                 <p className={styles['apikey-description']}>
@@ -886,7 +923,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="notifications" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="notifications">
                             <div className={styles['notif-settings-view']}>
                                 <h3 className={styles['section-title']}>Notification Preferences</h3>
                                 <div className={styles['notif-toggle-row']}>
@@ -910,7 +947,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="rules" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="rules">
                             <div className={styles['rules-view']}>
                                 <div className={styles['rules-header']}>
                                     <h3 className={styles['section-title']}>{t('settings.mailRules')}</h3>
@@ -1050,7 +1087,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             </div>
                         </Tabs.Content>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="templates" forceMount>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="templates">
                             <div className={styles['rules-view']}>
                                 <h3 className={styles['section-title']}>{t('settings.manageTemplates')}</h3>
 

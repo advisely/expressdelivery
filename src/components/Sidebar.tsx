@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Inbox,
   Send,
@@ -10,13 +10,24 @@ import {
   ChevronDown,
   Clock,
   CalendarClock,
-  Layers
+  Layers,
+  PanelLeftClose,
+  PanelLeftOpen,
+  MoreVertical,
+  FolderPlus,
+  Pencil,
+  FolderX,
+  CheckCheck
 } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useTranslation } from 'react-i18next';
-import { useEmailStore } from '../stores/emailStore';
+import { useEmailStore, type EmailSummary } from '../stores/emailStore';
+import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
 import styles from './Sidebar.module.css';
+
+const SYSTEM_FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive']);
 
 const FOLDER_ICONS: Record<string, React.ElementType> = {
   inbox: Inbox,
@@ -41,7 +52,8 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const { t } = useTranslation();
-  const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion } = useEmailStore();
+  const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion, setEmails, setSelectedEmail } = useEmailStore();
+  const { sidebarCollapsed, toggleSidebar } = useThemeStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [mcpCount, setMcpCount] = useState(0);
@@ -58,8 +70,101 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
     e.stopPropagation();
     if (!selectedAccountId) return;
     if (!window.confirm(t('sidebar.emptyTrashConfirm'))) return;
-    await ipcInvoke('emails:purge-trash', selectedAccountId);
-  }, [selectedAccountId, t]);
+    const result = await ipcInvoke<{ success: boolean }>('emails:purge-trash', selectedAccountId);
+    if (result?.success) {
+      setSelectedEmail(null);
+      if (selectedFolderId) {
+        const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
+        if (refreshed) setEmails(refreshed);
+      }
+      const counts = await ipcInvoke<Array<{ folder_id: string; count: number }>>('folders:unread-counts', selectedAccountId);
+      if (counts) {
+        const map: Record<string, number> = {};
+        for (const row of counts) map[row.folder_id] = row.count;
+        setUnreadCounts(map);
+      }
+    }
+  }, [selectedAccountId, selectedFolderId, t, setEmails, setSelectedEmail]);
+
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [creatingSubfolder, setCreatingSubfolder] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const createInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renamingFolderId && renameInputRef.current) renameInputRef.current.focus();
+  }, [renamingFolderId]);
+
+  useEffect(() => {
+    if (creatingSubfolder && createInputRef.current) createInputRef.current.focus();
+  }, [creatingSubfolder]);
+
+  const { setFolders } = useEmailStore();
+
+  const refreshFolders = useCallback(async () => {
+    if (!selectedAccountId) return;
+    const result = await ipcInvoke<Array<{ id: string; name: string; path: string; type: string }>>('folders:list', selectedAccountId);
+    if (result) setFolders(result);
+  }, [selectedAccountId, setFolders]);
+
+  const handleRenameFolder = useCallback(async (folderId: string) => {
+    if (!renameValue.trim()) { setRenamingFolderId(null); return; }
+    const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:rename', folderId, renameValue.trim());
+    if (result?.success) {
+      await refreshFolders();
+    }
+    setRenamingFolderId(null);
+    setRenameValue('');
+  }, [renameValue, refreshFolders]);
+
+  const handleDeleteFolder = useCallback(async (folderId: string, folderName: string) => {
+    if (!window.confirm(t('sidebar.deleteFolderConfirm', { name: folderName }))) return;
+    const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId);
+    if (result?.success) {
+      await refreshFolders();
+      if (selectedFolderId === folderId) selectFolder(null);
+    } else if (result?.error) {
+      window.alert(result.error);
+    }
+  }, [t, refreshFolders, selectedFolderId, selectFolder]);
+
+  const handleCreateSubfolder = useCallback(async (parentPath: string) => {
+    if (!newFolderName.trim() || !selectedAccountId) { setCreatingSubfolder(null); return; }
+    const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:create', selectedAccountId, newFolderName.trim(), parentPath);
+    if (result?.success) {
+      await refreshFolders();
+    }
+    setCreatingSubfolder(null);
+    setNewFolderName('');
+  }, [newFolderName, selectedAccountId, refreshFolders]);
+
+  const handleMarkAllRead = useCallback(async (folderId: string) => {
+    const result = await ipcInvoke<{ success: boolean }>('emails:mark-all-read', folderId);
+    if (result?.success) {
+      if (selectedFolderId === folderId) {
+        const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', folderId);
+        if (refreshed) setEmails(refreshed);
+      }
+      const counts = await ipcInvoke<Array<{ folder_id: string; count: number }>>('folders:unread-counts', selectedAccountId);
+      if (counts) {
+        const map: Record<string, number> = {};
+        for (const row of counts) map[row.folder_id] = row.count;
+        setUnreadCounts(map);
+      }
+    }
+  }, [selectedFolderId, selectedAccountId, setEmails]);
+
+  const handleCreateTopLevelFolder = useCallback(async () => {
+    if (!newFolderName.trim() || !selectedAccountId) { setCreatingSubfolder(null); return; }
+    const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:create', selectedAccountId, newFolderName.trim());
+    if (result?.success) {
+      await refreshFolders();
+    }
+    setCreatingSubfolder(null);
+    setNewFolderName('');
+  }, [newFolderName, selectedAccountId, refreshFolders]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -181,25 +286,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   }, [lastSyncTime]);
 
   return (
-    <aside className={`${styles['sidebar']} glass`}>
+    <aside className={`${styles['sidebar']} ${sidebarCollapsed ? styles['collapsed'] : ''} glass`}>
       <div className={styles['sidebar-header']}>
-        <button
-          className={styles['account-selector']}
-          onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
-          aria-expanded={accounts.length > 1 ? showAccountPicker : undefined}
-          aria-label="Switch account"
-        >
-          <div className={styles['avatar-icon']}>
-            {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
-          </div>
-          <div className={styles['account-info']}>
-            <span className={styles['account-name']}>{activeAccount?.display_name ?? 'Personal'}</span>
-            <span className={styles['account-email']}>{activeAccount?.email ?? 'No account'}</span>
-          </div>
-          {accounts.length > 1 && <ChevronDown size={14} className={styles['account-chevron']} />}
-        </button>
+        {!sidebarCollapsed && (
+          <button
+            className={styles['account-selector']}
+            onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
+            aria-expanded={accounts.length > 1 ? showAccountPicker : undefined}
+            aria-label="Switch account"
+          >
+            <div className={styles['avatar-icon']}>
+              {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
+            </div>
+            <div className={styles['account-info']}>
+              <span className={styles['account-name']}>{activeAccount?.display_name ?? 'Personal'}</span>
+              <span className={styles['account-email']}>{activeAccount?.email ?? 'No account'}</span>
+            </div>
+            {accounts.length > 1 && <ChevronDown size={14} className={styles['account-chevron']} />}
+          </button>
+        )}
 
-        {showAccountPicker && accounts.length > 1 && (
+        {sidebarCollapsed && (
+          <button
+            className={styles['avatar-icon']}
+            onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
+            aria-label="Switch account"
+            title={activeAccount?.email ?? 'No account'}
+          >
+            {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
+          </button>
+        )}
+
+        {showAccountPicker && accounts.length > 1 && !sidebarCollapsed && (
           <div className={styles['account-picker']}>
             {accounts.map(acc => {
               const AccIcon = getProviderIcon(acc.provider);
@@ -222,12 +340,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
             })}
           </div>
         )}
+
+        <button
+          className={styles['collapse-btn']}
+          onClick={toggleSidebar}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
       </div>
 
       <div className={styles['compose-wrapper']}>
-        <button className={styles['compose-btn']} onClick={onCompose}>
+        <button className={styles['compose-btn']} onClick={onCompose} title={sidebarCollapsed ? t('sidebar.compose') : undefined}>
           <Plus size={18} />
-          <span>{t('sidebar.compose')}</span>
+          {!sidebarCollapsed && <span>{t('sidebar.compose')}</span>}
         </button>
       </div>
 
@@ -237,93 +364,217 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               const count = unreadCounts[folder.id];
               const isTrash = folder.type === 'trash';
+              const isSystem = SYSTEM_FOLDER_TYPES.has(folder.type ?? '');
+              const isRenaming = renamingFolderId === folder.id;
               return (
                 <div key={folder.id} className={styles['nav-item-row']}>
-                  <button
-                    className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${isTrash ? styles['nav-item-trash'] : ''}`}
-                    onClick={() => selectFolder(folder.id)}
-                  >
-                    <Icon size={18} className={styles['nav-icon']} />
-                    <span className={styles['nav-label']}>{folder.name}</span>
-                    {count != null && count > 0 && (
-                      <span className={styles['nav-badge']}>{count > 99 ? '99+' : count}</span>
-                    )}
-                  </button>
-                  {isTrash && (
-                    <button
-                      className={styles['purge-btn']}
-                      onClick={handlePurgeTrash}
-                      title={t('sidebar.emptyTrash')}
-                      aria-label={t('sidebar.emptyTrash')}
+                  {isRenaming ? (
+                    <form
+                      className={styles['rename-form']}
+                      onSubmit={(e) => { e.preventDefault(); handleRenameFolder(folder.id); }}
                     >
-                      <Trash2 size={13} />
+                      <input
+                        ref={renameInputRef}
+                        className={styles['rename-input']}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => handleRenameFolder(folder.id)}
+                        onKeyDown={(e) => { if (e.key === 'Escape') { setRenamingFolderId(null); setRenameValue(''); } }}
+                        maxLength={100}
+                      />
+                    </form>
+                  ) : (
+                    <button
+                      className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${isTrash ? styles['nav-item-trash'] : ''}`}
+                      onClick={() => selectFolder(folder.id)}
+                      title={sidebarCollapsed ? folder.name : undefined}
+                    >
+                      <Icon size={18} className={styles['nav-icon']} />
+                      {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
+                      {!sidebarCollapsed && count != null && count > 0 && (
+                        <span className={styles['nav-badge']}>{count > 99 ? '99+' : count}</span>
+                      )}
+                      {sidebarCollapsed && count != null && count > 0 && (
+                        <span className={styles['nav-badge-dot']} />
+                      )}
                     </button>
+                  )}
+                  {!sidebarCollapsed && !isRenaming && (
+                    <DropdownMenu.Root>
+                      <DropdownMenu.Trigger asChild>
+                        <button
+                          className={styles['folder-menu-btn']}
+                          aria-label={t('sidebar.folderActions')}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical size={14} />
+                        </button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content className="folder-ctx-menu" sideOffset={4} align="start">
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            onSelect={() => handleMarkAllRead(folder.id)}
+                          >
+                            <CheckCheck size={14} />
+                            <span>{t('sidebar.markAllRead')}</span>
+                          </DropdownMenu.Item>
+                          {!isSystem && (
+                            <DropdownMenu.Item
+                              className="folder-ctx-item"
+                              onSelect={() => { setRenamingFolderId(folder.id); setRenameValue(folder.name); }}
+                            >
+                              <Pencil size={14} />
+                              <span>{t('sidebar.renameFolder')}</span>
+                            </DropdownMenu.Item>
+                          )}
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            onSelect={() => { setCreatingSubfolder(folder.path); setNewFolderName(''); }}
+                          >
+                            <FolderPlus size={14} />
+                            <span>{t('sidebar.createSubfolder')}</span>
+                          </DropdownMenu.Item>
+                          {isTrash && (
+                            <DropdownMenu.Item
+                              className="folder-ctx-item folder-ctx-danger"
+                              onSelect={(e) => handlePurgeTrash(e as unknown as React.MouseEvent)}
+                            >
+                              <Trash2 size={14} />
+                              <span>{t('sidebar.emptyTrash')}</span>
+                            </DropdownMenu.Item>
+                          )}
+                          {!isSystem && (
+                            <DropdownMenu.Item
+                              className="folder-ctx-item folder-ctx-danger"
+                              onSelect={() => handleDeleteFolder(folder.id, folder.name)}
+                            >
+                              <FolderX size={14} />
+                              <span>{t('sidebar.deleteFolder')}</span>
+                            </DropdownMenu.Item>
+                          )}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
                   )}
                 </div>
               );
             })
           : DEFAULT_NAV.map((item) => (
-              <button key={item.label} className={styles['nav-item']}>
+              <button key={item.label} className={styles['nav-item']} title={sidebarCollapsed ? item.label : undefined}>
                 <item.icon size={18} className={styles['nav-icon']} />
-                <span className={styles['nav-label']}>{item.label}</span>
+                {!sidebarCollapsed && <span className={styles['nav-label']}>{item.label}</span>}
               </button>
             ))
         }
+        {/* Inline new subfolder input */}
+        {creatingSubfolder !== null && !sidebarCollapsed && (
+          <form
+            className={styles['rename-form']}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (creatingSubfolder === '__top') handleCreateTopLevelFolder();
+              else handleCreateSubfolder(creatingSubfolder);
+            }}
+          >
+            <FolderPlus size={14} className={styles['nav-icon']} />
+            <input
+              ref={createInputRef}
+              className={styles['rename-input']}
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onBlur={() => { setCreatingSubfolder(null); setNewFolderName(''); }}
+              onKeyDown={(e) => { if (e.key === 'Escape') { setCreatingSubfolder(null); setNewFolderName(''); } }}
+              placeholder={t('sidebar.newFolderName')}
+              maxLength={100}
+            />
+          </form>
+        )}
         {accounts.length >= 2 && (
           <button
             className={`${styles['nav-item']} ${selectedFolderId === '__unified' ? styles['active'] : ''}`}
             onClick={() => selectFolder('__unified')}
+            title={sidebarCollapsed ? t('sidebar.allInboxes') : undefined}
           >
             <Layers size={18} className={styles['nav-icon']} />
-            <span className={styles['nav-label']}>{t('sidebar.allInboxes')}</span>
-            {unifiedUnreadCount > 0 && (
+            {!sidebarCollapsed && <span className={styles['nav-label']}>{t('sidebar.allInboxes')}</span>}
+            {!sidebarCollapsed && unifiedUnreadCount > 0 && (
               <span className={styles['nav-badge']}>{unifiedUnreadCount > 99 ? '99+' : unifiedUnreadCount}</span>
+            )}
+            {sidebarCollapsed && unifiedUnreadCount > 0 && (
+              <span className={styles['nav-badge-dot']} />
             )}
           </button>
         )}
         {snoozedCount > 0 && (
-          <button className={`${styles['nav-item']} ${selectedFolderId === '__snoozed' ? styles['active'] : ''}`} onClick={() => selectFolder('__snoozed')}>
+          <button
+            className={`${styles['nav-item']} ${selectedFolderId === '__snoozed' ? styles['active'] : ''}`}
+            onClick={() => selectFolder('__snoozed')}
+            title={sidebarCollapsed ? t('sidebar.snoozed') : undefined}
+          >
             <Clock size={18} className={styles['nav-icon']} />
-            <span className={styles['nav-label']}>{t('sidebar.snoozed')}</span>
-            <span className={styles['nav-badge']}>{snoozedCount}</span>
+            {!sidebarCollapsed && <span className={styles['nav-label']}>{t('sidebar.snoozed')}</span>}
+            {!sidebarCollapsed && <span className={styles['nav-badge']}>{snoozedCount}</span>}
+            {sidebarCollapsed && <span className={styles['nav-badge-dot']} />}
           </button>
         )}
         {scheduledCount > 0 && (
-          <button className={`${styles['nav-item']} ${selectedFolderId === '__scheduled' ? styles['active'] : ''}`} onClick={() => selectFolder('__scheduled')}>
+          <button
+            className={`${styles['nav-item']} ${selectedFolderId === '__scheduled' ? styles['active'] : ''}`}
+            onClick={() => selectFolder('__scheduled')}
+            title={sidebarCollapsed ? t('sidebar.scheduled') : undefined}
+          >
             <CalendarClock size={18} className={styles['nav-icon']} />
-            <span className={styles['nav-label']}>{t('sidebar.scheduled')}</span>
-            <span className={styles['nav-badge']}>{scheduledCount}</span>
+            {!sidebarCollapsed && <span className={styles['nav-label']}>{t('sidebar.scheduled')}</span>}
+            {!sidebarCollapsed && <span className={styles['nav-badge']}>{scheduledCount}</span>}
+            {sidebarCollapsed && <span className={styles['nav-badge-dot']} />}
           </button>
         )}
       </nav>
 
       <div className={styles['sidebar-footer']}>
-        <div className={styles['sync-status']} aria-label={`IMAP: ${imapStatus}, Last sync: ${lastCheckLabel || 'never'}`}>
-          <div className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`} />
-          <span className={styles['sync-label']}>
-            {accounts.length === 0
-              ? 'No account'
-              : imapStatus === 'connecting'
-                ? 'Connecting...'
-                : imapStatus === 'error'
-                  ? 'Connection error'
-                  : lastCheckLabel
-                    ? `Last check: ${lastCheckLabel}`
-                    : imapStatus === 'connected'
-                      ? 'Connected'
-                      : 'Not synced'}
-          </span>
-        </div>
-        <div className={styles['mcp-status']} aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
-          <div className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`} />
-          <span className={styles['mcp-label']}>
-            {mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : t('sidebar.mcpDisconnected')}
-          </span>
-        </div>
-        <button className={styles['nav-item']} onClick={onSettings}>
+        {!sidebarCollapsed && (
+          <>
+            <div className={styles['sync-status']} aria-label={`IMAP: ${imapStatus}, Last sync: ${lastCheckLabel || 'never'}`}>
+              <div className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`} />
+              <span className={styles['sync-label']}>
+                {accounts.length === 0
+                  ? 'No account'
+                  : imapStatus === 'connecting'
+                    ? 'Connecting...'
+                    : imapStatus === 'error'
+                      ? 'Connection error'
+                      : lastCheckLabel
+                        ? `Last check: ${lastCheckLabel}`
+                        : imapStatus === 'connected'
+                          ? 'Connected'
+                          : 'Not synced'}
+              </span>
+            </div>
+            <div className={styles['mcp-status']} aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
+              <div className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`} />
+              <span className={styles['mcp-label']}>
+                {mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : t('sidebar.mcpDisconnected')}
+              </span>
+            </div>
+          </>
+        )}
+        {sidebarCollapsed && (
+          <div className={styles['collapsed-status']}>
+            <div
+              className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`}
+              title={imapStatus === 'connected' ? `Last check: ${lastCheckLabel}` : imapStatus}
+            />
+            <div
+              className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`}
+              title={mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : 'No AI agents'}
+            />
+          </div>
+        )}
+        <button className={styles['nav-item']} onClick={onSettings} title={sidebarCollapsed ? t('sidebar.settings') : undefined}>
           <Settings size={18} className={styles['nav-icon']} />
-          <span className={styles['nav-label']}>{t('sidebar.settings')}</span>
-          {appVersion && <span className={styles['version-label']}>v{appVersion}</span>}
+          {!sidebarCollapsed && <span className={styles['nav-label']}>{t('sidebar.settings')}</span>}
+          {!sidebarCollapsed && appVersion && <span className={styles['version-label']}>v{appVersion}</span>}
         </button>
       </div>
     </aside>

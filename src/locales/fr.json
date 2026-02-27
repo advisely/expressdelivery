@@ -15,12 +15,30 @@
     "unread_one": "{{count}} non lu",
     "unread_other": "{{count}} non lus",
     "emptyTrash": "Vider la corbeille",
-    "emptyTrashConfirm": "Supprimer définitivement tous les e-mails de la corbeille ?"
+    "emptyTrashConfirm": "Supprimer définitivement tous les e-mails de la corbeille ?",
+    "folderActions": "Actions du dossier",
+    "markAllRead": "Tout marquer comme lu",
+    "renameFolder": "Renommer le dossier",
+    "deleteFolder": "Supprimer le dossier",
+    "deleteFolderConfirm": "Supprimer le dossier \"{{name}}\" ? Il doit être vide.",
+    "createSubfolder": "Créer un sous-dossier",
+    "newFolderName": "Nom du nouveau dossier"
   },
   "threadList": {
     "search": "Rechercher des e-mails...",
     "noEmails": "Aucun e-mail dans ce dossier",
-    "noResults": "Aucun résultat"
+    "noResults": "Aucun résultat",
+    "emptyInbox": "Tout est lu !",
+    "emptyTrash": "La corbeille est vide",
+    "emptySent": "Aucun e-mail envoyé",
+    "emptyDrafts": "Aucun brouillon",
+    "star": "Marquer d'une étoile",
+    "unstar": "Retirer l'étoile",
+    "markRead": "Marquer comme lu",
+    "markUnread": "Marquer comme non lu",
+    "selected": "{{count}} sélectionnés",
+    "selectAll": "Tout sélectionner",
+    "clearSelection": "Effacer la sélection"
   },
   "readingPane": {
     "noSelection": "Sélectionnez un e-mail",
@@ -30,10 +48,14 @@
     "star": "Étoile",
     "unstar": "Retirer l'étoile",
     "archive": "Archiver",
+    "print": "Imprimer",
     "snooze": "Reporter",
     "reminder": "Rappel",
     "loadImages": "Charger les images",
     "remoteImagesBlocked": "Images distantes bloquées pour la confidentialité",
+    "emailDeleted": "E-mail déplacé dans la corbeille",
+    "emailArchived": "E-mail archivé",
+    "emailMoved": "E-mail déplacé",
     "attachments": "Pièces jointes",
     "download": "Télécharger",
     "moveTo": "Déplacer vers..."
@@ -183,7 +205,8 @@
     "reminderNote": "Rappel : {{note}}",
     "reminderSubject": "Rappel : {{subject}}",
     "reminderDefault": "Rappel : suivi d'e-mail",
-    "dismissNotification": "Fermer la notification"
+    "dismissNotification": "Fermer la notification",
+    "undo": "Annuler"
   },
   "datetime": {
     "laterToday": "Plus tard aujourd'hui",
@@ -220,5 +243,21 @@
     "french": "Français",
     "spanish": "Espagnol",
     "german": "Allemand"
+  },
+  "shortcuts": {
+    "title": "Raccourcis clavier",
+    "navigation": "Navigation",
+    "nextEmail": "E-mail suivant",
+    "prevEmail": "E-mail precedent",
+    "deselect": "Deselectionner / fermer",
+    "actions": "Actions",
+    "reply": "Repondre",
+    "forward": "Transferer",
+    "archive": "Archiver",
+    "delete": "Supprimer",
+    "compose": "Redaction",
+    "newEmail": "Nouvel e-mail",
+    "settings": "Parametres",
+    "help": "Cette aide"
   }
 }

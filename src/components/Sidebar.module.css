@@ -4,10 +4,25 @@
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--glass-border);
+  transition: width 0.2s ease;
+  overflow: hidden;
+}
+
+.sidebar.collapsed {
+  width: 56px;
 }
 
 .sidebar-header {
-  padding: 20px 16px;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar:not(.collapsed) .sidebar-header {
+  padding: 16px 16px 8px;
+  align-items: stretch;
 }
 
 .account-selector {
@@ -35,6 +50,12 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.collapsed .avatar-icon:hover {
+  background: var(--hover-bg);
 }
 
 .avatar-icon-sm {
@@ -107,7 +128,32 @@
   background: rgba(var(--color-accent), 0.1);
 }
 
+/* Collapse/expand toggle button */
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.sidebar:not(.collapsed) .collapse-btn {
+  align-self: flex-end;
+}
+
+.collapse-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
 .compose-wrapper {
+  padding: 0 8px 12px;
+}
+
+.sidebar:not(.collapsed) .compose-wrapper {
   padding: 0 16px 16px;
 }
 
@@ -124,17 +170,48 @@
   font-weight: 500;
 }
 
+.collapsed .compose-btn {
+  padding: 8px;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto;
+}
+
 .compose-btn:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
 }
 
+/* Scrollable nav section */
 .sidebar-nav {
   flex: 1;
   padding: 0 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* Thin scrollbar for the nav */
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 4px;
+  opacity: 0.4;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  opacity: 0.7;
 }
 
 .nav-item {
@@ -145,6 +222,13 @@
   width: 100%;
   border-radius: 6px;
   color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.collapsed .nav-item {
+  justify-content: center;
+  padding: 8px;
+  position: relative;
 }
 
 .nav-item:hover {
@@ -173,8 +257,20 @@
   font-weight: 600;
 }
 
+/* Small unread indicator dot for collapsed mode */
+.nav-badge-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-color);
+}
+
 .sidebar-footer {
-  padding: 16px 8px;
+  padding: 12px 8px;
+  border-top: 1px solid var(--glass-border);
 }
 
 .mcp-status {
@@ -208,6 +304,16 @@
   font-size: 12px;
 }
 
+/* Collapsed mode: status dots stacked vertically */
+.collapsed-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  margin-bottom: 4px;
+}
+
 /* Trash folder row — houses the folder button + purge button side by side */
 .nav-item-row {
   display: flex;
@@ -221,26 +327,53 @@
   min-width: 0;
 }
 
-/* Small destructive purge button that only appears next to the Trash folder */
-.purge-btn {
+/* Three-dot folder context menu trigger — appears on row hover */
+.folder-menu-btn {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 5px;
-  border-radius: 5px;
+  padding: 4px;
+  border-radius: 4px;
   color: var(--text-muted);
   opacity: 0;
   transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
-.nav-item-row:hover .purge-btn {
+.nav-item-row:hover .folder-menu-btn {
   opacity: 1;
 }
 
-.purge-btn:hover {
-  color: rgb(var(--color-danger));
-  background: rgba(var(--color-danger), 0.1);
+.folder-menu-btn:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+/* Inline rename / create-subfolder form */
+.rename-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid rgba(var(--color-accent), 0.4);
+  border-radius: 4px;
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.rename-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(var(--color-accent), 0.15);
 }
 
 /* IMAP sync status indicator */
@@ -288,6 +421,9 @@
   .sync-connecting {
     animation: none;
   }
+  .sidebar {
+    transition: none;
+  }
 }
 
 .sync-label {
@@ -299,4 +435,53 @@
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 400;
+}
+
+/* Radix DropdownMenu portal — global styles for folder context menu */
+:global(.folder-ctx-menu) {
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  z-index: 1100;
+  animation: folder-ctx-in 0.12s ease-out;
+}
+
+:global(.folder-ctx-item) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+:global(.folder-ctx-item:hover),
+:global(.folder-ctx-item[data-highlighted]) {
+  background: var(--hover-bg);
+}
+
+:global(.folder-ctx-danger) {
+  color: rgb(var(--color-danger));
+}
+
+:global(.folder-ctx-danger:hover),
+:global(.folder-ctx-danger[data-highlighted]) {
+  background: rgba(var(--color-danger), 0.1);
+}
+
+@keyframes folder-ctx-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.folder-ctx-menu) {
+    animation: none;
+  }
 }

@@ -70,6 +70,16 @@ const ALLOWED_INVOKE_CHANNELS = [
   'templates:create',
   'templates:update',
   'templates:delete',
+  // Phase 6: Folder CRUD + mark all read
+  'folders:create',
+  'folders:rename',
+  'folders:delete',
+  'emails:mark-all-read',
+  'emails:mark-read',
+  'emails:mark-unread',
+  // Print
+  'print:email',
+  'print:email-pdf',
   // IMAP connection status
   'imap:status',
   // Email body repair

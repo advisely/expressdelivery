@@ -1,6 +1,6 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 5 complete (v1.0.0). 12 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (9 migrations), 4 themes, 21 test files (338 tests), ~54 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 6 complete (v1.4.0). 12 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (10 migrations), 4 themes, 23 test files (488 tests), ~58 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
@@ -134,7 +134,7 @@ npm run lint             # eslint (strict, 0 warnings)
 - Components use CSS Modules (co-located `.module.css` files)
 - Electron main process uses `.js` extension in imports (ESM)
 - Preload script exposes IPC via `contextBridge` (MUST build as CJS `.cjs` — Electron requires `require()` for preload in sandboxed mode; configured in `vite.config.ts`)
-- Database uses WAL mode + foreign keys + FTS5 triggers (7 migrations)
+- Database uses WAL mode + foreign keys + FTS5 triggers (10 migrations)
 - Passwords encrypted via `electron.safeStorage` (OS keychain)
 - MCP server runs on localhost:3000 with multi-client SSE + POST transport (timing-safe auth, account ownership enforcement)
 
@@ -320,16 +320,16 @@ Full reports in `.claude/`: `security-audit-report.md`, `code-review-report.md`,
 - ~~`getMcpServer()` called twice in startup~~ -- Fixed: cached to local `const mcp`
 - Added `emails:refetch-body` (single email) and `emails:repair-bodies` (batch) IPC handlers for garbled email repair
 
-### Test Coverage: ~68% (21 files, 338 tests)
+### Test Coverage: ~74% (23 files, 488 tests)
 
-**Tested:** crypto, db, mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures), ReadingPane (CID + remote image blocking), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete, scheduler, ruleEngine, App, ThemeContext, DateTimePicker, UpdateBanner, OnboardingScreen
-**Untested critical paths:** IMAP client (P1 — integration complexity, deferred to E2E), ThreadList (P1 — no test file)
+**Tested:** crypto, db, db.phase6 (folder CRUD, mark-read/unread, mark-all-read, extractUid), mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures), ReadingPane (CID + remote image blocking), ThreadList (86 tests: rendering, multi-select, bulk actions, context menu, search, empty states), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete, scheduler, ruleEngine, App, ThemeContext, DateTimePicker, UpdateBanner, OnboardingScreen
+**Untested critical paths:** IMAP client (P1 — integration complexity, deferred to E2E)
 
 ## Feature Status Summary
 
 Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [Mailspring](https://github.com/Foundry376/Mailspring).
 
-### What's Done (Phase 1 complete, Phase 2 complete, Phase 3 complete, Phase 4 complete, Phase 5 complete -- v1.0.0)
+### What's Done (Phase 1-6 complete -- v1.4.0)
 - Account management (add/remove/edit/test, 5 provider presets, brand icons)
 - IMAP connect + IDLE + body fetch + folder sync + reconnect with exponential backoff
 - Connection testing (10s timeout) — standalone Test Connection button + test-before-save, visual status (pass/fail/spinner)
@@ -358,7 +358,7 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - Security hardened (auth, sandbox, CSP, scoped IPC, encrypted passwords, cross-account guards, account ownership on MCP tools, encrypted API key storage)
 - System tray with icon
 - File attachments: send (file picker, 25MB/file, max 10) + receive (IMAP on-demand download, SQLite BLOB cache), attachment chips in compose/reading pane/thread list, MCP send_email with attachments
-- 337 tests across 21 files
+- 340 tests across 21 files
 - All packages upgraded: React 19, Electron 40, Vite 7, TypeScript 5.9, ESLint 10 (flat config)
 - Snooze emails (30s polling scheduler, wake/unsnooze, snoozed virtual folder in Sidebar)
 - Send later (scheduled sends with DateTimePicker, quick-select presets, scheduled virtual folder)
@@ -375,6 +375,7 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - GitHub Actions CI pipeline (ci.yml) and release pipeline (release.yml)
 - React.memo ThreadItem optimization
 - @vitest/coverage-v8 with coverage thresholds
+- **Phase 6 (v1.4.0):** Multi-select emails with bulk actions (mark read/unread, star, move, delete), right-click context menu (reply, forward, star, toggle-read, move-to, delete), folder context menu (mark all read, rename, create subfolder, delete), empty trash with confirmation, folder-specific empty states, print email / save as PDF, undo send delay configuration UI, confirmation toasts with undo, keyboard shortcut help overlay (?), notification click navigation, `emails:mark-read` lightweight IPC, `extractUid` helper, cross-account folder ownership checks, transactional folder renames (FK-safe insert→migrate→delete), 488 tests across 23 files
 
 ### What's Not Done Yet (by phase)
 - **Phase 3 (AI):** AI compose assistant (LLM-powered reply generation using suggest_reply context)
@@ -431,6 +432,25 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - [ ] Write tests for IMAP, SMTP, ComposeModal, App, ThemeContext
 - [x] Add port range constraints (min=1, max=65535) to IMAP/SMTP port inputs in SettingsModal
 - [ ] Remove dead `isLoading`/`setLoading` state from emailStore or wire to loading operations
+
+### Phase 6 Remediation (2026-02-27)
+- [x] `handleMoveToFolder` passes positional args instead of object to `emails:move` -- Fixed: changed to `{ emailId, destFolderId }` object
+- [x] `handleBulkMarkRead` calls `emails:read` (body fetch) instead of dedicated mark-read -- Fixed: created `emails:mark-read` lightweight IPC handler, updated bulk action
+- [x] `toggle-read` context action logically inverted, calls wrong IPC -- Fixed: calls `emails:mark-unread` for read emails, `emails:mark-read` for unread
+- [x] `parentPath` in `folders:create` unsanitized, no cross-account ownership check -- Fixed: sanitized + DB lookup verifies parent belongs to same account
+- [x] `folders:rename` DB updates not transactional -- Fixed: FK-safe insert→migrate→delete wrapped in `db.transaction()`
+- [x] `markAllRead` in imap.ts has no lock timeout -- Fixed: added 8s `Promise.race` timeout
+- [x] `print:email-pdf` `writeFileSync` no try/catch -- Fixed: wrapped in try/catch with error logging
+- [x] `PURIFY_CONFIG_THREAD` identical to `PURIFY_CONFIG` -- Fixed: consolidated to reference
+- [x] Toast timer logic duplicated in 3 event listeners -- Fixed: migrated to `showToast()` helper
+- [x] UID extraction duplicated 11+ times -- Fixed: extracted `extractUid()` helper function
+- [x] Bulk move submenu inline styles -- Fixed: extracted to `.bulk-move-wrap` / `.bulk-move-dropdown` CSS module classes
+- [x] `emails:mark-unread` DB update before IMAP confirmation -- Fixed: reordered to IMAP first, then DB
+
+### Performance (2026-02-27)
+- [x] Missing composite indexes on emails/folders/mail_rules tables — Fixed: Migration 10 adds 6 indexes (folder+snooze+date, thread+folder+date, account+read+folder, folders account+type, folders account+path, rules account+active+priority)
+- [x] IMAP poll interval too aggressive (5s) — Fixed: increased to 15s
+- [x] SettingsModal `forceMount` renders all 6 tabs eagerly — Fixed: lazy mount, rules/templates IPC deferred to tab activation
 
 ### Phase 4 (known limitations)
 - [x] i18n strings wired to all component render output

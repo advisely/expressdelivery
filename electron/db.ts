@@ -126,7 +126,7 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
@@ -338,6 +338,17 @@ function runMigrations(db: DatabaseType) {
             // Backfill: set message_id = thread_id for existing emails
             db.exec(`UPDATE emails SET message_id = thread_id WHERE message_id IS NULL`);
             version = 9;
+        }
+
+        // Migration 10: Performance indexes for hot query paths
+        if (version < 10) {
+            db.exec('CREATE INDEX IF NOT EXISTS idx_emails_folder_snooze_date ON emails(folder_id, is_snoozed, date DESC)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_emails_thread_folder_date ON emails(thread_id, folder_id, date DESC)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_emails_account_read_folder ON emails(account_id, is_read, folder_id)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_folders_account_type ON folders(account_id, type)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_folders_account_path ON folders(account_id, path)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_rules_account_active ON mail_rules(account_id, is_active, priority)');
+            version = 10;
         }
 
         db.prepare(

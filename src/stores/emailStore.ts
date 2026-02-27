@@ -77,6 +77,7 @@ interface EmailState {
     selectedAccountId: string | null
     selectedFolderId: string | null
     selectedEmailId: string | null
+    selectedEmailIds: Set<string>
     isLoading: boolean
     searchQuery: string
     drafts: Draft[]
@@ -92,6 +93,10 @@ interface EmailState {
     selectAccount: (id: string | null) => void
     selectFolder: (id: string | null) => void
     selectEmail: (id: string | null) => void
+    toggleSelectEmail: (id: string) => void
+    selectEmailRange: (id: string) => void
+    selectAllEmails: () => void
+    clearSelection: () => void
     setLoading: (loading: boolean) => void
     setSearchQuery: (query: string) => void
     setDrafts: (drafts: Draft[]) => void
@@ -108,6 +113,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     selectedAccountId: null,
     selectedFolderId: null,
     selectedEmailId: null,
+    selectedEmailIds: new Set<string>(),
     isLoading: false,
     searchQuery: '',
     drafts: [],
@@ -136,9 +142,32 @@ export const useEmailStore = create<EmailState>()((set) => ({
     setFolders: (folders) => set({ folders }),
     setEmails: (emails) => set({ emails }),
     setSelectedEmail: (selectedEmail) => set({ selectedEmail }),
-    selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null }),
-    selectFolder: (selectedFolderId) => set({ selectedFolderId, selectedEmailId: null, selectedEmail: null }),
+    selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
+    selectFolder: (selectedFolderId) => set({ selectedFolderId, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
     selectEmail: (selectedEmailId) => set({ selectedEmailId }),
+    toggleSelectEmail: (id) => set((state) => {
+        const next = new Set(state.selectedEmailIds);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return { selectedEmailIds: next };
+    }),
+    selectEmailRange: (id) => set((state) => {
+        const { emails, selectedEmailId, selectedEmailIds } = state;
+        // Find anchor (last single-selected email or last in set)
+        const anchor = selectedEmailId ?? (selectedEmailIds.size > 0 ? [...selectedEmailIds].pop()! : null);
+        if (!anchor) return { selectedEmailIds: new Set([id]) };
+        const anchorIdx = emails.findIndex(e => e.id === anchor);
+        const targetIdx = emails.findIndex(e => e.id === id);
+        if (anchorIdx === -1 || targetIdx === -1) return { selectedEmailIds: new Set([id]) };
+        const start = Math.min(anchorIdx, targetIdx);
+        const end = Math.max(anchorIdx, targetIdx);
+        const next = new Set(selectedEmailIds);
+        for (let i = start; i <= end; i++) next.add(emails[i].id);
+        return { selectedEmailIds: next };
+    }),
+    selectAllEmails: () => set((state) => ({
+        selectedEmailIds: new Set(state.emails.map(e => e.id)),
+    })),
+    clearSelection: () => set({ selectedEmailIds: new Set<string>() }),
     setLoading: (isLoading) => set({ isLoading }),
     setSearchQuery: (searchQuery) => set({ searchQuery }),
     setDrafts: (drafts) => set({ drafts }),

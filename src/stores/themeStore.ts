@@ -25,8 +25,11 @@ export function isDarkTheme(themeName: ThemeName): boolean {
 interface ThemeState {
     themeName: ThemeName
     layout: LayoutMode
+    sidebarCollapsed: boolean
     setTheme: (name: ThemeName) => void
     setLayout: (layout: LayoutMode) => void
+    setSidebarCollapsed: (collapsed: boolean) => void
+    toggleSidebar: () => void
     cycleTheme: () => void
 }
 
@@ -35,9 +38,12 @@ export const useThemeStore = create<ThemeState>()(
         (set) => ({
             themeName: 'light',
             layout: 'vertical',
+            sidebarCollapsed: false,
 
             setTheme: (themeName) => set({ themeName }),
             setLayout: (layout) => set({ layout }),
+            setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+            toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
             cycleTheme: () =>
                 set((state) => {

@@ -30,6 +30,7 @@ vi.mock('lucide-react', () => ({
     ShieldAlert: () => <div data-testid="icon-ShieldAlert">SA</div>,
     Clock: () => <div data-testid="icon-Clock">CL</div>,
     Bell: () => <div data-testid="icon-Bell">B</div>,
+    Printer: () => <div data-testid="icon-Printer">PR</div>,
 }));
 
 vi.mock('../lib/formatFileSize', () => ({

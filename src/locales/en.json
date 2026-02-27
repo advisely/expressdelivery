@@ -15,12 +15,30 @@
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
     "emptyTrash": "Empty Trash",
-    "emptyTrashConfirm": "Permanently delete all emails in Trash?"
+    "emptyTrashConfirm": "Permanently delete all emails in Trash?",
+    "folderActions": "Folder actions",
+    "markAllRead": "Mark all as read",
+    "renameFolder": "Rename folder",
+    "deleteFolder": "Delete folder",
+    "deleteFolderConfirm": "Delete folder \"{{name}}\"? It must be empty.",
+    "createSubfolder": "Create subfolder",
+    "newFolderName": "New folder name"
   },
   "threadList": {
     "search": "Search emails...",
     "noEmails": "No emails in this folder",
-    "noResults": "No results found"
+    "noResults": "No results found",
+    "emptyInbox": "All caught up!",
+    "emptyTrash": "Trash is empty",
+    "emptySent": "No sent emails",
+    "emptyDrafts": "No drafts",
+    "star": "Star",
+    "unstar": "Unstar",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "selected": "{{count}} selected",
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection"
   },
   "readingPane": {
     "noSelection": "Select an email to read",
@@ -30,8 +48,12 @@
     "star": "Star",
     "unstar": "Unstar",
     "archive": "Archive",
+    "print": "Print",
     "snooze": "Snooze",
     "reminder": "Set reminder",
+    "emailDeleted": "Email moved to trash",
+    "emailArchived": "Email archived",
+    "emailMoved": "Email moved",
     "loadImages": "Load remote images",
     "remoteImagesBlocked": "Remote images are blocked for privacy",
     "attachments": "Attachments",
@@ -183,7 +205,8 @@
     "reminderNote": "Reminder: {{note}}",
     "reminderSubject": "Reminder: {{subject}}",
     "reminderDefault": "Reminder: Follow up on email",
-    "dismissNotification": "Dismiss notification"
+    "dismissNotification": "Dismiss notification",
+    "undo": "Undo"
   },
   "datetime": {
     "laterToday": "Later Today",
@@ -220,5 +243,21 @@
     "french": "French",
     "spanish": "Spanish",
     "german": "German"
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "navigation": "Navigation",
+    "nextEmail": "Next email",
+    "prevEmail": "Previous email",
+    "deselect": "Deselect / close",
+    "actions": "Actions",
+    "reply": "Reply",
+    "forward": "Forward",
+    "archive": "Archive",
+    "delete": "Delete",
+    "compose": "Compose",
+    "newEmail": "New email",
+    "settings": "Settings",
+    "help": "This help"
   }
 }

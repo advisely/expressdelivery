@@ -113,10 +113,6 @@
     overflow-y: auto;
 }
 
-.settings-tab-panel[data-state="inactive"] {
-    display: none;
-}
-
 /* Section title */
 .section-title {
     font-size: 14px;
