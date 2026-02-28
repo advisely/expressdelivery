@@ -508,6 +508,12 @@ Bug fixes, i18n completeness, CSS cleanup, contact profiles, and deferred featur
 36. ~~**Optimal send time**~~ -- Done: `analytics:busiest-hours` IPC, suggested time hint in ComposeModal
 37. ~~**Agentic / MCP settings**~~ -- Done: 9th tab in Settings (toggle, port, token, endpoint, config block, tools list), persisted config, 6 IPC handlers
 
+### Phase 10 (complete -- v1.8.0)
+45. ~~**Custom application menu bar**~~ -- Done: `electron/menu.ts` with `buildAppMenu()`, 6 menus (File/Edit/View/Message/Window/Help), `menu:action` IPC channel, renderer dispatch in App.tsx
+46. ~~**Send countdown UX**~~ -- Done: fixed countdown timer (single-interval, no race), added dismiss X button, cancel reopens compose
+47. ~~**DevTools in production**~~ -- Done: enabled `devTools: true` for all builds (Help > Toggle Developer Tools)
+48. ~~**AI & Agentic README section**~~ -- Done: MCP tools table, architecture explanation, security notes
+
 ### Phase 9 (complete -- v1.7.0)
 38. ~~**Reusable ConfirmDialog**~~ -- Done: Radix Dialog wrapper replacing all `window.confirm`/`window.prompt` calls
 39. ~~**i18n completeness**~~ -- Done: all hardcoded strings in SettingsModal + Sidebar replaced with `t()` calls, ~50 new keys in 4 locales

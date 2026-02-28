@@ -145,6 +145,8 @@ const ALLOWED_ON_CHANNELS = [
   'update:downloaded',
   'scheduled:sent',
   'scheduled:failed',
+  // Phase 10: Application menu
+  'menu:action',
 ] as const
 
 type InvokeChannel = typeof ALLOWED_INVOKE_CHANNELS[number]

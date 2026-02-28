@@ -10,11 +10,11 @@ Get the latest release from [GitHub Releases](https://github.com/advisely/expres
 
 | Platform | Package | File |
 |----------|---------|------|
-| Windows | NSIS Installer | [`ExpressDelivery-Windows-Setup.exe`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Windows-1.7.0-Setup.exe) |
-| Linux | AppImage | [`ExpressDelivery-Linux.AppImage`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.7.0.AppImage) |
-| Linux | Debian (.deb) | [`ExpressDelivery-Linux.deb`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.7.0.deb) |
-| Linux | RPM (.rpm) | [`ExpressDelivery-Linux.rpm`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.7.0.rpm) |
-| macOS | DMG | [`ExpressDelivery-Mac-Installer.dmg`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Mac-1.7.0-Installer.dmg) |
+| Windows | NSIS Installer | [`ExpressDelivery-Windows-Setup.exe`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Windows-1.8.0-Setup.exe) |
+| Linux | AppImage | [`ExpressDelivery-Linux.AppImage`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.8.0.AppImage) |
+| Linux | Debian (.deb) | [`ExpressDelivery-Linux.deb`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.8.0.deb) |
+| Linux | RPM (.rpm) | [`ExpressDelivery-Linux.rpm`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.8.0.rpm) |
+| macOS | DMG | [`ExpressDelivery-Mac-Installer.dmg`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Mac-1.8.0-Installer.dmg) |
 
 > **Note:** Builds are not yet code-signed. Windows SmartScreen may show a warning — click "More info" then "Run anyway". macOS users may need to right-click and select "Open".
 
@@ -23,12 +23,35 @@ Get the latest release from [GitHub Releases](https://github.com/advisely/expres
 - **Multi-account email** — IMAP connect + IDLE + folder sync + reconnect, SMTP send with CC/BCC
 - **Rich compose** — TipTap editor (bold/italic/underline/lists/links), file attachments (25MB/file, max 10), per-account HTML signatures, draft auto-save
 - **Full-text search** — SQLite FTS5 with 300ms debounce
-- **AI integration** — 8 MCP tools (search, read, send, draft, summary, categorize, analytics, suggest reply), multi-client SSE transport, OpenRouter API key management
+- **AI & Agentic** — MCP server with 8 tools, AI compose assistant (5 tones), email categorization/priority, smart reply suggestions, mailbox analytics (see [AI & Agentic Capabilities](#ai--agentic-capabilities) below)
 - **Security** — Sandboxed iframe email rendering, DOMPurify, CSP, OS keychain encryption, cross-account ownership guards, Bayesian spam filter, phishing URL detection
 - **Productivity** — Snooze, schedule send, reminders, mail rules, keyboard shortcuts, drag-and-drop, user-defined tags, saved searches
 - **Data portability** — EML/MBOX email export/import, vCard/CSV contact export/import
 - **UI** — 4 themes, 2 layouts, 3 density modes, glassmorphism, CSS Modules, i18n (en/fr/es/de), premium onboarding wizard
 - **Desktop** — System tray, OS notifications, auto-update (electron-updater), print/PDF export
+
+## AI & Agentic Capabilities
+
+ExpressDelivery includes a built-in [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that lets AI agents interact with your email programmatically. Any MCP-compatible AI client (Claude Desktop, custom agents, etc.) can connect and use these tools:
+
+| MCP Tool | What it does |
+|----------|-------------|
+| `search_emails` | Full-text search across all accounts (FTS5) |
+| `read_thread` | Fetch a complete email thread by thread ID |
+| `send_email` | Send an email via SMTP (with attachments) |
+| `create_draft` | Create a draft for user review before sending |
+| `get_smart_summary` | Mailbox summary: unread count, high-priority, recent emails, folders |
+| `categorize_email` | AI-assign category, priority (1-4), and labels to an email |
+| `get_email_analytics` | Volume trends, top senders, busiest hours, category distribution |
+| `suggest_reply` | Structured reply context: email + thread + sender history |
+
+**How it works:**
+
+1. **MCP Server** — ExpressDelivery runs an MCP server on `localhost:3000` (configurable) using SSE (Server-Sent Events) transport. Multiple AI clients can connect simultaneously.
+2. **Authentication** — Bearer token auth (auto-generated, stored encrypted via OS keychain). Manage tokens in Settings > Agentic.
+3. **AI Compose** — Built-in AI compose assistant powered by OpenRouter. Click the sparkles button in the compose window, choose a tone (Professional, Friendly, Concise, Detailed, Casual), and get an AI-drafted reply. Requires an OpenRouter API key (Settings > AI / API Keys).
+4. **Email Intelligence** — AI categorizes emails by type (newsletter, personal, transactional, etc.), assigns priority levels, and labels them automatically. Priority badges appear in the email list.
+5. **Security** — Cross-account ownership enforced on all tools, timing-safe auth, prompt injection sanitization, DOMPurify on all AI-generated HTML, MCP server bound to 127.0.0.1 only.
 
 ## Quick Start
 

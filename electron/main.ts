@@ -59,6 +59,7 @@ import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
+import { buildAppMenu } from './menu.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -2156,6 +2157,12 @@ app.whenReady().then(() => {
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] Window creation failed: ${e.message}\n${e.stack}`);
+  }
+
+  // Set custom application menu
+  if (win) {
+    Menu.setApplicationMenu(buildAppMenu(win));
+    logDebug('Application menu set.');
   }
 
   // Wire up email:new IPC event from IMAP sync

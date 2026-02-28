@@ -9,6 +9,7 @@ import { OnboardingScreen } from './components/OnboardingScreen';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useEmailStore } from './stores/emailStore';
 import type { Account, EmailFull, EmailSummary, Folder } from './stores/emailStore';
+import { useThemeStore } from './stores/themeStore';
 import { useTranslation } from 'react-i18next';
 import { ipcInvoke, ipcOn } from './lib/ipc';
 import { useKeyboardShortcuts } from './lib/useKeyboardShortcuts';
@@ -57,7 +58,6 @@ interface ComposeState {
 
 interface PendingSend {
   payload: SendPayload;
-  timerId: ReturnType<typeof setTimeout>;
   countdown: number;
 }
 
@@ -208,11 +208,10 @@ function App() {
     return () => { cancelled = true; };
   }, [setAccounts, selectAccount, setFolders, selectFolder, setEmails]);
 
-  // Clean up pending send timers on unmount
+  // Clean up pending send interval on unmount
   useEffect(() => {
     return () => {
       if (pendingSend) {
-        clearTimeout(pendingSend.timerId);
         clearInterval(countdownRef.current);
       }
     };
@@ -328,24 +327,27 @@ function App() {
       return;
     }
 
-    let remaining = undoSendDelay;
-    const timerId = setTimeout(() => {
-      clearInterval(countdownRef.current);
-      setPendingSend(null);
-      ipcInvoke('email:send', ipcPayload);
-    }, undoSendDelay * 1000);
-
-    countdownRef.current = setInterval(() => {
-      remaining--;
-      setPendingSend(prev => prev ? { ...prev, countdown: remaining } : null);
+    // Single interval counts down and auto-sends at 0.
+    // Avoids race between separate setTimeout + setInterval.
+    const intervalId = setInterval(() => {
+      setPendingSend(prev => {
+        if (!prev) return null;
+        const next = prev.countdown - 1;
+        if (next <= 0) {
+          clearInterval(intervalId);
+          ipcInvoke('email:send', ipcPayload);
+          return null;
+        }
+        return { ...prev, countdown: next };
+      });
     }, 1000);
 
-    setPendingSend({ payload, timerId, countdown: undoSendDelay });
+    countdownRef.current = intervalId;
+    setPendingSend({ payload, countdown: undoSendDelay });
   }, [undoSendDelay]);
 
   const handleUndoSend = useCallback(() => {
     if (!pendingSend) return;
-    clearTimeout(pendingSend.timerId);
     clearInterval(countdownRef.current);
     setComposeState({
       to: pendingSend.payload.to.join(', '),
@@ -354,6 +356,101 @@ function App() {
     });
     setPendingSend(null);
   }, [pendingSend]);
+
+  /** Dismiss the send countdown toast — send the email immediately. */
+  const handleDismissSendToast = useCallback(() => {
+    if (!pendingSend) return;
+    // Clear the countdown interval and send immediately
+    clearInterval(countdownRef.current);
+    const ipcPayload = {
+      accountId: pendingSend.payload.accountId,
+      to: pendingSend.payload.to,
+      subject: pendingSend.payload.subject,
+      html: pendingSend.payload.body,
+      ...(pendingSend.payload.cc ? { cc: pendingSend.payload.cc } : {}),
+      ...(pendingSend.payload.bcc ? { bcc: pendingSend.payload.bcc } : {}),
+      ...(pendingSend.payload.attachments ? { attachments: pendingSend.payload.attachments } : {}),
+    };
+    ipcInvoke('email:send', ipcPayload);
+    setPendingSend(null);
+  }, [pendingSend]);
+
+  // Listen for menu:action events from the application menu bar
+  useEffect(() => {
+    const cleanup = ipcOn('menu:action', (...args: unknown[]) => {
+      const action = args[0] as string;
+      const store = useEmailStore.getState();
+      const theme = useThemeStore.getState();
+
+      switch (action) {
+        // File
+        case 'compose': setComposeState({ to: '', subject: '', body: '' }); break;
+        case 'settings': setIsSettingsOpen(true); break;
+        case 'print': ipcInvoke('print:email'); break;
+        case 'import-emails': ipcInvoke('import:eml'); break;
+        case 'export-emails': {
+          const folderId = store.selectedFolderId;
+          if (folderId) ipcInvoke('export:mbox', folderId);
+          break;
+        }
+        case 'import-contacts': ipcInvoke('contacts:import-vcard'); break;
+        case 'export-contacts': ipcInvoke('contacts:export-vcard'); break;
+
+        // Edit
+        case 'find': {
+          const el = document.querySelector('[data-search-input]') as HTMLInputElement;
+          el?.focus();
+          break;
+        }
+
+        // View
+        case 'layout-vertical': theme.setLayout('vertical'); break;
+        case 'layout-horizontal': theme.setLayout('horizontal'); break;
+        case 'density-compact': theme.setDensityMode('compact'); break;
+        case 'density-comfortable': theme.setDensityMode('comfortable'); break;
+        case 'density-relaxed': theme.setDensityMode('relaxed'); break;
+        case 'zoom-in': theme.setReadingPaneZoom(theme.readingPaneZoom + 10); break;
+        case 'zoom-out': theme.setReadingPaneZoom(theme.readingPaneZoom - 10); break;
+        case 'zoom-reset': theme.setReadingPaneZoom(100); break;
+        case 'toggle-sidebar': theme.toggleSidebar(); break;
+
+        // Message
+        case 'reply': {
+          const email = store.selectedEmail;
+          if (email) handleReply(email);
+          break;
+        }
+        case 'forward': {
+          const email = store.selectedEmail;
+          if (email) handleForward(email);
+          break;
+        }
+        case 'archive': handleArchiveSelected(); break;
+        case 'delete-email': handleDeleteSelected(); break;
+        case 'mark-read': {
+          const email = store.selectedEmail;
+          if (email) {
+            ipcInvoke(email.is_read ? 'emails:mark-unread' : 'emails:mark-read', email.id);
+          }
+          break;
+        }
+        case 'star': {
+          const email = store.selectedEmail;
+          if (email) {
+            ipcInvoke('emails:toggle-flag', email.id, !email.is_flagged);
+          }
+          break;
+        }
+        case 'next-email': handleNavigateEmail('next'); break;
+        case 'prev-email': handleNavigateEmail('prev'); break;
+
+        // Help
+        case 'shortcuts-help': setShowShortcutHelp(true); break;
+        case 'check-updates': ipcInvoke('update:check'); break;
+      }
+    });
+    return () => { cleanup?.(); };
+  }, [handleReply, handleForward, handleArchiveSelected, handleDeleteSelected, handleNavigateEmail]);
 
   const shortcuts = useMemo(() => ({
     'mod+n': () => setComposeState({ to: '', subject: '', body: '' }),
@@ -429,6 +526,9 @@ function App() {
             <span>{t('compose.sendingIn', { seconds: pendingSend.countdown })}</span>
             <button className={appStyles['toast-action']} onClick={handleUndoSend}>
               {t('compose.undoSend')}
+            </button>
+            <button className={appStyles['toast-close']} onClick={handleDismissSendToast} aria-label={t('toast.dismissNotification')}>
+              &times;
             </button>
           </div>
         )}

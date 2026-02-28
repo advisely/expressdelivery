@@ -460,6 +460,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                         <input
                             type="text"
                             placeholder={t('threadList.search')}
+                            data-search-input
                             className={styles['search-input']}
                             value={searchQuery}
                             onChange={(e) => handleSearch(e.target.value)}
