@@ -60,7 +60,7 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "expressdelivery",
+    "owner": "advisely",
     "repo": "expressdelivery",
     "releaseType": "release"
   },

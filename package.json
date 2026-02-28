@@ -1,7 +1,10 @@
 {
   "name": "expressdelivery",
   "description": "AI-powered email client with MCP integration",
-  "author": "ExpressDelivery Team",
+  "author": {
+    "name": "ExpressDelivery Team",
+    "email": "team@expressdelivery.app"
+  },
   "license": "MIT",
   "private": true,
   "version": "1.6.0",
