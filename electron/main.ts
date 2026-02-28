@@ -1132,16 +1132,36 @@ function registerIpcHandlers() {
     ).all(pattern, pattern);
   });
 
-  ipcMain.handle('contacts:upsert', (_event: Electron.IpcMainInvokeEvent, params: { email: string; name?: string }) => {
+  ipcMain.handle('contacts:upsert', (_event: Electron.IpcMainInvokeEvent, params: { email: string; name?: string; company?: string; phone?: string; title?: string; notes?: string }) => {
     if (!params?.email) throw new Error('Email is required');
     const emailAddr = params.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddr)) throw new Error('Invalid email format');
     const id = crypto.randomUUID();
     db.prepare(
-      `INSERT INTO contacts (id, email, name) VALUES (?, ?, ?)
-       ON CONFLICT(email) DO UPDATE SET name = COALESCE(excluded.name, contacts.name)`
-    ).run(id, emailAddr, params.name?.trim() ?? null);
+      `INSERT INTO contacts (id, email, name, company, phone, title, notes) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(email) DO UPDATE SET
+         name = COALESCE(excluded.name, contacts.name),
+         company = COALESCE(excluded.company, contacts.company),
+         phone = COALESCE(excluded.phone, contacts.phone),
+         title = COALESCE(excluded.title, contacts.title),
+         notes = COALESCE(excluded.notes, contacts.notes)`
+    ).run(id, emailAddr, params.name?.trim() ?? null, params.company?.trim() ?? null, params.phone?.trim() ?? null, params.title?.trim() ?? null, params.notes?.trim() ?? null);
     return { success: true };
+  });
+
+  ipcMain.handle('contacts:update', (_event: Electron.IpcMainInvokeEvent, params: { id: string; name?: string; company?: string; phone?: string; title?: string; notes?: string }) => {
+    if (!params?.id) throw new Error('Contact ID required');
+    const fields: string[] = [];
+    const values: (string | null)[] = [];
+    for (const key of ['name', 'company', 'phone', 'title', 'notes'] as const) {
+        if (params[key] !== undefined) {
+            fields.push(`${key} = ?`);
+            values.push(params[key]?.trim() ?? null);
+        }
+    }
+    if (fields.length === 0) return;
+    values.push(params.id);
+    db.prepare(`UPDATE contacts SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   });
 
   ipcMain.handle('drafts:list', (_event: Electron.IpcMainInvokeEvent, accountId: string) => {
@@ -2065,7 +2085,7 @@ function registerIpcHandlers() {
   // Data Portability: Contact Export/Import
   ipcMain.handle('contacts:list', () => {
     return db
-      .prepare('SELECT id, email, name, avatar_url FROM contacts ORDER BY name, email LIMIT 5000')
+      .prepare('SELECT id, email, name, avatar_url, company, phone, title, notes FROM contacts ORDER BY name, email LIMIT 5000')
       .all();
   });
 

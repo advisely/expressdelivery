@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC, type ElementType } from 'react';
+import { useState, useEffect, useMemo, type FC, type ElementType } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -17,6 +17,7 @@ import type { ProviderPreset } from '../lib/providerPresets';
 import { ipcInvoke } from '../lib/ipc';
 import { getProviderIcon } from '../lib/providerIcons';
 import styles from './SettingsModal.module.css';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const THEME_ICONS: Record<ThemeName, ElementType> = {
     light: Sun,
@@ -25,9 +26,9 @@ const THEME_ICONS: Record<ThemeName, ElementType> = {
     forest: Droplets,
 };
 
-const LAYOUTS: { id: LayoutType; label: string; icon: ElementType }[] = [
-    { id: 'vertical', label: 'Vertical Split (3-Pane)', icon: Layout },
-    { id: 'horizontal', label: 'Horizontal Split', icon: Monitor },
+const LAYOUTS: { id: LayoutType; labelKey: string; icon: ElementType }[] = [
+    { id: 'vertical', labelKey: 'settings.layoutVertical', icon: Layout },
+    { id: 'horizontal', labelKey: 'settings.layoutHorizontal', icon: Monitor },
 ];
 
 const providerLabel = (providerId: string) =>
@@ -59,7 +60,13 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [showServerFields, setShowServerFields] = useState(false);
     const [testStatus, setTestStatus] = useState<TestStatus>('idle');
 
-    const { accounts, addAccount, updateAccount, removeAccount, selectAccount, selectFolder, setFolders } = useEmailStore();
+    const accounts = useEmailStore(s => s.accounts);
+    const addAccount = useEmailStore(s => s.addAccount);
+    const updateAccount = useEmailStore(s => s.updateAccount);
+    const removeAccount = useEmailStore(s => s.removeAccount);
+    const selectAccount = useEmailStore(s => s.selectAccount);
+    const selectFolder = useEmailStore(s => s.selectFolder);
+    const setFolders = useEmailStore(s => s.setFolders);
     const { layout, setLayout } = useLayout();
     const { themeName, setTheme, densityMode, setDensityMode } = useThemeStore();
     const { i18n, t } = useTranslation();
@@ -77,8 +84,9 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     // Undo send delay
     const [undoSendDelay, setUndoSendDelay] = useState(5);
 
-    // Controlled tab state for lazy loading
+    // Controlled tab state for lazy loading — track which tabs have been visited
     const [activeTab, setActiveTab] = useState('accounts');
+    const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['accounts']));
     const [rulesLoaded, setRulesLoaded] = useState(false);
     const [templatesLoaded, setTemplatesLoaded] = useState(false);
     const [tagsLoaded, setTagsLoaded] = useState(false);
@@ -106,6 +114,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [mcpConnectedCount, setMcpConnectedCount] = useState(0);
     const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
     const [mcpCopied, setMcpCopied] = useState<string | null>(null);
+    const [mcpConfirmOpen, setMcpConfirmOpen] = useState(false);
 
     const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
@@ -135,33 +144,23 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [editingTemplate, setEditingTemplate] = useState<ReplyTemplate | null>(null);
     const [templateError, setTemplateError] = useState<string | null>(null);
 
-    // Load API key and notification settings on mount
+    // Load API key and notification settings on mount (batched to minimize IPC round-trips)
     useEffect(() => {
         let cancelled = false;
-        async function loadApiKey() {
-            try {
-                const key = await ipcInvoke<string | null>('apikeys:get-openrouter');
-                if (key && !cancelled) setApiKey(key);
-            } catch {
-                if (!cancelled) setApiKeyStatus('error');
-            }
-        }
-        async function loadNotifSettings() {
-            const val = await ipcInvoke<string | null>('settings:get', 'notifications_enabled');
-            if (!cancelled) setNotificationsEnabled(val !== 'false');
-        }
-        async function loadUndoDelay() {
-            const val = await ipcInvoke<string | null>('settings:get', 'undo_send_delay');
-            if (!cancelled && val != null) setUndoSendDelay(Number(val) || 5);
-        }
-        async function loadSoundEnabled() {
-            const val = await ipcInvoke<string | null>('settings:get', 'sound_enabled');
-            if (!cancelled && val === 'true') setSoundEnabled(true);
-        }
-        loadApiKey();
-        loadNotifSettings();
-        loadUndoDelay();
-        loadSoundEnabled();
+        Promise.all([
+            ipcInvoke<string | null>('apikeys:get-openrouter').catch(() => null),
+            ipcInvoke<string | null>('settings:get', 'notifications_enabled').catch(() => null),
+            ipcInvoke<string | null>('settings:get', 'undo_send_delay').catch(() => null),
+            ipcInvoke<string | null>('settings:get', 'sound_enabled').catch(() => null),
+        ]).then(([key, notifVal, undoVal, soundVal]) => {
+            if (cancelled) return;
+            if (key) setApiKey(key);
+            setNotificationsEnabled(notifVal !== 'false');
+            if (undoVal != null) setUndoSendDelay(Number(undoVal) || 5);
+            if (soundVal === 'true') setSoundEnabled(true);
+        }).catch(() => {
+            if (!cancelled) setApiKeyStatus('error');
+        });
         return () => { cancelled = true; };
     }, []);
 
@@ -378,7 +377,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
             if (result) setRules(result);
         } catch {
-            setRuleError('Failed to delete rule');
+            setRuleError(t('settings.ruleDeleteFailed'));
         }
     };
 
@@ -392,7 +391,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             const result = await ipcInvoke<MailRule[]>('rules:list', rulesAccountId);
             if (result) setRules(result);
         } catch {
-            setRuleError('Failed to toggle rule');
+            setRuleError(t('settings.ruleToggleFailed'));
         }
     };
 
@@ -410,14 +409,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             const testResult = await ipcInvoke<{ success: boolean; error?: string }>('accounts:test', payload);
             if (testResult && !testResult.success) {
                 setTestStatus('failed');
-                setFormError(testResult.error ?? 'Connection test failed. Check your credentials and server settings.');
+                setFormError(testResult.error ?? t('settings.connectionTestFailed'));
                 return false;
             }
             setTestStatus('passed');
             return true;
         } catch {
             setTestStatus('failed');
-            setFormError('Connection test failed. Check your credentials and server settings.');
+            setFormError(t('settings.connectionTestFailed'));
             return false;
         }
     };
@@ -425,7 +424,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const handleTestConnection = async () => {
         const finalImapHost = formImapHost || selectedPreset?.imapHost || '';
         if (!formEmail.trim() || (!formPassword.trim() && !isEditing) || !finalImapHost) {
-            setFormError('Fill in email, password, and server settings before testing');
+            setFormError(t('settings.addAccountFillTest'));
             return;
         }
         await runConnectionTest(formEmail, formPassword, finalImapHost, formImapPort);
@@ -461,11 +460,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     };
 
     const handleAddAccount = async () => {
-        if (!formEmail.trim()) { setFormError('Email address is required'); return; }
-        if (!formPassword.trim()) { setFormError('Password is required'); return; }
+        if (!formEmail.trim()) { setFormError(t('settings.addAccountEmailRequired')); return; }
+        if (!formPassword.trim()) { setFormError(t('settings.addAccountPasswordRequired')); return; }
         const finalImapHost = formImapHost || selectedPreset?.imapHost || '';
         const finalSmtpHost = formSmtpHost || selectedPreset?.smtpHost || '';
-        if (!finalImapHost || !finalSmtpHost) { setFormError('Please select a provider or fill in server details'); return; }
+        if (!finalImapHost || !finalSmtpHost) { setFormError(t('settings.addAccountServerRequired')); return; }
 
         setFormSaving(true);
         setFormError(null);
@@ -516,7 +515,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                 resetForm();
             }
         } catch {
-            setFormError('Failed to add account. Please check your details.');
+            setFormError(t('settings.addAccountFailed'));
             setTestStatus('idle');
         } finally {
             setFormSaving(false);
@@ -525,10 +524,10 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
     const handleUpdateAccount = async () => {
         if (!editingAccountId) return;
-        if (!formEmail.trim()) { setFormError('Email address is required'); return; }
+        if (!formEmail.trim()) { setFormError(t('settings.addAccountEmailRequired')); return; }
         const finalImapHost = formImapHost || selectedPreset?.imapHost || '';
         const finalSmtpHost = formSmtpHost || selectedPreset?.smtpHost || '';
-        if (!finalImapHost || !finalSmtpHost) { setFormError('Please select a provider or fill in server details'); return; }
+        if (!finalImapHost || !finalSmtpHost) { setFormError(t('settings.addAccountServerRequired')); return; }
 
         const hasPassword = formPassword.trim().length > 0;
 
@@ -573,7 +572,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             });
             resetForm();
         } catch {
-            setFormError('Failed to update account. Please check your details.');
+            setFormError(t('settings.updateAccountFailed'));
             setTestStatus('idle');
         } finally {
             setFormSaving(false);
@@ -585,7 +584,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             await ipcInvoke('accounts:remove', accountId);
             removeAccount(accountId);
         } catch {
-            setFormError('Failed to remove account.');
+            setFormError(t('settings.removeAccountFailed'));
         }
     };
 
@@ -618,14 +617,17 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         }
     };
 
-    const handleMcpRegenerateToken = async () => {
-        if (!confirm(t('mcp.regenerateConfirm'))) return;
+    const doMcpRegenerateToken = async () => {
         const result = await ipcInvoke<{ token: string }>('mcp:regenerate-token');
         if (result) {
             setMcpToken(result.token);
             setMcpConnectedCount(0);
             setMcpRunning(true);
         }
+    };
+
+    const handleMcpRegenerateToken = () => {
+        setMcpConfirmOpen(true);
     };
 
     const handleMcpCopy = async (text: string, label: string) => {
@@ -639,18 +641,32 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const isEditing = editingAccountId !== null;
     const hasPassword = formPassword.trim().length > 0;
 
+    // Render gate: only mount tab content after it has been visited at least once
+    const isTabActive = (tab: string) => visitedTabs.has(tab);
+
+    // Memoize MCP config JSON (avoid JSON.stringify on every render)
+    const mcpConfigJson = useMemo(() => JSON.stringify({
+        mcpServers: {
+            'express-delivery': {
+                url: `http://127.0.0.1:${mcpPort}/sse`,
+                headers: { Authorization: 'Bearer <your-token>' },
+            },
+        },
+    }, null, 2), [mcpPort]);
+
     const getPrimaryButtonLabel = () => {
-        if (testStatus === 'testing') return 'Testing connection...';
-        if (formSaving) return 'Saving...';
+        if (testStatus === 'testing') return t('settings.testingConnection');
+        if (formSaving) return t('settings.saving');
         if (isEditing) {
-            if (testStatus === 'passed') return 'Save Changes';
-            return hasPassword ? 'Test & Save Changes' : 'Save Changes';
+            if (testStatus === 'passed') return t('settings.saveChanges');
+            return hasPassword ? t('settings.testAndSave') : t('settings.saveChanges');
         }
         if (testStatus === 'passed') return t('settings.addAccount');
         return t('settings.testAndAdd');
     };
 
     return (
+        <>
         <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
             <Dialog.Portal>
                 <Dialog.Overlay className="settings-overlay" />
@@ -658,13 +674,13 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                     <div className={styles['settings-modal__header']}>
                         <Dialog.Title className={styles['settings-modal__title']}>{t('settings.title')}</Dialog.Title>
                         <Dialog.Close asChild>
-                            <button className={styles['close-btn']} aria-label="Close settings">
+                            <button className={styles['close-btn']} aria-label={t('settings.closeSettings')}>
                                 <X size={20} />
                             </button>
                         </Dialog.Close>
                     </div>
 
-                    <Tabs.Root className={styles['settings-body']} value={activeTab} onValueChange={setActiveTab} orientation="vertical">
+                    <Tabs.Root className={styles['settings-body']} value={activeTab} onValueChange={(val) => { setActiveTab(val); setVisitedTabs(prev => { if (prev.has(val)) return prev; const next = new Set(prev); next.add(val); return next; }); }} orientation="vertical">
                         <Tabs.List className={styles['settings-tabs']} aria-label="Settings sections">
                             <Tabs.Trigger className={styles['tab-btn']} value="accounts">
                                 <Mail size={16} />
@@ -711,7 +727,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     {accounts.length === 0 && (
                                         <div className={styles['empty-accounts']}>
                                             <Mail size={32} />
-                                            <p>No accounts connected</p>
+                                            <p>{t('settings.noAccountsConnected')}</p>
                                         </div>
                                     )}
                                     {accounts.map(account => {
@@ -724,7 +740,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 role="button"
                                                 tabIndex={0}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') enterEditMode(account); }}
-                                                aria-label={`Edit ${account.email}`}
+                                                aria-label={t('settings.editAccountAria', { email: account.email })}
                                             >
                                                 <div className={styles['account-item-avatar']}>
                                                     <ProviderIcon size={20} />
@@ -736,8 +752,8 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 <button
                                                     className={styles['delete-btn']}
                                                     onClick={(e) => { e.stopPropagation(); handleRemoveAccount(account.id); }}
-                                                    title="Remove account"
-                                                    aria-label={`Remove ${account.email}`}
+                                                    title={t('settings.removeAccount')}
+                                                    aria-label={t('settings.removeAccountAria', { email: account.email })}
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
@@ -758,7 +774,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     {formError && <div className={styles['form-error']} role="alert">{formError}</div>}
 
                                     <div className={styles['form-group']}>
-                                        <label className={styles['form-label']}>Provider</label>
+                                        <label className={styles['form-label']}>{t('settings.provider')}</label>
                                         <div className={styles['provider-mini-grid']}>
                                             {PROVIDER_PRESETS.map(preset => {
                                                 const PresetIcon = getProviderIcon(preset.id);
@@ -794,7 +810,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             id="settings-display-name"
                                             type="text"
                                             className={styles['form-input']}
-                                            placeholder="John Doe (optional)"
+                                            placeholder={t('settings.displayNamePlaceholder')}
                                             value={formDisplayName}
                                             onChange={e => setFormDisplayName(e.target.value)}
                                         />
@@ -805,7 +821,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         <textarea
                                             id="settings-signature"
                                             className={`${styles['form-input']} ${styles['signature-textarea']}`}
-                                            placeholder="Your email signature (plain text, optional)"
+                                            placeholder={t('settings.signaturePlaceholder')}
                                             value={formSignature}
                                             onChange={e => setFormSignature(e.target.value)}
                                             rows={3}
@@ -819,7 +835,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 id="settings-password"
                                                 type={showPassword ? 'text' : 'password'}
                                                 className={styles['form-input']}
-                                                placeholder={isEditing ? 'Leave blank to keep current' : 'Password or App Password'}
+                                                placeholder={isEditing ? t('settings.passwordKeep') : t('settings.passwordNew')}
                                                 value={formPassword}
                                                 onChange={e => { setFormPassword(e.target.value); resetTestStatus(); }}
                                             />
@@ -827,7 +843,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 className={styles['password-toggle']}
                                                 onClick={() => setShowPassword(!showPassword)}
                                                 type="button"
-                                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                                aria-label={showPassword ? t('settings.hidePassword') : t('settings.showPassword')}
                                             >
                                                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                                             </button>
@@ -844,7 +860,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             >
                                                 <Server size={14} />
                                                 <span>{t('settings.serverSettings')}</span>
-                                                <span className={styles['toggle-hint']}>{showServerFields ? 'Hide' : 'Show'}</span>
+                                                <span className={styles['toggle-hint']}>{showServerFields ? t('settings.hide') : t('settings.show')}</span>
                                             </button>
                                             {showServerFields && (
                                                 <>
@@ -861,7 +877,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                             />
                                                         </div>
                                                         <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
-                                                            <label className={styles['form-label']} htmlFor="settings-imap-port">Port</label>
+                                                            <label className={styles['form-label']} htmlFor="settings-imap-port">{t('settings.port')}</label>
                                                             <input
                                                                 id="settings-imap-port"
                                                                 type="number"
@@ -886,7 +902,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                             />
                                                         </div>
                                                         <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
-                                                            <label className={styles['form-label']} htmlFor="settings-smtp-port">Port</label>
+                                                            <label className={styles['form-label']} htmlFor="settings-smtp-port">{t('settings.port')}</label>
                                                             <input
                                                                 id="settings-smtp-port"
                                                                 type="number"
@@ -919,7 +935,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                  testStatus === 'failed' ? t('settings.failed') : t('settings.testConnection')}
                                             </span>
                                         </button>
-                                        <div style={{ flex: 1 }} />
+                                        <div className={styles['form-spacer']} />
                                         <button className={styles['secondary-btn']} onClick={resetForm}>{t('settings.cancel')}</button>
                                         <button
                                             className={styles['primary-btn']}
@@ -934,9 +950,9 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="appearance">
-                            <div className="appearance-view">
+                            {isTabActive('appearance') && <div className="appearance-view">
                                 <div className={styles['setting-group']}>
-                                    <h3 className={styles['section-title']}>Interface Theme</h3>
+                                    <h3 className={styles['section-title']}>{t('settings.interfaceTheme')}</h3>
                                     <div className={styles['options-grid']}>
                                         {THEMES.map(theme => {
                                             const Icon = THEME_ICONS[theme.name];
@@ -956,7 +972,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 </div>
 
                                 <div className={styles['setting-group']}>
-                                    <h3 className={styles['section-title']}>Pane Layout</h3>
+                                    <h3 className={styles['section-title']}>{t('settings.paneLayout')}</h3>
                                     <div className={styles['options-grid']}>
                                         {LAYOUTS.map(l => (
                                             <button
@@ -966,7 +982,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 aria-pressed={layout === l.id}
                                             >
                                                 <l.icon size={18} />
-                                                <span>{l.label}</span>
+                                                <span>{t(l.labelKey)}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -1025,18 +1041,18 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         ))}
                                     </div>
                                 </div>
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="ai">
-                            <div className={styles['ai-keys-view']}>
+                            {isTabActive('ai') && <div className={styles['ai-keys-view']}>
                                 <h3 className={styles['section-title']}>{t('settings.openrouterKey')}</h3>
                                 <p className={styles['apikey-description']}>
                                     {t('settings.openrouterDesc')}
                                 </p>
 
                                 <div className={styles['form-group']}>
-                                    <label className={styles['form-label']} htmlFor="apikey-input">API Key</label>
+                                    <label className={styles['form-label']} htmlFor="apikey-input">{t('settings.apiKeyLabel')}</label>
                                     <div className={styles['apikey-input-wrapper']}>
                                         <input
                                             id="apikey-input"
@@ -1051,7 +1067,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             type="button"
                                             className={styles['eye-toggle']}
                                             onClick={() => setShowApiKey(!showApiKey)}
-                                            aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                                            aria-label={showApiKey ? t('settings.hideApiKey') : t('settings.showApiKey')}
                                         >
                                             {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
                                         </button>
@@ -1065,7 +1081,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         onClick={handleSaveApiKey}
                                         disabled={apiKeySaving || !apiKey.trim()}
                                     >
-                                        {apiKeySaving ? 'Saving...' : t('settings.saveKey')}
+                                        {apiKeySaving ? t('settings.apiKeySaving') : t('settings.saveKey')}
                                     </button>
                                     <button
                                         type="button"
@@ -1090,12 +1106,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <p className={styles['apikey-hint']}>
                                     {t('settings.openrouterHint')}
                                 </p>
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="notifications">
-                            <div className={styles['notif-settings-view']}>
-                                <h3 className={styles['section-title']}>Notification Preferences</h3>
+                            {isTabActive('notifications') && <div className={styles['notif-settings-view']}>
+                                <h3 className={styles['section-title']}>{t('settings.notificationPreferences')}</h3>
                                 <div className={styles['notif-toggle-row']}>
                                     <label htmlFor="notif-enabled-toggle" className={styles['notif-label']}>
                                         {t('settings.desktopNotifications')}
@@ -1133,11 +1149,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         <span className={styles['notif-switch-thumb']} />
                                     </button>
                                 </div>
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="rules">
-                            <div className={styles['rules-view']}>
+                            {isTabActive('rules') && <div className={styles['rules-view']}>
                                 <div className={styles['rules-header']}>
                                     <h3 className={styles['section-title']}>{t('settings.mailRules')}</h3>
                                     <button
@@ -1154,17 +1170,17 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 {editingRule && (
                                     <div className={styles['rule-editor']}>
                                         <div className={styles['rule-form-row']}>
-                                            <label htmlFor="rule-name">Name</label>
+                                            <label htmlFor="rule-name">{t('settings.nameLabel')}</label>
                                             <input
                                                 id="rule-name"
                                                 className={styles['rule-input']}
                                                 value={editingRule.name ?? ''}
                                                 onChange={e => setEditingRule({ ...editingRule, name: e.target.value })}
-                                                placeholder="Rule name..."
+                                                placeholder={t('settings.ruleNamePlaceholder')}
                                             />
                                         </div>
                                         <div className={`${styles['rule-form-row']} ${styles['rule-form-condition']}`}>
-                                            <span className={styles['rule-label-text']}>If</span>
+                                            <span className={styles['rule-label-text']}>{t('settings.ruleIf')}</span>
                                             <select
                                                 className={styles['rule-select']}
                                                 value={editingRule.match_field ?? 'from'}
@@ -1191,12 +1207,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 className={`${styles['rule-input']} ${styles['rule-input-value']}`}
                                                 value={editingRule.match_value ?? ''}
                                                 onChange={e => setEditingRule({ ...editingRule, match_value: e.target.value })}
-                                                placeholder="Value..."
+                                                placeholder={t('settings.ruleActionValue')}
                                                 aria-label="Match value"
                                             />
                                         </div>
                                         <div className={`${styles['rule-form-row']} ${styles['rule-form-condition']}`}>
-                                            <span className={styles['rule-label-text']}>Then</span>
+                                            <span className={styles['rule-label-text']}>{t('settings.ruleThen')}</span>
                                             <select
                                                 className={styles['rule-select']}
                                                 value={editingRule.action_type ?? 'mark_read'}
@@ -1215,7 +1231,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                     className={`${styles['rule-input']} ${styles['rule-input-value']}`}
                                                     value={editingRule.action_value ?? ''}
                                                     onChange={e => setEditingRule({ ...editingRule, action_value: e.target.value })}
-                                                    placeholder={editingRule.action_type === 'move' ? 'Folder ID...' : 'Value...'}
+                                                    placeholder={editingRule.action_type === 'move' ? t('settings.ruleActionFolder') : t('settings.ruleActionValue')}
                                                     aria-label="Action value"
                                                 />
                                             )}
@@ -1273,11 +1289,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </div>
                                     </div>
                                 ))}
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="templates">
-                            <div className={styles['rules-view']}>
+                            {isTabActive('templates') && <div className={styles['rules-view']}>
                                 <h3 className={styles['section-title']}>{t('settings.manageTemplates')}</h3>
 
                                 {templateList.map(tpl => (
@@ -1307,15 +1323,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 ))}
 
                                 <button
-                                    className={styles['secondary-btn']}
+                                    className={`${styles['secondary-btn']} ${styles['template-add-btn']}`}
                                     onClick={() => setEditingTemplate({ id: '', name: '', body_html: '' })}
-                                    style={{ marginTop: '12px' }}
                                 >
                                     <Plus size={14} /> {t('settings.addTemplate')}
                                 </button>
 
                                 {editingTemplate && (
-                                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div className={styles['template-editor']}>
                                         <div className={styles['form-group']}>
                                             <label className={styles['form-label']} htmlFor="template-name">{t('settings.templateName')}</label>
                                             <input
@@ -1338,17 +1353,17 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             />
                                         </div>
                                         {templateError && <p className={styles['form-error']} role="alert">{templateError}</p>}
-                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                        <div className={styles['template-form-actions']}>
                                             <button className={styles['primary-btn']} onClick={handleSaveTemplate}>{t('settings.save')}</button>
                                             <button className={styles['secondary-btn']} onClick={() => { setEditingTemplate(null); setTemplateError(null); }}>{t('settings.cancel')}</button>
                                         </div>
                                     </div>
                                 )}
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="tags">
-                            <div>
+                            {isTabActive('tags') && <div>
                                 <h3 className={styles['section-title']}>{t('tags.title')}</h3>
                                 <div className={styles['tag-create-row']}>
                                     <input
@@ -1407,11 +1422,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </button>
                                     </div>
                                 ))}
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="contacts">
-                            <div>
+                            {isTabActive('contacts') && <div>
                                 <h3 className={styles['section-title']}>{t('contacts.title')}</h3>
                                 <div className={styles['contacts-toolbar']}>
                                     <button
@@ -1458,7 +1473,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     </button>
                                 </div>
                                 {contactStatusMsg && (
-                                    <p className={styles['apikey-status']} style={{ marginBottom: 8 }}>
+                                    <p className={`${styles['apikey-status']} ${styles['contact-status']}`}>
                                         {contactStatusMsg}
                                     </p>
                                 )}
@@ -1467,8 +1482,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     value={contactSearch}
                                     onChange={(e) => setContactSearch(e.target.value)}
                                     placeholder={t('contacts.search')}
-                                    className={styles['form-input']}
-                                    style={{ marginBottom: 8 }}
+                                    className={`${styles['form-input']} ${styles['contact-search']}`}
                                 />
                                 <div className={styles['contacts-list']}>
                                     {contacts
@@ -1488,12 +1502,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         <p className={styles['rules-empty']}>{t('contacts.noContacts')}</p>
                                     )}
                                 </div>
-                            </div>
+                            </div>}
                         </Tabs.Content>
 
                         {/* Agentic / MCP Tab */}
                         <Tabs.Content className={styles['settings-tab-panel']} value="agentic">
-                            <div className={styles['agentic-view']}>
+                            {isTabActive('agentic') && <div className={styles['agentic-view']}>
                                 {/* Server toggle */}
                                 <div className={styles['agentic-toggle-row']}>
                                     <div className={styles['agentic-toggle-info']}>
@@ -1606,16 +1620,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <div className={styles['config-section']}>
                                     <div className={styles['config-label']}>{t('mcp.configTitle')}</div>
                                     <div className={styles['config-desc']}>{t('mcp.configDesc')}</div>
-                                    <pre className={styles['config-block']}>{JSON.stringify({
-                                        "mcpServers": {
-                                            "express-delivery": {
-                                                "url": `http://127.0.0.1:${mcpPort}/sse`,
-                                                "headers": {
-                                                    "Authorization": "Bearer <your-token>"
-                                                }
-                                            }
-                                        }
-                                    }, null, 2)}</pre>
+                                    <pre className={styles['config-block']}>{mcpConfigJson}</pre>
                                 </div>
 
                                 {/* Available tools */}
@@ -1637,11 +1642,22 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         <p className={styles['rules-empty']}>{t('mcp.noTools')}</p>
                                     )}
                                 </div>
-                            </div>
+                            </div>}
                         </Tabs.Content>
                     </Tabs.Root>
                 </Dialog.Content>
             </Dialog.Portal>
         </Dialog.Root>
+
+            <ConfirmDialog
+                open={mcpConfirmOpen}
+                onOpenChange={setMcpConfirmOpen}
+                title={t('mcp.regenerateConfirm')}
+                description={t('mcp.regenerateDesc')}
+                variant="danger"
+                confirmLabel={t('mcp.regenerate')}
+                onConfirm={doMcpRegenerateToken}
+            />
+        </>
     );
 };

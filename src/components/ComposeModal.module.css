@@ -100,9 +100,25 @@
 }
 
 .compose-error {
-    padding: 8px 16px;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    padding: 10px 16px;
+    border-radius: 8px 8px 0 0;
+    background: rgba(var(--color-danger), 0.1);
+    border: 1px solid rgba(var(--color-danger), 0.3);
+    border-bottom: none;
     color: rgb(var(--color-danger));
     font-size: 13px;
+    z-index: 1;
+    animation: compose-error-in 0.15s ease-out;
+    pointer-events: none;
+}
+
+@keyframes compose-error-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .toolbar {
@@ -191,6 +207,7 @@
     display: flex;
     justify-content: flex-end;
     border-top: 1px solid var(--glass-border);
+    position: relative;
 }
 
 .send-btn-group {

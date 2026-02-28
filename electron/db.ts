@@ -126,7 +126,7 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
 
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
@@ -436,6 +436,17 @@ function runMigrations(db: DatabaseType) {
             db.exec('CREATE INDEX IF NOT EXISTS idx_emails_spam_score ON emails(account_id, spam_score)');
 
             version = 11;
+        }
+
+        // Migration 12: Contact profiles — company, phone, title, notes
+        if (version < 12) {
+            const contactCols = db.prepare("SELECT name FROM pragma_table_info('contacts')").all() as { name: string }[];
+            const colNames = new Set(contactCols.map(c => c.name));
+            if (!colNames.has('company')) db.exec("ALTER TABLE contacts ADD COLUMN company TEXT");
+            if (!colNames.has('phone')) db.exec("ALTER TABLE contacts ADD COLUMN phone TEXT");
+            if (!colNames.has('title')) db.exec("ALTER TABLE contacts ADD COLUMN title TEXT");
+            if (!colNames.has('notes')) db.exec("ALTER TABLE contacts ADD COLUMN notes TEXT");
+            version = 12;
         }
 
         db.prepare(

@@ -185,7 +185,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const { setSelectedEmail, setEmails } = useEmailStore();
     const readingPaneZoom = useThemeStore(s => s.readingPaneZoom);
     const setReadingPaneZoom = useThemeStore(s => s.setReadingPaneZoom);
-    const [actionError, setActionError] = useState<string | null>(null);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const [cidMap, setCidMap] = useState<Record<string, string>>({});
@@ -205,7 +204,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     } | null>(null);
     const [unsubCopied, setUnsubCopied] = useState(false);
     const [aiReplyLoading, setAiReplyLoading] = useState(false);
-    const [aiReplyError, setAiReplyError] = useState<string | null>(null);
     const [aiTone, setAiTone] = useState<'professional' | 'casual' | 'friendly' | 'formal' | 'concise'>('professional');
 
     // Load saved AI tone preference
@@ -223,7 +221,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         setCidMap({});
         setRemoteImagesBlocked(selectedEmail?.id ? !allowedRemoteImageEmails.has(selectedEmail.id) : true);
         setAiReplyLoading(false);
-        setAiReplyError(null);
         const emailId = selectedEmail?.id;
         if (!emailId || !selectedEmail?.has_attachments) return;
         let cancelled = false;
@@ -329,7 +326,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 });
             }
         } catch {
-            setActionError('Failed to download attachment');
+            onToast?.('Failed to download attachment');
         } finally {
             setDownloadingId(null);
         }
@@ -345,7 +342,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     const handleDelete = async () => {
         if (!selectedEmail) return;
-        setActionError(null);
         try {
             const result = await ipcInvoke<{ success: boolean }>('emails:delete', selectedEmail.id);
             if (result?.success) {
@@ -354,25 +350,23 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 onToast?.(t('readingPane.emailDeleted'));
             }
         } catch {
-            setActionError('Failed to delete email');
+            onToast?.('Failed to delete email');
         }
     };
 
     const handleToggleFlag = async () => {
         if (!selectedEmail) return;
-        setActionError(null);
         try {
             const newFlagged = !selectedEmail.is_flagged;
             await ipcInvoke('emails:toggle-flag', selectedEmail.id, newFlagged);
             setSelectedEmail({ ...selectedEmail, is_flagged: newFlagged ? 1 : 0 });
         } catch {
-            setActionError('Failed to toggle flag');
+            onToast?.('Failed to toggle flag');
         }
     };
 
     const handleArchive = async () => {
         if (!selectedEmail) return;
-        setActionError(null);
         try {
             const result = await ipcInvoke<{ success: boolean }>('emails:archive', selectedEmail.id);
             if (result?.success) {
@@ -381,14 +375,13 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 onToast?.(t('readingPane.emailArchived'));
             }
         } catch {
-            setActionError('Failed to archive email');
+            onToast?.('Failed to archive email');
         }
     };
 
     const handleAiReply = async (tone: typeof aiTone) => {
         if (!selectedEmail || !onReply) return;
         setAiReplyLoading(true);
-        setAiReplyError(null);
         setAiTone(tone);
         ipcInvoke('settings:set', 'ai_compose_tone', tone);
         try {
@@ -398,14 +391,14 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 tone,
             });
             if (result?.error) {
-                setAiReplyError(result.error);
+                onToast?.(result.error);
                 return;
             }
             if (result?.html) {
                 onReply(selectedEmail, result.html);
             }
         } catch {
-            setAiReplyError(t('readingPane.aiReplyFailed', 'AI reply generation failed'));
+            onToast?.(t('readingPane.aiReplyFailed', 'AI reply generation failed'));
         } finally {
             setAiReplyLoading(false);
         }
@@ -413,7 +406,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     const handleMove = async (destFolderId: string) => {
         if (!selectedEmail) return;
-        setActionError(null);
         try {
             const result = await ipcInvoke<{ success: boolean }>('emails:move', {
                 emailId: selectedEmail.id,
@@ -425,13 +417,12 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 onToast?.(t('readingPane.emailMoved'));
             }
         } catch {
-            setActionError('Failed to move email');
+            onToast?.('Failed to move email');
         }
     };
 
     const handleSnooze = async (snoozeUntil: string) => {
         if (!selectedEmail) return;
-        setActionError(null);
         setSnoozeOpen(false);
         try {
             const result = await ipcInvoke<{ success: boolean }>('emails:snooze', {
@@ -443,13 +434,12 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 await refreshEmailList();
             }
         } catch {
-            setActionError('Failed to snooze email');
+            onToast?.('Failed to snooze email');
         }
     };
 
     const handleReminder = async (remindAt: string) => {
         if (!selectedEmail) return;
-        setActionError(null);
         setReminderOpen(false);
         try {
             await ipcInvoke<{ success: boolean }>('reminders:create', {
@@ -457,7 +447,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 remindAt,
             });
         } catch {
-            setActionError('Failed to set reminder');
+            onToast?.('Failed to set reminder');
         }
     };
 
@@ -528,9 +518,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         <>
         <div className={`${styles['reading-pane']} scrollable`}>
             <div className={`${styles['pane-header']} glass`}>
-                {actionError && (
-                    <div className={styles['reading-pane-error']} role="alert">{actionError}</div>
-                )}
                 <div className={styles.actions}>
                     <button
                         className={styles['icon-btn']}
@@ -579,11 +566,6 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                             </DropdownMenu.Content>
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>
-                    {aiReplyError && (
-                        <span className={styles['ai-error']} role="alert" title={aiReplyError}>
-                            {aiReplyError.slice(0, 60)}
-                        </span>
-                    )}
                     <button
                         className={styles['icon-btn']}
                         title={t('readingPane.delete')}

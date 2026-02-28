@@ -103,6 +103,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'import:mbox',
   // Phase 7: Contacts
   'contacts:list',
+  'contacts:update',
   'contacts:export-vcard',
   'contacts:export-csv',
   'contacts:import-vcard',

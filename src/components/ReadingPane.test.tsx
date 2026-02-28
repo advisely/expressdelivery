@@ -654,7 +654,8 @@ describe('ReadingPane', () => {
             });
             useEmailStore.setState({ selectedEmail: mockEmail });
             const onReply = vi.fn();
-            renderReadingPane({ onReply });
+            const onToast = vi.fn();
+            renderReadingPane({ onReply, onToast });
 
             const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
             fireEvent.click(aiReplyBtn);
@@ -666,9 +667,8 @@ describe('ReadingPane', () => {
             fireEvent.click(toneItems[0]);
 
             await waitFor(() => {
-                expect(screen.getByRole('alert')).toBeInTheDocument();
+                expect(onToast).toHaveBeenCalledWith('No API key');
             });
-            expect(screen.getByRole('alert').textContent).toContain('No API key');
             expect(onReply).not.toHaveBeenCalled();
         });
 
@@ -701,7 +701,7 @@ describe('ReadingPane', () => {
             expect(mockIpcInvoke).not.toHaveBeenCalledWith('ai:suggest-reply', expect.anything());
         });
 
-        it('clears previous AI reply error when a new tone is selected', async () => {
+        it('routes AI reply error through onToast and succeeds on second call', async () => {
             let callCount = 0;
             mockIpcInvoke.mockImplementation(async (channel: string) => {
                 if (channel === 'settings:get') return null;
@@ -715,19 +715,20 @@ describe('ReadingPane', () => {
             });
             useEmailStore.setState({ selectedEmail: mockEmail });
             const onReply = vi.fn();
-            renderReadingPane({ onReply });
+            const onToast = vi.fn();
+            renderReadingPane({ onReply, onToast });
 
-            // First call: trigger error
+            // First call: trigger error — onToast should be called, no inline alert
             const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
             fireEvent.click(aiReplyBtn);
             await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
             fireEvent.click(screen.getAllByRole('menuitem')[0]);
 
             await waitFor(() => {
-                expect(screen.getByRole('alert').textContent).toContain('API error on first call');
+                expect(onToast).toHaveBeenCalledWith('API error on first call');
             });
 
-            // Second call: trigger success — error must be cleared
+            // Second call: trigger success
             fireEvent.click(aiReplyBtn);
             await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
             fireEvent.click(screen.getAllByRole('menuitem')[0]);
@@ -746,7 +747,8 @@ describe('ReadingPane', () => {
             });
             useEmailStore.setState({ selectedEmail: mockEmail });
             const onReply = vi.fn();
-            renderReadingPane({ onReply });
+            const onToast = vi.fn();
+            renderReadingPane({ onReply, onToast });
 
             const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
             fireEvent.click(aiReplyBtn);
@@ -754,11 +756,10 @@ describe('ReadingPane', () => {
             await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
             fireEvent.click(screen.getAllByRole('menuitem')[0]);
 
+            // Component calls onToast with the fallback i18n key when the IPC throws
             await waitFor(() => {
-                expect(screen.getByRole('alert')).toBeInTheDocument();
+                expect(onToast).toHaveBeenCalledWith(expect.stringContaining('readingPane.aiReplyFailed'));
             });
-            // Component uses t('readingPane.aiReplyFailed') as fallback message on catch
-            expect(screen.getByRole('alert').textContent).toContain('readingPane.aiReplyFailed');
             expect(onReply).not.toHaveBeenCalled();
         });
 

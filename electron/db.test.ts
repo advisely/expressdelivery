@@ -1,25 +1,26 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { initDatabase, getDatabase } from './db';
+import { app } from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
 describe('Local SQLite Database Engine', () => {
     let db: ReturnType<typeof getDatabase>;
+    let tmpDir: string;
 
     beforeAll(() => {
-        // Remove old test db if it exists
-        const testDbPath = path.join(os.tmpdir(), 'expressdelivery.sqlite');
-        if (fs.existsSync(testDbPath)) {
-            fs.unlinkSync(testDbPath);
-        }
+        // Use a unique temp directory to avoid SQLite locking conflicts with parallel tests
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-db-test-'));
+        vi.mocked(app.getPath).mockReturnValue(tmpDir);
 
-        // Initialize the DB which will be mapped to /tmp via our Electron mock
         db = initDatabase();
     });
 
     afterAll(() => {
-        db.close();
+        if (db) db.close();
+        // Clean up temp directory
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
     it('should initialize tables and pragmas correctly', () => {

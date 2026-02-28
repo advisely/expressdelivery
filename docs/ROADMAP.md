@@ -423,6 +423,48 @@ Thread conversation grouping, unified inbox polish, AI-powered compose, optimal 
 
 ---
 
+### Phase 9: Bugs & Polish (v1.7.0) -- COMPLETE
+Bug fixes, i18n completeness, CSS cleanup, contact profiles, and deferred features analysis. 2 new files, 1 new IPC handler, 1 new preload channel, DB migration 12.
+
+#### Bug Fixes
+- [x] Replace `window.prompt` for Insert Link with Radix Dialog (`ConfirmDialog` component)
+- [x] Replace `window.confirm` in Sidebar (empty trash, delete folder) and SettingsModal (MCP token regenerate) with `ConfirmDialog`
+- [x] Replace `window.alert` in Sidebar with toast notification
+- [x] Fix 45+ hardcoded i18n strings in SettingsModal and Sidebar (layout labels, button text, aria labels, error messages, sync status)
+- [x] Remove 11 unused CSS utility classes from `index.css`
+- [x] Replace 6 inline `style={{}}` props in SettingsModal with CSS module classes
+- [x] Add `max-height: 100px; overflow-y: auto` to `.form-error` to prevent unbounded error growth
+- [x] Fix SQLite parallel test flake (`db.test.ts` + `main.phase6.test.ts` shared temp file → unique `mkdtempSync` dirs)
+- [x] Fix `db.test.ts` null guard in `afterAll`
+- [x] Fix AI Reply inline error pushing sidebar layout → errors now route through toast system
+- [x] Fix SettingsModal slow open: Radix Presence bypass → `visitedTabs` render gates, batched IPC, scoped Zustand selectors
+
+#### New Components
+- [x] `src/components/ConfirmDialog.tsx` — Reusable Radix Dialog wrapper with confirm + prompt modes, danger variant, input validation
+- [x] `src/components/ConfirmDialog.module.css` — Portal-safe styles (`:global()`, z-index 2000)
+
+#### Contact Profiles (Polish)
+- [x] DB Migration 12: `contacts` table gets `company`, `phone`, `title`, `notes` columns
+- [x] `contacts:update` IPC handler for partial-field editing
+- [x] `contacts:list` and `contacts:upsert` return/accept new fields
+
+#### i18n Completeness
+- [x] ~50 new keys added to all 4 locale files (en, fr, es, de)
+- [x] `LAYOUTS` and `DEFAULT_NAV` arrays converted to `labelKey` pattern (module-level constants cannot use hooks)
+- [x] All error messages, aria labels, button text, sync status now i18n-ready
+
+#### Documentation
+- [x] `docs/DEFERRED_FEATURES_REPORT.md` — Risk/reward analysis for 15 deferred features
+- [x] Version bump to 1.7.0
+
+#### Tests
+- [x] `src/components/ConfirmDialog.test.tsx` — Confirm + prompt mode tests
+- [x] SettingsModal tests updated for i18n key assertions
+- [x] SQLite parallel flake fixed (unique temp dirs per test file)
+- [x] 617+ tests across 27 files, all passing
+
+---
+
 ## What ExpressDelivery Has That Mailspring & Thunderbird Don't
 
 1. **MCP/AI Integration** -- 8 AI-accessible tools via Model Context Protocol (search, read, send, draft, summary, categorize, analytics, suggest reply). Multi-client SSE with real-time connection status. No other desktop email client offers this.
@@ -465,6 +507,15 @@ Thread conversation grouping, unified inbox polish, AI-powered compose, optimal 
 35. ~~**Quick reply templates**~~ -- Already Done (Phase 4): DB + IPC + Settings tab + ComposeModal picker
 36. ~~**Optimal send time**~~ -- Done: `analytics:busiest-hours` IPC, suggested time hint in ComposeModal
 37. ~~**Agentic / MCP settings**~~ -- Done: 9th tab in Settings (toggle, port, token, endpoint, config block, tools list), persisted config, 6 IPC handlers
+
+### Phase 9 (complete -- v1.7.0)
+38. ~~**Reusable ConfirmDialog**~~ -- Done: Radix Dialog wrapper replacing all `window.confirm`/`window.prompt` calls
+39. ~~**i18n completeness**~~ -- Done: all hardcoded strings in SettingsModal + Sidebar replaced with `t()` calls, ~50 new keys in 4 locales
+40. ~~**Contact profiles**~~ -- Done: company, phone, title, notes columns on contacts table, edit IPC, Settings UI
+41. ~~**CSS cleanup**~~ -- Done: removed 11 unused utilities, replaced 6 inline styles, bounded error messages
+42. ~~**SettingsModal performance**~~ -- Done: visitedTabs render gates, batched IPC, scoped Zustand selectors
+43. ~~**Test stability**~~ -- Done: SQLite parallel flake fixed (unique temp dirs), null guard fix
+44. ~~**AI Reply error UX**~~ -- Done: inline errors replaced with toast notifications, no more layout-breaking error messages
 
 ### Phase 7 (complete -- v1.5.0)
 19. ~~**User-defined tags**~~ -- Done: CRUD, color picker, assign/remove, tag section in ReadingPane, Tags sidebar section, Settings Tags tab

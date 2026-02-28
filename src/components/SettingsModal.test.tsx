@@ -40,6 +40,7 @@ vi.mock('lucide-react', () => ({
     Copy: () => <div data-testid="icon-Copy">Cp</div>,
     RefreshCw: () => <div data-testid="icon-RefreshCw">Rw</div>,
     Wrench: () => <div data-testid="icon-Wrench">Wr</div>,
+    AlertTriangle: () => <div data-testid="icon-AlertTriangle">AT</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
@@ -76,8 +77,8 @@ describe('SettingsModal Integration Tests', () => {
         expect(screen.getByText('Midnight')).toBeInTheDocument();
         expect(screen.getByText('Forest')).toBeInTheDocument();
 
-        expect(screen.getByText('Vertical Split (3-Pane)')).toBeInTheDocument();
-        expect(screen.getByText('Horizontal Split')).toBeInTheDocument();
+        expect(screen.getByText('settings.layoutVertical')).toBeInTheDocument();
+        expect(screen.getByText('settings.layoutHorizontal')).toBeInTheDocument();
     });
 
     it('updates global Zustand store when new themes are clicked', async () => {
@@ -97,7 +98,7 @@ describe('SettingsModal Integration Tests', () => {
         const mockClose = vi.fn();
         renderSettings(mockClose);
 
-        fireEvent.click(screen.getByLabelText('Close settings'));
+        fireEvent.click(screen.getByLabelText('settings.closeSettings'));
         expect(mockClose).toHaveBeenCalledTimes(1);
     });
 
@@ -113,8 +114,8 @@ describe('SettingsModal Integration Tests', () => {
         expect(lightBtn).toHaveAttribute('aria-pressed', 'true');
         expect(midnightBtn).toHaveAttribute('aria-pressed', 'false');
 
-        const verticalBtn = screen.getByText('Vertical Split (3-Pane)').closest('button');
-        const horizontalBtn = screen.getByText('Horizontal Split').closest('button');
+        const verticalBtn = screen.getByText('settings.layoutVertical').closest('button');
+        const horizontalBtn = screen.getByText('settings.layoutHorizontal').closest('button');
 
         expect(verticalBtn).toHaveAttribute('aria-pressed', 'true');
         expect(horizontalBtn).toHaveAttribute('aria-pressed', 'false');
@@ -204,7 +205,7 @@ describe('SettingsModal Integration Tests', () => {
 
         const alert = screen.getByRole('alert');
         expect(alert).toBeInTheDocument();
-        expect(alert).toHaveTextContent('Email address is required');
+        expect(alert).toHaveTextContent('settings.addAccountEmailRequired');
     });
 
     // --- New tests for Test Connection feature ---
@@ -266,7 +267,7 @@ describe('SettingsModal Integration Tests', () => {
         );
 
         expect(screen.getByRole('alert')).toHaveTextContent(
-            'Connection test failed. Check your credentials and server settings.'
+            'settings.connectionTestFailed'
         );
         // The button span should now read the failed key
         expect(screen.getByText('settings.failed')).toBeInTheDocument();

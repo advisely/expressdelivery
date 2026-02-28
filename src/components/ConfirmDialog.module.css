@@ -1,0 +1,174 @@
+/* ConfirmDialog.module.css — Radix portal classes use :global() */
+
+:global(.confirm-overlay) {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+    animation: confirm-fade-in 0.15s ease;
+}
+
+:global(.confirm-content) {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgb(var(--color-bg-elevated));
+    border-radius: 12px;
+    padding: 0;
+    width: 420px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    z-index: 2001;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    animation: confirm-slide-in 0.15s ease;
+}
+
+:global(.confirm-header) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 20px 0;
+}
+
+:global(.confirm-title) {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+:global(.confirm-danger-icon) {
+    color: rgb(var(--color-danger));
+    flex-shrink: 0;
+}
+
+:global(.confirm-close-btn) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 4px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+:global(.confirm-close-btn:hover) {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+:global(.confirm-description) {
+    padding: 8px 20px 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0;
+}
+
+:global(.confirm-input-group) {
+    padding: 12px 20px 0;
+}
+
+:global(.confirm-input-label) {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+:global(.confirm-input) {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    background: rgb(var(--color-bg-primary));
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+:global(.confirm-input:focus) {
+    border-color: var(--accent-color);
+}
+
+:global(.confirm-input::placeholder) {
+    color: var(--text-muted);
+}
+
+:global(.confirm-actions) {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+}
+
+:global(.confirm-btn) {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+}
+
+:global(.confirm-btn:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+:global(.confirm-btn-cancel) {
+    background: var(--surface-inset);
+    color: var(--text-primary);
+}
+
+:global(.confirm-btn-cancel:hover) {
+    background: var(--close-hover-bg);
+}
+
+:global(.confirm-btn-primary) {
+    background: var(--accent-color);
+    color: white;
+}
+
+:global(.confirm-btn-primary:hover:not(:disabled)) {
+    background: var(--accent-hover);
+}
+
+:global(.confirm-btn-danger) {
+    background: rgb(var(--color-danger));
+    color: white;
+}
+
+:global(.confirm-btn-danger:hover:not(:disabled)) {
+    opacity: 0.9;
+}
+
+@keyframes confirm-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes confirm-slide-in {
+    from { opacity: 0; transform: translate(-50%, -48%); }
+    to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :global(.confirm-overlay),
+    :global(.confirm-content) {
+        animation: none;
+    }
+}

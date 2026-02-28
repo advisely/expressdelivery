@@ -14,6 +14,7 @@ import { ipcInvoke } from '../lib/ipc';
 import { ContactAutocomplete } from './ContactAutocomplete';
 import { formatFileSize } from '../lib/formatFileSize';
 import DateTimePicker from './DateTimePicker';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface ComposeAttachment {
     id: string;
@@ -58,6 +59,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
     const [busiestHours, setBusiestHours] = useState<Array<{ hour: number; count: number }>>([]);
     const [templates, setTemplates] = useState<Array<{ id: string; name: string; body_html: string }>>([]);
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [linkDialogOpen, setLinkDialogOpen] = useState(false);
     const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const draftBodyRef = useRef(initialBody);
     const accounts = useEmailStore(s => s.accounts);
@@ -233,11 +235,14 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
 
     const handleInsertLink = useCallback(() => {
         if (!editor) return;
-        const url = window.prompt(t('compose.enterUrl'));
-        if (url && /^https?:\/\//i.test(url)) {
+        setLinkDialogOpen(true);
+    }, [editor]);
+
+    const handleLinkConfirm = useCallback((url?: string) => {
+        if (url && /^https?:\/\//i.test(url) && editor) {
             editor.chain().focus().setLink({ href: url }).run();
         }
-    }, [editor, t]);
+    }, [editor]);
 
     const handleScheduleSend = async (sendAt: string) => {
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
@@ -291,6 +296,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
     };
 
     return (
+        <>
         <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
             <Dialog.Portal>
                 <Dialog.Overlay className="compose-overlay" />
@@ -355,10 +361,6 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
                                 value={subject} onChange={e => setSubject(e.target.value)} />
                         </div>
                     </div>
-
-                    {error && (
-                        <div className={styles['compose-error']} role="alert">{error}</div>
-                    )}
 
                     <div className={styles['toolbar']}>
                         <button
@@ -469,6 +471,9 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
                     )}
 
                     <div className={styles['compose-modal__footer']}>
+                        {error && (
+                            <div className={styles['compose-error']} role="alert">{error}</div>
+                        )}
                         {showSchedulePicker ? (
                             <div className={styles['schedule-picker-inline']}>
                                 <DateTimePicker
@@ -514,5 +519,18 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
             </Dialog.Portal>
 
         </Dialog.Root>
+
+            <ConfirmDialog
+                open={linkDialogOpen}
+                onOpenChange={setLinkDialogOpen}
+                title={t('compose.insertLinkTitle')}
+                description={t('compose.insertLinkDesc')}
+                inputLabel="URL"
+                inputPlaceholder={t('compose.urlPlaceholder')}
+                inputValidator={(v) => /^https?:\/\//i.test(v)}
+                confirmLabel={t('compose.insert')}
+                onConfirm={handleLinkConfirm}
+            />
+        </>
     );
 };

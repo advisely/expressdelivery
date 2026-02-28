@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { app } from 'electron';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
@@ -179,16 +180,18 @@ async function deleteFolder(
 // ---------------------------------------------------------------------------
 
 let db: DatabaseType;
+let tmpDir: string;
 
 beforeAll(() => {
-    // Remove stale test DB
-    const testDbPath = path.join(os.tmpdir(), 'expressdelivery.sqlite');
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    // Use a unique temp directory to avoid SQLite locking conflicts with parallel tests
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-phase6-test-'));
+    vi.mocked(app.getPath).mockReturnValue(tmpDir);
     db = initDatabase();
 });
 
 afterAll(() => {
     closeDatabase();
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 
 beforeEach(() => {

@@ -31,6 +31,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
 import styles from './Sidebar.module.css';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const SYSTEM_FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive']);
 
@@ -43,11 +44,11 @@ const FOLDER_ICONS: Record<string, React.ElementType> = {
 };
 
 const DEFAULT_NAV = [
-  { icon: Inbox, label: 'Inbox' },
-  { icon: Send, label: 'Sent' },
-  { icon: FileText, label: 'Drafts' },
-  { icon: Archive, label: 'Archive' },
-  { icon: Trash2, label: 'Trash' },
+  { icon: Inbox, labelKey: 'sidebar.inbox' },
+  { icon: Send, labelKey: 'sidebar.sent' },
+  { icon: FileText, labelKey: 'sidebar.drafts' },
+  { icon: Archive, labelKey: 'sidebar.archive' },
+  { icon: Trash2, labelKey: 'sidebar.trash' },
 ];
 
 const FOLDER_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#6366f1'];
@@ -75,13 +76,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected'>('none');
   const [lastCheckLabel, setLastCheckLabel] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; description?: string; variant?: 'default' | 'danger'; onConfirm: () => void }>({ open: false, title: '', onConfirm: () => {} });
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
 
-  const handlePurgeTrash = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const doPurgeTrash = useCallback(async () => {
     if (!selectedAccountId) return;
-    if (!window.confirm(t('sidebar.emptyTrashConfirm'))) return;
     const result = await ipcInvoke<{ success: boolean }>('emails:purge-trash', selectedAccountId);
     if (result?.success) {
       setSelectedEmail(null);
@@ -96,7 +96,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
         setUnreadCounts(map);
       }
     }
-  }, [selectedAccountId, selectedFolderId, t, setEmails, setSelectedEmail]);
+  }, [selectedAccountId, selectedFolderId, setEmails, setSelectedEmail]);
+
+  const handlePurgeTrash = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedAccountId) return;
+    setConfirmDialog({
+      open: true,
+      title: t('sidebar.emptyTrashConfirm'),
+      variant: 'danger',
+      onConfirm: doPurgeTrash,
+    });
+  }, [selectedAccountId, t, doPurgeTrash]);
 
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -145,16 +156,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     setRenameValue('');
   }, [renameValue, refreshFolders]);
 
-  const handleDeleteFolder = useCallback(async (folderId: string, folderName: string) => {
-    if (!window.confirm(t('sidebar.deleteFolderConfirm', { name: folderName }))) return;
-    const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId);
-    if (result?.success) {
-      await refreshFolders();
-      if (selectedFolderId === folderId) selectFolder(null);
-    } else if (result?.error) {
-      window.alert(result.error);
-    }
-  }, [t, refreshFolders, selectedFolderId, selectFolder]);
+  const handleDeleteFolder = useCallback((folderId: string, folderName: string) => {
+    setConfirmDialog({
+      open: true,
+      title: t('sidebar.deleteFolderConfirm', { name: folderName }),
+      variant: 'danger',
+      onConfirm: async () => {
+        const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId);
+        if (result?.success) {
+          await refreshFolders();
+          if (selectedFolderId === folderId) selectFolder(null);
+        } else if (result?.error) {
+          onToast?.(result.error);
+        }
+      },
+    });
+  }, [t, refreshFolders, selectedFolderId, selectFolder, onToast]);
 
   const handleCreateSubfolder = useCallback(async (parentPath: string) => {
     if (!newFolderName.trim() || !selectedAccountId) { setCreatingSubfolder(null); return; }
@@ -353,14 +370,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             className={styles['account-selector']}
             onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
             aria-expanded={accounts.length > 1 ? showAccountPicker : undefined}
-            aria-label="Switch account"
+            aria-label={t('sidebar.switchAccount')}
           >
             <div className={styles['avatar-icon']}>
               {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
             </div>
             <div className={styles['account-info']}>
-              <span className={styles['account-name']}>{activeAccount?.display_name ?? 'Personal'}</span>
-              <span className={styles['account-email']}>{activeAccount?.email ?? 'No account'}</span>
+              <span className={styles['account-name']}>{activeAccount?.display_name ?? t('sidebar.personal')}</span>
+              <span className={styles['account-email']}>{activeAccount?.email ?? t('sidebar.noAccount')}</span>
             </div>
             {accounts.length > 1 && <ChevronDown size={14} className={styles['account-chevron']} />}
           </button>
@@ -370,8 +387,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
           <button
             className={styles['avatar-icon']}
             onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
-            aria-label="Switch account"
-            title={activeAccount?.email ?? 'No account'}
+            aria-label={t('sidebar.switchAccount')}
+            title={activeAccount?.email ?? t('sidebar.noAccount')}
           >
             {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
           </button>
@@ -404,8 +421,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
         <button
           className={styles['collapse-btn']}
           onClick={toggleSidebar}
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
+          title={sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
         >
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
@@ -580,9 +597,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               );
             })
           : DEFAULT_NAV.map((item) => (
-              <button key={item.label} className={styles['nav-item']} title={sidebarCollapsed ? item.label : undefined}>
+              <button key={item.labelKey} className={styles['nav-item']} title={sidebarCollapsed ? t(item.labelKey) : undefined}>
                 <item.icon size={18} className={styles['nav-icon']} />
-                {!sidebarCollapsed && <span className={styles['nav-label']}>{item.label}</span>}
+                {!sidebarCollapsed && <span className={styles['nav-label']}>{t(item.labelKey)}</span>}
               </button>
             ))
         }
@@ -719,16 +736,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               <div className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`} />
               <span className={styles['sync-label']}>
                 {accounts.length === 0
-                  ? 'No account'
+                  ? t('sidebar.noAccount')
                   : imapStatus === 'connecting'
-                    ? 'Connecting...'
+                    ? t('sidebar.connecting')
                     : imapStatus === 'error'
-                      ? 'Connection error'
+                      ? t('sidebar.connectionError')
                       : lastCheckLabel
-                        ? `Last check: ${lastCheckLabel}`
+                        ? t('sidebar.lastCheck', { time: lastCheckLabel })
                         : imapStatus === 'connected'
-                          ? 'Connected'
-                          : 'Not synced'}
+                          ? t('sidebar.connected')
+                          : t('sidebar.notSynced')}
               </span>
             </div>
             <div className={styles['mcp-status']} aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
@@ -743,11 +760,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
           <div className={styles['collapsed-status']}>
             <div
               className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`}
-              title={imapStatus === 'connected' ? `Last check: ${lastCheckLabel}` : imapStatus}
+              title={imapStatus === 'connected' ? t('sidebar.lastCheck', { time: lastCheckLabel }) : imapStatus}
             />
             <div
               className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`}
-              title={mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : 'No AI agents'}
+              title={mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : t('sidebar.noAiAgents')}
             />
           </div>
         )}
@@ -757,6 +774,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
           {!sidebarCollapsed && appVersion && <span className={styles['version-label']}>v{appVersion}</span>}
         </button>
       </div>
+
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+        confirmLabel={t('confirm.delete')}
+        onConfirm={confirmDialog.onConfirm}
+      />
     </aside>
   );
 };

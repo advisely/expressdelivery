@@ -225,7 +225,16 @@
     color: rgb(var(--color-danger));
     font-size: 13px;
     margin-bottom: 16px;
+    max-height: 100px;
+    overflow-y: auto;
 }
+
+.form-spacer { flex: 1; }
+.template-add-btn { margin-top: 12px; }
+.template-editor { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.template-form-actions { display: flex; gap: 8px; }
+.contact-status { margin-bottom: 8px; }
+.contact-search { margin-bottom: 8px; }
 
 .form-group {
     margin-bottom: 16px;

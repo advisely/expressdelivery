@@ -4,6 +4,20 @@ AI-powered desktop email client with MCP (Model Context Protocol) integration.
 
 Built with Electron 40, React 19, TypeScript 5.9, and SQLite (FTS5). Connects to any IMAP/SMTP email provider.
 
+## Download
+
+Get the latest release from [GitHub Releases](https://github.com/advisely/expressdelivery/releases/latest).
+
+| Platform | Package | File |
+|----------|---------|------|
+| Windows | NSIS Installer | [`ExpressDelivery-Windows-Setup.exe`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Windows-1.7.0-Setup.exe) |
+| Linux | AppImage | [`ExpressDelivery-Linux.AppImage`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.7.0.AppImage) |
+| Linux | Debian (.deb) | [`ExpressDelivery-Linux.deb`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.7.0.deb) |
+| Linux | RPM (.rpm) | [`ExpressDelivery-Linux.rpm`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Linux-1.7.0.rpm) |
+| macOS | DMG | [`ExpressDelivery-Mac-Installer.dmg`](https://github.com/advisely/expressdelivery/releases/latest/download/ExpressDelivery-Mac-1.7.0-Installer.dmg) |
+
+> **Note:** Builds are not yet code-signed. Windows SmartScreen may show a warning — click "More info" then "Run anyway". macOS users may need to right-click and select "Open".
+
 ## Features
 
 - **Multi-account email** — IMAP connect + IDLE + folder sync + reconnect, SMTP send with CC/BCC
@@ -37,7 +51,7 @@ All build scripts use `scripts/clean-build.mjs` which handles native module rebu
 ## Test
 
 ```bash
-npm run test             # Run all tests (522 tests, 25 files)
+npm run test             # Run all tests (646 tests, 27 files)
 npm run test:coverage    # With coverage report
 npm run lint             # ESLint (strict, 0 warnings)
 ```
@@ -55,6 +69,7 @@ npm run lint             # ESLint (strict, 0 warnings)
 ## Documentation
 
 - [Feature Roadmap](docs/ROADMAP.md) — feature matrix vs Mailspring/Thunderbird, phased implementation status
+- [Deferred Features Report](docs/DEFERRED_FEATURES_REPORT.md) — risk/reward analysis for planned features
 - [UI Design System](docs/UI.md) — themes, animations, glassmorphism, typography, accessibility
 - [Package Registry](docs/PACKAGES.md) — dependency versions and upgrade history
 - [CLAUDE.md](CLAUDE.md) — project instructions for AI-assisted development
