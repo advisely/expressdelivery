@@ -1,7 +1,5 @@
 import { BrowserWindow, Menu, app, dialog } from 'electron'
 
-const isDev = !!process.env['VITE_DEV_SERVER_URL']
-
 /**
  * Build the application menu bar.
  *
@@ -127,9 +125,8 @@ export function buildAppMenu(win: BrowserWindow): Menu {
         { type: 'separator' },
         { label: 'Check for Updates', click: () => send('check-updates') },
         { type: 'separator' },
-        ...(isDev
-          ? [{ role: 'toggleDevTools' as const }, { type: 'separator' as const }]
-          : []),
+        { role: 'toggleDevTools' as const },
+        { type: 'separator' },
         {
           label: 'About ExpressDelivery',
           click: () => {

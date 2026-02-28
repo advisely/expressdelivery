@@ -74,15 +74,21 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
     const sanitizedBody = initialBody ? DOMPurify.sanitize(initialBody) : '';
     const initialHtml = sanitizedBody.trimStart().startsWith('<') ? sanitizedBody : (sanitizedBody ? `<p>${sanitizedBody.replace(/\n/g, '<br />')}</p>` : '');
 
+    // Force toolbar re-render on every transaction so isActive() stays in sync
+    const [, setEditorRevision] = useState(0);
+
     const editor = useEditor({
         extensions: [
-            StarterKit,
+            StarterKit.configure({ link: false, underline: false }),
             LinkExtension.configure({ openOnClick: false }),
             UnderlineExtension,
         ],
         content: initialHtml,
         onUpdate: ({ editor: ed }: { editor: { getHTML: () => string } }) => {
             draftBodyRef.current = ed.getHTML();
+        },
+        onTransaction: () => {
+            setEditorRevision(r => r + 1);
         },
     });
 

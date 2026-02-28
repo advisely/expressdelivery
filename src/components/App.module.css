@@ -43,9 +43,9 @@
 }
 
 .toast-action {
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
+  background: rgb(var(--color-accent));
+  border: 1px solid rgb(var(--color-accent));
+  color: var(--text-inverse);
   padding: 4px 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -56,7 +56,8 @@
 }
 
 .toast-action:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgb(var(--color-accent-hover));
+  border-color: rgb(var(--color-accent-hover));
 }
 
 /* Keyboard shortcut help overlay */
@@ -128,9 +129,35 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
+/* Lazy-load spinner for Suspense fallback */
+@keyframes suspenseSpinner {
+  to { transform: rotate(360deg); }
+}
+
+.suspense-spinner {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1400;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.suspense-spinner::after {
+  content: '';
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--glass-border);
+  border-top-color: rgb(var(--color-accent));
+  border-radius: 50%;
+  animation: suspenseSpinner 0.6s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toast-notification,
-  .shortcut-overlay {
+  .shortcut-overlay,
+  .suspense-spinner::after {
     animation: none !important;
   }
 }

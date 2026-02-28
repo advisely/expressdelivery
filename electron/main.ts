@@ -157,7 +157,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       backgroundThrottling: false,
-      devTools: !!VITE_DEV_SERVER_URL,
+      devTools: true,
     },
   })
 

@@ -75,6 +75,7 @@ function App() {
   const [undoSendDelay, setUndoSendDelay] = useState(5);
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const startupRanRef = useRef(false);
 
   const showToast = useCallback((message: string, undo?: () => void) => {
     clearTimeout(toastTimerRef.current);
@@ -145,7 +146,10 @@ function App() {
   }, [setAccounts, selectAccount]);
 
   // Single IPC call at startup: accounts + folders + inbox emails + settings in one round-trip
+  // Ref guard prevents StrictMode double-run in dev
   useEffect(() => {
+    if (startupRanRef.current) return;
+    startupRanRef.current = true;
     let cancelled = false;
 
     function updateSplash(text: string, percent: number) {
@@ -200,6 +204,9 @@ function App() {
       if (!cancelled) {
         setStartupReady(true);
         removeSplash();
+        // Prewarm lazy-loaded modal chunks so first open is instant
+        void import('./components/ComposeModal');
+        void import('./components/SettingsModal');
       }
     }
 
@@ -208,14 +215,10 @@ function App() {
     return () => { cancelled = true; };
   }, [setAccounts, selectAccount, setFolders, selectFolder, setEmails]);
 
-  // Clean up pending send interval on unmount
+  // Clean up pending send interval on unmount only
   useEffect(() => {
-    return () => {
-      if (pendingSend) {
-        clearInterval(countdownRef.current);
-      }
-    };
-  }, [pendingSend]);
+    return () => clearInterval(countdownRef.current);
+  }, []);
 
   // Reload folders when account changes (after initial startup)
   useEffect(() => {
@@ -312,6 +315,9 @@ function App() {
   }, [setSelectedEmail, setEmails]);
 
   const handleSendPending = useCallback((payload: SendPayload) => {
+    // Defensively clear any existing countdown interval
+    clearInterval(countdownRef.current);
+
     const ipcPayload = {
       accountId: payload.accountId,
       to: payload.to,
@@ -503,7 +509,7 @@ function App() {
           <ReadingPane onReply={handleReply} onForward={handleForward} onToast={showToast} />
         </div>
 
-        <Suspense fallback={null}>
+        <Suspense fallback={<div className={appStyles['suspense-spinner']} />}>
           {composeState !== null && (
             <ComposeModal
               onClose={() => setComposeState(null)}
