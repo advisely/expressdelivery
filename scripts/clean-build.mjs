@@ -145,8 +145,9 @@ run('npx vite build', 'Vite bundle');
 
 if (buildLinux) {
   // In CI, build full installers (AppImage/deb/rpm); locally, use --dir for speed
-  const linuxFlag = process.env.CI ? '' : ' --dir';
-  run(`npx electron-builder --linux${linuxFlag}`, `Package Linux${linuxFlag ? ' (unpacked)' : ' (AppImage + deb + rpm)'}`);
+  // --publish never: CI workflow has a separate publish job; electron-builder must not auto-publish
+  const linuxFlag = process.env.CI ? ' --publish never' : ' --dir';
+  run(`npx electron-builder --linux${linuxFlag}`, `Package Linux${linuxFlag.includes('--dir') ? ' (unpacked)' : ' (AppImage + deb + rpm)'}`);
 }
 
 if (buildWin) {
@@ -162,8 +163,9 @@ if (buildWin) {
   }
 
   // In CI, always produce NSIS installer; locally, use --dir unless --nsis flag
-  const winFlag = (process.env.CI || buildNsis) ? '' : ' --dir';
-  run(`npx electron-builder --win${winFlag}`, `Package Windows${winFlag ? ' (unpacked)' : ' (NSIS installer)'}`);
+  // --publish never: CI workflow has a separate publish job; electron-builder must not auto-publish
+  const winFlag = process.env.CI ? ' --publish never' : (buildNsis ? '' : ' --dir');
+  run(`npx electron-builder --win${winFlag}`, `Package Windows${winFlag.includes('--dir') ? ' (unpacked)' : ' (NSIS installer)'}`);
 
 }
 
