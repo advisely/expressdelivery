@@ -40,7 +40,7 @@ Last updated: 2026-02-27
 | Archive messages | Yes | Yes | **Done** | Archive button in ReadingPane, `emails:archive` IPC, IMAP MOVE |
 | Delete messages | Yes | Yes | **Done** | Delete button in ReadingPane wired to `emails:delete` IPC |
 | Move messages between folders | Yes | Yes | **Done** | Radix DropdownMenu in ReadingPane, `emails:move` IPC, cross-account guard |
-| Undo send | Yes | Yes | **Done** | Configurable delay (0-10s), cancel button in toast |
+| Undo send | Yes | Yes | **Done** | Configurable delay (0-30s), cancel button in toast |
 | Drafts (save/edit/resume) | Yes | Yes | **Done** | Draft auto-save (2s debounce), CC/BCC preserved, delete on send, draft resume via draftId prop |
 
 ### Compose & Writing
@@ -333,7 +333,7 @@ Essential desktop email client features and quality-of-life improvements identif
 - [x] 488 tests across 23 files (+148 tests, +2 new test files: ThreadList, main.phase6)
 - [x] Quality pipeline: 12 remediation items (3 critical, 1 high, 8 medium)
 
-### Phase 7: Power User & Portability (v1.5.0)
+### Phase 7: Power User & Portability (v1.5.0) -- COMPLETE
 Advanced features for power users, data portability, and enhanced filtering. 6 implementation batches.
 
 #### Batch 0: Shared Infrastructure
@@ -402,7 +402,7 @@ Advanced features for power users, data portability, and enhanced filtering. 6 i
 15. ~~**Print / Print-to-PDF**~~ -- Done: `print:email-pdf` IPC handler
 16. ~~**Notification click → email**~~ -- Done: email ID in notification, window focus + select
 17. ~~**Undo send**~~ -- Done: configurable 0-10s delay, cancel toast
-18. **Thread grouping UI** -- Both reference clients group conversations visually (deferred to Phase 7)
+18. **Thread grouping UI** -- Both reference clients group conversations visually (not yet implemented)
 
 ### Phase 7 (complete -- v1.5.0)
 19. ~~**User-defined tags**~~ -- Done: CRUD, color picker, assign/remove, tag section in ReadingPane, Tags sidebar section, Settings Tags tab
