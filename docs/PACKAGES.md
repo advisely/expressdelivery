@@ -1,6 +1,6 @@
 # ExpressDelivery - Package Registry
 
-Last updated: 2026-02-24
+Last updated: 2026-02-27
 
 ## Production Dependencies
 
@@ -22,6 +22,15 @@ Last updated: 2026-02-24
 | `@radix-ui/react-dropdown-menu` | ^2.1.16 | Current | Accessible dropdown menus |
 | `@radix-ui/react-select` | ^2.2.6 | Current | Accessible select/combobox |
 | `@radix-ui/react-tooltip` | ^1.2.8 | Current | Accessible tooltips |
+| `@radix-ui/react-popover` | ^1.1.14 | Current | Accessible popovers (snooze, reminder) |
+| `@tiptap/react` | ^2.12.5 | Current | Rich text editor (compose) |
+| `@tiptap/starter-kit` | ^2.12.5 | Current | TipTap base extensions |
+| `@tiptap/extension-link` | ^2.12.5 | Current | TipTap link support |
+| `@tiptap/extension-underline` | ^2.12.5 | Current | TipTap underline support |
+| `react-i18next` | ^15.5.3 | Current | i18n framework (4 locales) |
+| `i18next` | ^25.1.3 | Current | i18n core |
+| `mailparser` | ^3.7.2 | Current | MIME email parsing |
+| `electron-updater` | ^6.6.2 | Current | Auto-update from GitHub Releases |
 
 ## Dev Dependencies
 
@@ -29,12 +38,14 @@ Last updated: 2026-02-24
 |---------|---------|--------|---------|
 | `electron` | ^40.6.0 | Current | Desktop runtime (Chromium 132 / Node 22) |
 | `electron-builder` | ^26.8.1 | Current | App packaging (NSIS, AppImage, DMG) |
+| `@electron/rebuild` | ^4.0.1 | Current | Native module rebuild for Electron ABI |
 | `typescript` | ^5.9.3 | Current | TypeScript compiler (strict mode) |
 | `vite` | ^7.3.1 | Current | Build tool + dev server |
 | `@vitejs/plugin-react` | ^5.1.4 | Current | React Fast Refresh for Vite |
 | `vite-plugin-electron` | ^0.29.0 | Current | Electron integration for Vite |
 | `vite-plugin-electron-renderer` | ^0.14.6 | Current | Node.js polyfills for renderer |
 | `vitest` | ^4.0.18 | Current | Test runner |
+| `@vitest/coverage-v8` | ^4.0.18 | Current | Code coverage reporting |
 | `jsdom` | ^28.1.0 | Current | DOM environment for vitest |
 | `@testing-library/react` | ^16.3.2 | Current | React component testing |
 | `@testing-library/jest-dom` | ^6.9.1 | Current | DOM assertion matchers |
@@ -79,10 +90,16 @@ All packages upgraded to latest in a single coordinated pass:
 - All `build:*` npm scripts use the clean build hydration script.
 - After packaging, `npm rebuild better-sqlite3` restores the host binary for vitest.
 
+## Installed (No Longer Planned)
+
+| Package | Purpose | Installed In |
+|---------|---------|-------------|
+| `@vitest/coverage-v8` | Coverage thresholds | Phase 5 |
+| `electron-updater` | Auto-update | Phase 4 |
+
 ## Planned Dependencies
 
 | Package | Purpose | Phase |
 |---------|---------|-------|
-| `@vitest/coverage-v8` | Coverage thresholds | Phase 5 |
-| Playwright or Spectron | E2E testing | Phase 5 |
-| `electron-updater` | Auto-update | Phase 4 |
+| Playwright or Spectron | E2E testing | Future |
+| `@journeyapps/sqlcipher` | At-rest DB encryption | Future |

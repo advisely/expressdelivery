@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, Clock, Bell, Printer } from 'lucide-react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, Code, Mail } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
-import type { Attachment, EmailFull, EmailSummary } from '../stores/emailStore';
+import type { Attachment, EmailFull, EmailSummary, Tag } from '../stores/emailStore';
+import { useThemeStore } from '../stores/themeStore';
 import { ipcInvoke } from '../lib/ipc';
 import { formatFileSize } from '../lib/formatFileSize';
+import { detectPhishing } from '../lib/phishingDetector';
 import DateTimePicker from './DateTimePicker';
+import { MessageSourceDialog } from './MessageSourceDialog';
 import styles from './ReadingPane.module.css';
 
 // Track which emails the user has consented to show remote images for.
 // Persists across email switches within the same app session.
 const allowedRemoteImageEmails = new Set<string>();
 /** @internal — exposed for test cleanup only */
+// eslint-disable-next-line react-refresh/only-export-components
 export function _resetAllowedRemoteImages() { allowedRemoteImageEmails.clear(); }
 
 interface ReadingPaneProps {
@@ -177,7 +181,10 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const { t } = useTranslation();
     const selectedEmail = useEmailStore(s => s.selectedEmail);
     const folders = useEmailStore(s => s.folders);
+    const tags = useEmailStore(s => s.tags);
     const { setSelectedEmail, setEmails } = useEmailStore();
+    const readingPaneZoom = useThemeStore(s => s.readingPaneZoom);
+    const setReadingPaneZoom = useThemeStore(s => s.setReadingPaneZoom);
     const [actionError, setActionError] = useState<string | null>(null);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -186,6 +193,17 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const [snoozeOpen, setSnoozeOpen] = useState(false);
     const [reminderOpen, setReminderOpen] = useState(false);
     const [threadEmails, setThreadEmails] = useState<EmailFull[]>([]);
+    const [emailTags, setEmailTags] = useState<Tag[]>([]);
+    const [showTagPicker, setShowTagPicker] = useState(false);
+    const tagPickerRef = useRef<HTMLDivElement | null>(null);
+    const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
+    const [emailSource, setEmailSource] = useState('');
+    const [sourceLoading, setSourceLoading] = useState(false);
+    const [unsubInfo, setUnsubInfo] = useState<{
+        hasUnsubscribe: boolean;
+        urls?: Array<{ type: 'mailto' | 'http'; url: string }>;
+    } | null>(null);
+    const [unsubCopied, setUnsubCopied] = useState(false);
 
     // Reset state on email change — restore remote image preference if previously allowed
     useEffect(() => {
@@ -214,6 +232,46 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         });
         return () => { cancelled = true; };
     }, [selectedEmail?.id, selectedEmail?.thread_id]);
+
+    // Load tags for the current email
+    useEffect(() => {
+        setEmailTags([]);
+        setShowTagPicker(false);
+        const emailId = selectedEmail?.id;
+        if (!emailId) return;
+        let cancelled = false;
+        ipcInvoke<Tag[]>('emails:tags', emailId).then(result => {
+            if (Array.isArray(result) && !cancelled) setEmailTags(result);
+        });
+        return () => { cancelled = true; };
+    }, [selectedEmail?.id]);
+
+    // Close tag picker on click outside
+    useEffect(() => {
+        if (!showTagPicker) return;
+        function handleClick(e: MouseEvent) {
+            if (tagPickerRef.current && !tagPickerRef.current.contains(e.target as Node)) {
+                setShowTagPicker(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [showTagPicker]);
+
+    // Fetch unsubscribe info when email changes
+    useEffect(() => {
+        setUnsubInfo(null);
+        setUnsubCopied(false);
+        const emailId = selectedEmail?.id;
+        if (!emailId) return;
+        let cancelled = false;
+        ipcInvoke<{ hasUnsubscribe: boolean; urls?: Array<{ type: 'mailto' | 'http'; url: string }> }>(
+            'emails:unsubscribe-info', emailId
+        ).then(result => {
+            if (!cancelled && result) setUnsubInfo(result);
+        });
+        return () => { cancelled = true; };
+    }, [selectedEmail?.id]);
 
     // Sanitize body_html once for CID extraction (ensures CIDs are extracted from safe HTML)
     const sanitizedBodyHtml = useMemo(() => {
@@ -367,11 +425,44 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         return { processedHtml: blocked, detectedRemoteCount: count };
     }, [sanitizedBodyHtml, cidMap, remoteImagesBlocked]);
 
+    // Phishing detection — run heuristics against the raw (pre-sanitize) HTML so
+    // that all href URLs are still present before DOMPurify may remove them.
+    const phishingResult = useMemo(() => {
+        return detectPhishing(selectedEmail?.body_html ?? null);
+    }, [selectedEmail?.body_html]);
+
     const handleLoadRemoteImages = () => {
         setRemoteImagesBlocked(false);
         if (selectedEmail?.id) {
             allowedRemoteImageEmails.add(selectedEmail.id);
         }
+    };
+
+    const handleViewSource = async () => {
+        if (!selectedEmail) return;
+        setSourceLoading(true);
+        setEmailSource('');
+        setSourceDialogOpen(true);
+        try {
+            const result = await ipcInvoke<{ source?: string; error?: string }>(
+                'emails:source', selectedEmail.id, selectedEmail.account_id
+            );
+            if (result?.source) {
+                setEmailSource(result.source);
+            } else {
+                setEmailSource(result?.error ?? t('messageSource.loading'));
+            }
+        } catch {
+            setEmailSource('Failed to fetch message source');
+        } finally {
+            setSourceLoading(false);
+        }
+    };
+
+    const handleUnsubscribeCopy = async (url: string) => {
+        await navigator.clipboard.writeText(url);
+        setUnsubCopied(true);
+        setTimeout(() => setUnsubCopied(false), 2000);
     };
 
     if (!selectedEmail) {
@@ -390,6 +481,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const downloadableAttachments = attachments.filter(a => !a.content_id);
 
     return (
+        <>
         <div className={`${styles['reading-pane']} scrollable`}>
             <div className={`${styles['pane-header']} glass`}>
                 {actionError && (
@@ -467,6 +559,54 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                     >
                         <Printer size={18} />
                     </button>
+                    <button
+                        className={styles['icon-btn']}
+                        title={t('spam.reportSpam')}
+                        aria-label={t('spam.reportSpam')}
+                        onClick={async () => {
+                            if (!selectedEmail) return;
+                            await ipcInvoke('spam:train', selectedEmail.account_id, selectedEmail.id, true);
+                            onToast?.(t('spam.trainedSpam'));
+                        }}
+                    >
+                        <ShieldAlert size={18} />
+                    </button>
+                    <button
+                        className={styles['icon-btn']}
+                        title={t('readingPane.saveAsEml')}
+                        aria-label={t('readingPane.saveAsEml')}
+                        onClick={() => ipcInvoke('export:eml', selectedEmail.id)}
+                    >
+                        <Download size={18} />
+                    </button>
+                    <button
+                        className={styles['icon-btn']}
+                        title={t('messageSource.viewSource')}
+                        aria-label={t('messageSource.viewSource')}
+                        onClick={handleViewSource}
+                        disabled={sourceLoading}
+                    >
+                        <Code size={18} />
+                    </button>
+                    <button
+                        className={styles['icon-btn']}
+                        onClick={() => setReadingPaneZoom(readingPaneZoom - 10)}
+                        title={t('readingPane.zoomOut')}
+                        aria-label={t('readingPane.zoomOut')}
+                        disabled={readingPaneZoom <= 80}
+                    >
+                        <ZoomOut size={18} />
+                    </button>
+                    <span className={styles['zoom-label']}>{readingPaneZoom}%</span>
+                    <button
+                        className={styles['icon-btn']}
+                        onClick={() => setReadingPaneZoom(readingPaneZoom + 10)}
+                        title={t('readingPane.zoomIn')}
+                        aria-label={t('readingPane.zoomIn')}
+                        disabled={readingPaneZoom >= 150}
+                    >
+                        <ZoomIn size={18} />
+                    </button>
                     <Popover.Root open={snoozeOpen} onOpenChange={setSnoozeOpen}>
                         <Popover.Trigger asChild>
                             <button className={styles['icon-btn']} title={t('readingPane.snooze')} aria-label={t('readingPane.snooze')}>
@@ -542,11 +682,120 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                     </div>
                 )}
 
+                {(emailTags.length > 0 || tags.length > 0) && (
+                    <div className={styles['rp-tags-row']} ref={tagPickerRef}>
+                        {emailTags.map(tag => (
+                            <span
+                                key={tag.id}
+                                className={styles['rp-tag-badge']}
+                                style={{ backgroundColor: `${tag.color}20`, color: tag.color, borderColor: `${tag.color}40` }}
+                            >
+                                {tag.name}
+                                <button
+                                    type="button"
+                                    className={styles['rp-tag-remove']}
+                                    aria-label={t('tags.remove')}
+                                    onClick={async () => {
+                                        await ipcInvoke('tags:remove', selectedEmail!.id, tag.id);
+                                        setEmailTags(emailTags.filter(et => et.id !== tag.id));
+                                    }}
+                                >
+                                    &times;
+                                </button>
+                            </span>
+                        ))}
+                        {tags.length > 0 && (
+                            <button
+                                type="button"
+                                className={styles['rp-tag-add']}
+                                onClick={() => setShowTagPicker(!showTagPicker)}
+                            >
+                                + {t('tags.assign')}
+                            </button>
+                        )}
+                        {showTagPicker && (
+                            <div className={styles['rp-tag-picker']}>
+                                {tags.filter(t => !emailTags.some(et => et.id === t.id)).map(tag => (
+                                    <button
+                                        key={tag.id}
+                                        type="button"
+                                        className={styles['rp-tag-option']}
+                                        onClick={async () => {
+                                            await ipcInvoke('tags:assign', selectedEmail!.id, tag.id);
+                                            setEmailTags([...emailTags, tag]);
+                                            setShowTagPicker(false);
+                                        }}
+                                    >
+                                        <span className={styles['rp-tag-dot']} style={{ backgroundColor: tag.color }} />
+                                        {tag.name}
+                                    </button>
+                                ))}
+                                {tags.filter(t => !emailTags.some(et => et.id === t.id)).length === 0 && (
+                                    <span className={styles['rp-tag-empty']}>{t('tags.noTags')}</span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {detectedRemoteCount > 0 && remoteImagesBlocked && (
                     <div className={styles['remote-images-banner']} role="status">
                         <ShieldAlert size={16} />
                         <span>{t('readingPane.remoteImagesBlocked')}</span>
                         <button className={styles['load-images-btn']} onClick={handleLoadRemoteImages}>{t('readingPane.loadImages')}</button>
+                    </div>
+                )}
+
+                {unsubInfo?.hasUnsubscribe && unsubInfo.urls && unsubInfo.urls.length > 0 && (
+                    <div className={styles['unsubscribe-banner']} role="status">
+                        <Mail size={16} aria-hidden="true" />
+                        <span className={styles['unsubscribe-text']}>{t('unsubscribe.banner')}</span>
+                        {unsubInfo.urls.map((urlObj, i) => {
+                            if (urlObj.type === 'mailto') {
+                                // Extract and validate email address from mailto: URL
+                                const rawRecipient = urlObj.url.replace(/^mailto:/i, '').split('?')[0];
+                                const recipient = rawRecipient.trim();
+                                // Only copy if it looks like a valid email address
+                                if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return null;
+                                return (
+                                    <button
+                                        key={i}
+                                        type="button"
+                                        className={styles['unsubscribe-btn']}
+                                        onClick={() => handleUnsubscribeCopy(recipient)}
+                                        title={recipient}
+                                    >
+                                        {unsubCopied ? t('unsubscribe.copied') : t('unsubscribe.mailto')}
+                                    </button>
+                                );
+                            }
+                            // Only allow https: URLs; http: and other schemes are rejected
+                            if (!urlObj.url.startsWith('https://')) return null;
+                            return (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    className={styles['unsubscribe-copy-btn']}
+                                    onClick={() => handleUnsubscribeCopy(urlObj.url)}
+                                >
+                                    {unsubCopied ? t('unsubscribe.copied') : t('unsubscribe.copyLink')}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {phishingResult.isPhishing && (
+                    <div className={styles['phishing-banner']} role="alert">
+                        <AlertTriangle size={16} aria-hidden="true" />
+                        <div>
+                            <strong>{t('phishing.warning')}</strong>
+                            <ul className={styles['phishing-reasons']}>
+                                {phishingResult.reasons.slice(0, 3).map((r, i) => (
+                                    <li key={i}>{r}</li>
+                                ))}
+                            </ul>
+                        </div>
                     </div>
                 )}
 
@@ -581,7 +830,9 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 ) : (
                     <div className={styles['email-body']}>
                         {processedHtml ? (
-                            <SandboxedEmailBody html={processedHtml} allowRemoteImages={!remoteImagesBlocked} />
+                            <div style={{ zoom: readingPaneZoom / 100 }}>
+                                <SandboxedEmailBody html={processedHtml} allowRemoteImages={!remoteImagesBlocked} />
+                            </div>
                         ) : selectedEmail.body_text ? (
                             <div style={{ whiteSpace: 'pre-wrap' }}>
                                 {selectedEmail.body_text}
@@ -631,5 +882,13 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 )}
             </div>
         </div>
+
+        <MessageSourceDialog
+            open={sourceDialogOpen}
+            onOpenChange={setSourceDialogOpen}
+            source={emailSource}
+            subject={selectedEmail.subject ?? ''}
+        />
+        </>
     );
 };

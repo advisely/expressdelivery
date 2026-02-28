@@ -22,7 +22,25 @@
     "deleteFolder": "Delete folder",
     "deleteFolderConfirm": "Delete folder \"{{name}}\"? It must be empty.",
     "createSubfolder": "Create subfolder",
-    "newFolderName": "New folder name"
+    "newFolderName": "New folder name",
+    "setColor": "Set color",
+    "clearColor": "Clear color",
+    "savedSearches": "Saved Searches",
+    "deleteSavedSearch": "Delete saved search",
+    "exportMbox": "Export as MBOX...",
+    "importEmails": "Import emails..."
+  },
+  "tags": {
+    "title": "Tags",
+    "create": "Create tag",
+    "edit": "Edit tag",
+    "delete": "Delete",
+    "assign": "Add tag",
+    "remove": "Remove",
+    "name": "Tag name",
+    "color": "Color",
+    "noTags": "No tags yet",
+    "filterBy": "Filter by tag"
   },
   "threadList": {
     "search": "Search emails...",
@@ -38,7 +56,26 @@
     "markUnread": "Mark as unread",
     "selected": "{{count}} selected",
     "selectAll": "Select all",
-    "clearSelection": "Clear selection"
+    "clearSelection": "Clear selection",
+    "saveSearch": "Save search"
+  },
+  "export": {
+    "success": "Exported {{count}} items successfully",
+    "failed": "Export failed"
+  },
+  "import": {
+    "success": "Imported {{count}} items",
+    "failed": "Import failed",
+    "tooLarge": "File too large (max 1000 messages)"
+  },
+  "contacts": {
+    "title": "Contacts",
+    "exportVcard": "Export vCard",
+    "exportCsv": "Export CSV",
+    "importVcard": "Import vCard",
+    "importCsv": "Import CSV",
+    "search": "Search contacts...",
+    "noContacts": "No contacts found"
   },
   "readingPane": {
     "noSelection": "Select an email to read",
@@ -58,7 +95,10 @@
     "remoteImagesBlocked": "Remote images are blocked for privacy",
     "attachments": "Attachments",
     "download": "Download",
-    "moveTo": "Move to..."
+    "moveTo": "Move to...",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "saveAsEml": "Save as EML"
   },
   "compose": {
     "newMessage": "New Message",
@@ -106,7 +146,14 @@
   "settings": {
     "title": "Settings",
     "accounts": "Accounts",
+    "contacts": "Contacts",
     "appearance": "Appearance",
+    "density": "Display density",
+    "densityCompact": "Compact",
+    "densityComfortable": "Comfortable",
+    "densityRelaxed": "Relaxed",
+    "readingPaneZoom": "Reading pane zoom",
+    "soundEnabled": "Play sound on new email",
     "aiKeys": "AI / API Keys",
     "notifications": "Notifications",
     "rules": "Rules",
@@ -259,5 +306,32 @@
     "newEmail": "New email",
     "settings": "Settings",
     "help": "This help"
+  },
+  "messageSource": {
+    "title": "Message Source",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "viewSource": "View source",
+    "loading": "Loading source..."
+  },
+  "unsubscribe": {
+    "banner": "This email is from a mailing list",
+    "button": "Unsubscribe",
+    "copyLink": "Copy unsubscribe link",
+    "copied": "Link copied!",
+    "mailto": "Send unsubscribe email"
+  },
+  "dragDrop": {
+    "moveToFolder": "Moved {{count}} email(s) to {{folder}}"
+  },
+  "spam": {
+    "reportSpam": "Report as spam",
+    "notSpam": "Not spam",
+    "trainedSpam": "Reported as spam",
+    "trainedHam": "Marked as not spam"
+  },
+  "phishing": {
+    "warning": "Warning: This email may contain phishing links",
+    "reasons": "Suspicious indicators found:"
   }
 }

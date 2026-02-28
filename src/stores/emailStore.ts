@@ -55,6 +55,22 @@ export interface Folder {
     name: string
     path: string
     type: string | null
+    color?: string | null
+}
+
+export interface Tag {
+    id: string
+    account_id: string
+    name: string
+    color: string
+}
+
+export interface SavedSearch {
+    id: string
+    account_id: string
+    name: string
+    query: string
+    icon: string
 }
 
 export interface Draft {
@@ -82,6 +98,9 @@ interface EmailState {
     searchQuery: string
     drafts: Draft[]
     appVersion: string
+    tags: Tag[]
+    savedSearches: SavedSearch[]
+    draggedEmailIds: string[]
 
     setAccounts: (accounts: Account[]) => void
     addAccount: (account: Account) => void
@@ -103,6 +122,9 @@ interface EmailState {
     addDraft: (draft: Draft) => void
     removeDraft: (draftId: string) => void
     setAppVersion: (version: string) => void
+    setTags: (tags: Tag[]) => void
+    setSavedSearches: (searches: SavedSearch[]) => void
+    setDraggedEmailIds: (ids: string[]) => void
 }
 
 export const useEmailStore = create<EmailState>()((set) => ({
@@ -118,6 +140,9 @@ export const useEmailStore = create<EmailState>()((set) => ({
     searchQuery: '',
     drafts: [],
     appVersion: '',
+    tags: [],
+    savedSearches: [],
+    draggedEmailIds: [],
 
     setAccounts: (accounts) => set({ accounts }),
     addAccount: (account) => set((state) => ({ accounts: [...state.accounts, account] })),
@@ -140,7 +165,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
         };
     }),
     setFolders: (folders) => set({ folders }),
-    setEmails: (emails) => set({ emails }),
+    setEmails: (emails) => set({ emails: Array.isArray(emails) ? emails : [] }),
     setSelectedEmail: (selectedEmail) => set({ selectedEmail }),
     selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
     selectFolder: (selectedFolderId) => set({ selectedFolderId, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
@@ -174,4 +199,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     addDraft: (draft) => set((state) => ({ drafts: [draft, ...state.drafts] })),
     removeDraft: (draftId) => set((state) => ({ drafts: state.drafts.filter(d => d.id !== draftId) })),
     setAppVersion: (appVersion) => set({ appVersion }),
+    setTags: (tags) => set({ tags }),
+    setSavedSearches: (savedSearches) => set({ savedSearches }),
+    setDraggedEmailIds: (draggedEmailIds) => set({ draggedEmailIds }),
 }))

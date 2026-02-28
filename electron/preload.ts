@@ -87,6 +87,39 @@ const ALLOWED_INVOKE_CHANNELS = [
   'emails:repair-bodies',
   // Error logging
   'log:error',
+  // Phase 7: Tags
+  'tags:list',
+  'tags:create',
+  'tags:update',
+  'tags:delete',
+  'tags:assign',
+  'tags:remove',
+  'tags:emails',
+  'emails:tags',
+  // Phase 7: Export/Import
+  'export:eml',
+  'export:mbox',
+  'import:eml',
+  'import:mbox',
+  // Phase 7: Contacts
+  'contacts:list',
+  'contacts:export-vcard',
+  'contacts:export-csv',
+  'contacts:import-vcard',
+  'contacts:import-csv',
+  // Phase 7: Saved searches
+  'searches:list',
+  'searches:create',
+  'searches:delete',
+  'searches:run',
+  // Phase 7: Message source + Unsubscribe
+  'emails:source',
+  'emails:unsubscribe-info',
+  // Phase 7: Spam
+  'spam:train',
+  'spam:classify',
+  // Phase 7: Folder colors
+  'folders:set-color',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [

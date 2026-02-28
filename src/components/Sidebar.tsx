@@ -17,11 +17,16 @@ import {
   FolderPlus,
   Pencil,
   FolderX,
-  CheckCheck
+  CheckCheck,
+  Palette,
+  Tags,
+  Search,
+  Download,
+  Upload,
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useTranslation } from 'react-i18next';
-import { useEmailStore, type EmailSummary } from '../stores/emailStore';
+import { useEmailStore, type EmailSummary, type Tag, type SavedSearch } from '../stores/emailStore';
 import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
@@ -45,14 +50,21 @@ const DEFAULT_NAV = [
   { icon: Trash2, label: 'Trash' },
 ];
 
+const FOLDER_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#6366f1'];
+
 interface SidebarProps {
   onCompose: () => void;
   onSettings: () => void;
+  onToast?: (message: string) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast }) => {
   const { t } = useTranslation();
   const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion, setEmails, setSelectedEmail } = useEmailStore();
+  const tags = useEmailStore(s => s.tags);
+  const setTags = useEmailStore(s => s.setTags);
+  const savedSearches = useEmailStore(s => s.savedSearches);
+  const setSavedSearches = useEmailStore(s => s.setSavedSearches);
   const { sidebarCollapsed, toggleSidebar } = useThemeStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -90,6 +102,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
   const [renameValue, setRenameValue] = useState('');
   const [creatingSubfolder, setCreatingSubfolder] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
+  const [colorPickerFolderId, setColorPickerFolderId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const draggedEmailIds = useEmailStore(s => s.draggedEmailIds);
+  const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
+
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
 
@@ -107,6 +124,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
     if (!selectedAccountId) return;
     const result = await ipcInvoke<Array<{ id: string; name: string; path: string; type: string }>>('folders:list', selectedAccountId);
     if (result) setFolders(result);
+  }, [selectedAccountId, setFolders]);
+
+  const handleSetFolderColor = useCallback(async (folderId: string, color: string | null) => {
+    await ipcInvoke('folders:set-color', folderId, color);
+    if (selectedAccountId) {
+      const updated = await ipcInvoke<Array<{ id: string; name: string; path: string; type: string; color?: string | null }>>('folders:list', selectedAccountId);
+      if (updated) setFolders(updated);
+    }
+    setColorPickerFolderId(null);
   }, [selectedAccountId, setFolders]);
 
   const handleRenameFolder = useCallback(async (folderId: string) => {
@@ -155,6 +181,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
       }
     }
   }, [selectedFolderId, selectedAccountId, setEmails]);
+
+  const handleFolderDrop = useCallback(async (e: React.DragEvent, folderId: string, folderName: string) => {
+    e.preventDefault();
+    setDragOverFolderId(null);
+    const EMAIL_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+    const rawIds = draggedEmailIds.length > 0
+      ? draggedEmailIds
+      : e.dataTransfer.getData('text/plain').split(',').filter(Boolean);
+    // Validate each ID against expected format and cap array length to 500
+    const ids = rawIds.slice(0, 500).filter(id => EMAIL_ID_PATTERN.test(id));
+    if (ids.length === 0) return;
+    setDraggedEmailIds([]);
+    for (const emailId of ids) {
+      await ipcInvoke('emails:move', { emailId, destFolderId: folderId });
+    }
+    onToast?.(t('dragDrop.moveToFolder', { count: ids.length, folder: folderName }));
+    if (selectedFolderId) {
+      const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
+      if (Array.isArray(refreshed)) setEmails(refreshed);
+    }
+  }, [draggedEmailIds, setDraggedEmailIds, selectedFolderId, setEmails, onToast, t]);
 
   const handleCreateTopLevelFolder = useCallback(async () => {
     if (!newFolderName.trim() || !selectedAccountId) { setCreatingSubfolder(null); return; }
@@ -220,6 +267,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
     loadCounts();
     return () => { cancelled = true; };
   }, [selectedAccountId]);
+
+  // Load tags and saved searches when account changes
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    let cancelled = false;
+    ipcInvoke<Tag[]>('tags:list', selectedAccountId).then(result => {
+      if (Array.isArray(result) && !cancelled) setTags(result);
+    });
+    ipcInvoke<SavedSearch[]>('searches:list', selectedAccountId).then(result => {
+      if (Array.isArray(result) && !cancelled) setSavedSearches(result);
+    });
+    return () => { cancelled = true; };
+  }, [selectedAccountId, setTags, setSavedSearches]);
 
   // MCP connection status
   useEffect(() => {
@@ -385,9 +445,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
                     </form>
                   ) : (
                     <button
-                      className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${isTrash ? styles['nav-item-trash'] : ''}`}
+                      className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${isTrash ? styles['nav-item-trash'] : ''} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
                       onClick={() => selectFolder(folder.id)}
                       title={sidebarCollapsed ? folder.name : undefined}
+                      style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverFolderId(folder.id); }}
+                      onDragLeave={() => setDragOverFolderId(null)}
+                      onDrop={(e) => handleFolderDrop(e, folder.id, folder.name)}
                     >
                       <Icon size={18} className={styles['nav-icon']} />
                       {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
@@ -398,6 +462,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
                         <span className={styles['nav-badge-dot']} />
                       )}
                     </button>
+                  )}
+                  {colorPickerFolderId === folder.id && !sidebarCollapsed && (
+                    <div className={styles['color-picker-grid']}>
+                      {FOLDER_COLORS.map(c => (
+                        <button
+                          key={c}
+                          type="button"
+                          className={styles['color-swatch']}
+                          style={{ background: c }}
+                          onClick={() => handleSetFolderColor(folder.id, c)}
+                          aria-label={c}
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        className={styles['color-swatch-clear']}
+                        onClick={() => handleSetFolderColor(folder.id, null)}
+                        aria-label={t('sidebar.clearColor')}
+                      >
+                        &times;
+                      </button>
+                    </div>
                   )}
                   {!sidebarCollapsed && !isRenaming && (
                     <DropdownMenu.Root>
@@ -434,6 +520,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
                           >
                             <FolderPlus size={14} />
                             <span>{t('sidebar.createSubfolder')}</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            onSelect={(e) => { e.preventDefault(); setColorPickerFolderId(folder.id); }}
+                          >
+                            <Palette size={14} />
+                            <span>{t('sidebar.setColor')}</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            onSelect={async () => {
+                              const result = await ipcInvoke<{ success: boolean; count?: number; error?: string }>('export:mbox', folder.id);
+                              if (result?.success) onToast?.(t('export.success', { count: result.count }));
+                            }}
+                          >
+                            <Download size={14} />
+                            <span>{t('sidebar.exportMbox')}</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            onSelect={async () => {
+                              const result = await ipcInvoke<{ success: boolean; count?: number; error?: string }>('import:eml', folder.id);
+                              if (result?.success) {
+                                onToast?.(t('import.success', { count: result.count }));
+                                if (selectedFolderId === folder.id) {
+                                  const emails = await ipcInvoke<EmailSummary[]>('emails:list', folder.id);
+                                  if (Array.isArray(emails)) setEmails(emails);
+                                }
+                              }
+                            }}
+                          >
+                            <Upload size={14} />
+                            <span>{t('sidebar.importEmails')}</span>
                           </DropdownMenu.Item>
                           {isTrash && (
                             <DropdownMenu.Item
@@ -529,6 +648,67 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings }) => {
             {!sidebarCollapsed && <span className={styles['nav-badge']}>{scheduledCount}</span>}
             {sidebarCollapsed && <span className={styles['nav-badge-dot']} />}
           </button>
+        )}
+
+        {tags.length > 0 && (
+          <>
+            {!sidebarCollapsed && (
+              <div className={styles['nav-section-label']}>
+                <Tags size={11} />
+                {t('tags.title')}
+              </div>
+            )}
+            {tags.map(tag => (
+              <button
+                key={tag.id}
+                className={`${styles['nav-item']} ${selectedFolderId === `__tag_${tag.id}` ? styles['active'] : ''}`}
+                onClick={() => selectFolder(`__tag_${tag.id}`)}
+                title={sidebarCollapsed ? tag.name : undefined}
+              >
+                <span className={styles['tag-dot']} style={{ backgroundColor: tag.color }} />
+                {!sidebarCollapsed && <span className={styles['nav-label']}>{tag.name}</span>}
+              </button>
+            ))}
+          </>
+        )}
+
+        {savedSearches.length > 0 && (
+          <>
+            {!sidebarCollapsed && (
+              <div className={styles['nav-section-label']}>
+                <Search size={11} />
+                {t('sidebar.savedSearches')}
+              </div>
+            )}
+            {savedSearches.map(search => (
+              <div key={search.id} className={styles['nav-item-row']}>
+                <button
+                  className={`${styles['nav-item']} ${selectedFolderId === `__search_${search.id}` ? styles['active'] : ''}`}
+                  onClick={() => selectFolder(`__search_${search.id}`)}
+                  title={sidebarCollapsed ? search.name : undefined}
+                  style={{ flex: 1, minWidth: 0 }}
+                >
+                  <Search size={16} className={styles['nav-icon']} />
+                  {!sidebarCollapsed && <span className={styles['nav-label']}>{search.name}</span>}
+                </button>
+                {!sidebarCollapsed && (
+                  <button
+                    className={styles['nav-delete-btn']}
+                    onClick={async () => {
+                      if (!selectedAccountId) return;
+                      await ipcInvoke('searches:delete', search.id, selectedAccountId);
+                      setSavedSearches(savedSearches.filter(s => s.id !== search.id));
+                    }}
+                    title={t('sidebar.deleteSavedSearch')}
+                    type="button"
+                    aria-label={t('sidebar.deleteSavedSearch')}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </>
         )}
       </nav>
 

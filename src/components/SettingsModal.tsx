@@ -5,12 +5,12 @@ import * as Tabs from '@radix-ui/react-tabs';
 import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
-    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText
+    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText, Tags as TagsIcon, Users
 } from 'lucide-react';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
 import { useEmailStore } from '../stores/emailStore';
-import type { Account, Folder } from '../stores/emailStore';
+import type { Account, Folder, Tag } from '../stores/emailStore';
 import { PROVIDER_PRESETS } from '../lib/providerPresets';
 import type { ProviderPreset } from '../lib/providerPresets';
 import { ipcInvoke } from '../lib/ipc';
@@ -60,7 +60,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
     const { accounts, addAccount, updateAccount, removeAccount, selectAccount, selectFolder, setFolders } = useEmailStore();
     const { layout, setLayout } = useLayout();
-    const { themeName, setTheme } = useThemeStore();
+    const { themeName, setTheme, densityMode, setDensityMode } = useThemeStore();
     const { i18n, t } = useTranslation();
 
     // API key state
@@ -71,6 +71,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
     // Notification settings state
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+    const [soundEnabled, setSoundEnabled] = useState(false);
 
     // Undo send delay
     const [undoSendDelay, setUndoSendDelay] = useState(5);
@@ -79,6 +80,20 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [activeTab, setActiveTab] = useState('accounts');
     const [rulesLoaded, setRulesLoaded] = useState(false);
     const [templatesLoaded, setTemplatesLoaded] = useState(false);
+    const [tagsLoaded, setTagsLoaded] = useState(false);
+
+    // Contacts tab state
+    const [contactsLoaded, setContactsLoaded] = useState(false);
+    const [contacts, setContacts] = useState<Array<{ id: string; email: string; name: string | null }>>([]);
+    const [contactSearch, setContactSearch] = useState('');
+    const [contactStatusMsg, setContactStatusMsg] = useState('');
+
+    // Tags state
+    const [managedTags, setManagedTags] = useState<Tag[]>([]);
+    const [newTagName, setNewTagName] = useState('');
+    const [newTagColor, setNewTagColor] = useState('#6366f1');
+
+    const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
     // Mail rules state
     interface MailRule {
@@ -125,9 +140,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             const val = await ipcInvoke<string | null>('settings:get', 'undo_send_delay');
             if (!cancelled && val != null) setUndoSendDelay(Number(val) || 5);
         }
+        async function loadSoundEnabled() {
+            const val = await ipcInvoke<string | null>('settings:get', 'sound_enabled');
+            if (!cancelled && val === 'true') setSoundEnabled(true);
+        }
         loadApiKey();
         loadNotifSettings();
         loadUndoDelay();
+        loadSoundEnabled();
         return () => { cancelled = true; };
     }, []);
 
@@ -164,6 +184,30 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             });
         return () => { cancelled = true; };
     }, [activeTab, templatesLoaded]);
+
+    // Load tags when Tags tab is first activated
+    useEffect(() => {
+        if (activeTab !== 'tags' || tagsLoaded || !selectedAccountId) return;
+        let cancelled = false;
+        ipcInvoke<Tag[]>('tags:list', selectedAccountId)
+            .then(result => {
+                if (Array.isArray(result) && !cancelled) setManagedTags(result);
+                if (!cancelled) setTagsLoaded(true);
+            });
+        return () => { cancelled = true; };
+    }, [activeTab, tagsLoaded, selectedAccountId]);
+
+    // Load contacts when Contacts tab is first activated
+    useEffect(() => {
+        if (activeTab !== 'contacts' || contactsLoaded) return;
+        let cancelled = false;
+        ipcInvoke<Array<{ id: string; email: string; name: string | null }>>('contacts:list')
+            .then(result => {
+                if (Array.isArray(result) && !cancelled) setContacts(result);
+                if (!cancelled) setContactsLoaded(true);
+            });
+        return () => { cancelled = true; };
+    }, [activeTab, contactsLoaded]);
 
     const handleSaveTemplate = async () => {
         if (!editingTemplate) return;
@@ -549,6 +593,14 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <FileText size={16} />
                                 <span>{t('settings.templates')}</span>
                             </Tabs.Trigger>
+                            <Tabs.Trigger className={styles['tab-btn']} value="tags">
+                                <TagsIcon size={16} />
+                                <span>{t('tags.title')}</span>
+                            </Tabs.Trigger>
+                            <Tabs.Trigger className={styles['tab-btn']} value="contacts">
+                                <Users size={16} />
+                                <span>{t('settings.contacts')}</span>
+                            </Tabs.Trigger>
                         </Tabs.List>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="accounts">
@@ -820,6 +872,23 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 </div>
 
                                 <div className={styles['setting-group']}>
+                                    <h3 className={styles['section-title']}>{t('settings.density')}</h3>
+                                    <div className={styles['density-options']}>
+                                        {(['compact', 'comfortable', 'relaxed'] as const).map(mode => (
+                                            <label key={mode} className={styles['density-option']}>
+                                                <input
+                                                    type="radio"
+                                                    name="density"
+                                                    checked={densityMode === mode}
+                                                    onChange={() => setDensityMode(mode)}
+                                                />
+                                                <span>{t(`settings.density${mode.charAt(0).toUpperCase() + mode.slice(1)}`)}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className={styles['setting-group']}>
                                     <h3 className={styles['section-title']}>{t('common.language')}</h3>
                                     <select
                                         className={styles['lang-select']}
@@ -944,6 +1013,25 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <p className={styles['notif-description']}>
                                     {t('settings.notifDescription')}
                                 </p>
+                                <div className={styles['notif-toggle-row']}>
+                                    <label htmlFor="sound-enabled-toggle" className={styles['notif-label']}>
+                                        {t('settings.soundEnabled')}
+                                    </label>
+                                    <button
+                                        id="sound-enabled-toggle"
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={soundEnabled}
+                                        className={`${styles['notif-switch']} ${soundEnabled ? styles['notif-switch-on'] : ''}`}
+                                        onClick={async () => {
+                                            const next = !soundEnabled;
+                                            setSoundEnabled(next);
+                                            await ipcInvoke('settings:set', 'sound_enabled', next ? 'true' : 'false');
+                                        }}
+                                    >
+                                        <span className={styles['notif-switch-thumb']} />
+                                    </button>
+                                </div>
                             </div>
                         </Tabs.Content>
 
@@ -1155,6 +1243,150 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        </Tabs.Content>
+
+                        <Tabs.Content className={styles['settings-tab-panel']} value="tags">
+                            <div>
+                                <h3 className={styles['section-title']}>{t('tags.title')}</h3>
+                                <div className={styles['tag-create-row']}>
+                                    <input
+                                        type="text"
+                                        value={newTagName}
+                                        onChange={(e) => setNewTagName(e.target.value)}
+                                        placeholder={t('tags.name')}
+                                        className={styles['form-input']}
+                                        maxLength={50}
+                                    />
+                                    <input
+                                        type="color"
+                                        value={newTagColor}
+                                        onChange={(e) => setNewTagColor(e.target.value)}
+                                        className={styles['color-input']}
+                                        aria-label={t('tags.color')}
+                                    />
+                                    <button
+                                        type="button"
+                                        className={styles['primary-btn']}
+                                        onClick={async () => {
+                                            if (!newTagName.trim() || !selectedAccountId) return;
+                                            const result = await ipcInvoke<Tag>('tags:create', selectedAccountId, newTagName.trim(), newTagColor);
+                                            if (result) {
+                                                setManagedTags([...managedTags, result]);
+                                                setNewTagName('');
+                                                const setStoreTags = useEmailStore.getState().setTags;
+                                                setStoreTags([...useEmailStore.getState().tags, result]);
+                                            }
+                                        }}
+                                        disabled={!newTagName.trim()}
+                                    >
+                                        {t('tags.create')}
+                                    </button>
+                                </div>
+                                {managedTags.length === 0 && (
+                                    <p className={styles['rules-empty']}>{t('tags.noTags')}</p>
+                                )}
+                                {managedTags.map(tag => (
+                                    <div key={tag.id} className={styles['tag-row']}>
+                                        <span className={styles['tag-swatch']} style={{ backgroundColor: tag.color }} />
+                                        <span className={styles['tag-name']}>{tag.name}</span>
+                                        <button
+                                            type="button"
+                                            className={`${styles['icon-btn']} ${styles['icon-btn-danger']}`}
+                                            onClick={async () => {
+                                                if (!selectedAccountId) return;
+                                                await ipcInvoke('tags:delete', tag.id, selectedAccountId);
+                                                setManagedTags(managedTags.filter(t => t.id !== tag.id));
+                                                const setStoreTags = useEmailStore.getState().setTags;
+                                                setStoreTags(useEmailStore.getState().tags.filter(t => t.id !== tag.id));
+                                            }}
+                                            aria-label={`${t('tags.delete')} ${tag.name}`}
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </Tabs.Content>
+
+                        <Tabs.Content className={styles['settings-tab-panel']} value="contacts">
+                            <div>
+                                <h3 className={styles['section-title']}>{t('contacts.title')}</h3>
+                                <div className={styles['contacts-toolbar']}>
+                                    <button
+                                        className={styles['primary-btn']}
+                                        onClick={async () => {
+                                            const result = await ipcInvoke<{ success: boolean; count?: number }>('contacts:export-vcard');
+                                            if (result?.success) setContactStatusMsg(t('export.success', { count: result.count }));
+                                        }}
+                                    >
+                                        {t('contacts.exportVcard')}
+                                    </button>
+                                    <button
+                                        className={styles['primary-btn']}
+                                        onClick={async () => {
+                                            const result = await ipcInvoke<{ success: boolean; count?: number }>('contacts:export-csv');
+                                            if (result?.success) setContactStatusMsg(t('export.success', { count: result.count }));
+                                        }}
+                                    >
+                                        {t('contacts.exportCsv')}
+                                    </button>
+                                    <button
+                                        className={styles['secondary-btn']}
+                                        onClick={async () => {
+                                            const result = await ipcInvoke<{ success: boolean; count?: number }>('contacts:import-vcard');
+                                            if (result?.success) {
+                                                setContactStatusMsg(t('import.success', { count: result.count }));
+                                                setContactsLoaded(false);
+                                            }
+                                        }}
+                                    >
+                                        {t('contacts.importVcard')}
+                                    </button>
+                                    <button
+                                        className={styles['secondary-btn']}
+                                        onClick={async () => {
+                                            const result = await ipcInvoke<{ success: boolean; count?: number }>('contacts:import-csv');
+                                            if (result?.success) {
+                                                setContactStatusMsg(t('import.success', { count: result.count }));
+                                                setContactsLoaded(false);
+                                            }
+                                        }}
+                                    >
+                                        {t('contacts.importCsv')}
+                                    </button>
+                                </div>
+                                {contactStatusMsg && (
+                                    <p className={styles['apikey-status']} style={{ marginBottom: 8 }}>
+                                        {contactStatusMsg}
+                                    </p>
+                                )}
+                                <input
+                                    type="text"
+                                    value={contactSearch}
+                                    onChange={(e) => setContactSearch(e.target.value)}
+                                    placeholder={t('contacts.search')}
+                                    className={styles['form-input']}
+                                    style={{ marginBottom: 8 }}
+                                />
+                                <div className={styles['contacts-list']}>
+                                    {contacts
+                                        .filter(c =>
+                                            !contactSearch ||
+                                            (c.name ?? '').toLowerCase().includes(contactSearch.toLowerCase()) ||
+                                            c.email.toLowerCase().includes(contactSearch.toLowerCase())
+                                        )
+                                        .slice(0, 100)
+                                        .map(c => (
+                                            <div key={c.id} className={styles['contact-row']}>
+                                                <span className={styles['contact-name']}>{c.name ?? c.email}</span>
+                                                <span className={styles['contact-email']}>{c.email}</span>
+                                            </div>
+                                        ))}
+                                    {contacts.length === 0 && contactsLoaded && (
+                                        <p className={styles['rules-empty']}>{t('contacts.noContacts')}</p>
+                                    )}
+                                </div>
                             </div>
                         </Tabs.Content>
                     </Tabs.Root>

@@ -125,6 +125,92 @@ Layout class applied on `<html>` alongside theme class.
 
 ---
 
+## Density Modes
+
+3 density modes control the vertical rhythm and type scale of the interface. Applied as a CSS class on `<html>` alongside the theme and layout classes.
+
+| Mode | Class | `--density-padding` | `--density-font-size` | `--density-line-height` |
+| ----------- | ---------------------- | ------------------- | --------------------- | ----------------------- |
+| Compact | `.density-compact` | `4px 8px` | `13px` | `18px` |
+| Comfortable | `.density-comfortable` | `8px 12px` | `14px` | `22px` |
+| Relaxed | `.density-relaxed` | `12px 16px` | `15px` | `26px` |
+
+**Comfortable** is the default. Managed by `themeStore` (Zustand, persisted to localStorage). Applied in `ThemeContext.tsx` via `useEffect` on `document.documentElement.className`.
+
+Components consume the CSS custom properties directly:
+```css
+padding: var(--density-padding);
+font-size: var(--density-font-size);
+line-height: var(--density-line-height);
+```
+
+---
+
+## Reading Pane Zoom
+
+Adjustable zoom level for the email reading pane.
+
+- **Range:** 80% – 150% (default 100%)
+- **Step:** 10% per click
+- **Mechanism:** Inline `transform: scale()` applied to the reading pane content container
+- **Controls:** `ZoomIn` / `ZoomOut` icon buttons in the ReadingPane toolbar
+- **Persistence:** Stored in `themeStore` (Zustand, persisted to localStorage)
+
+```css
+/* Applied inline on the content wrapper */
+transform: scale(var(--reading-zoom));
+transform-origin: top left;
+```
+
+---
+
+## Folder Colors
+
+8 preset colors selectable per folder via the folder context menu in the Sidebar.
+
+| Swatch | Hex |
+| ------ | ------- |
+| Red | `#EF4444` |
+| Orange | `#F97316` |
+| Amber | `#F59E0B` |
+| Green | `#22C55E` |
+| Teal | `#14B8A6` |
+| Blue | `#3B82F6` |
+| Violet | `#8B5CF6` |
+| Pink | `#EC4899` |
+
+**Display:** 3px colored left-border on the folder row in the Sidebar (`border-left: 3px solid <hex>`).
+
+**Storage:** Hex value stored in `folders.color` column (nullable). No color set = no left-border rendered.
+
+---
+
+## Loading Skeletons
+
+Shimmer placeholder blocks displayed in ThreadList while emails are loading.
+
+```css
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(var(--color-bg-tertiary), 1)   0%,
+    rgba(var(--color-border), 0.8)      50%,
+    rgba(var(--color-bg-tertiary), 1)   100%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+```
+
+Each skeleton row mimics the ThreadList item layout: a circular avatar placeholder, two lines of text (subject + sender), and a timestamp stub. `prefers-reduced-motion` disables the animation and shows a static muted block instead.
+
+---
+
 ## Glassmorphism
 
 Used on: Sidebar, onboarding card, provider cards, server setting cards, modals.
@@ -401,7 +487,7 @@ Transition: `all 0.3s cubic-bezier(0.4, 0, 0.2, 1)`
 
 **Runtime icons:** Lucide React (tree-shakeable, SVG-based)
 
-Used icons: `Mail`, `ChevronRight`, `ChevronLeft`, `Eye`, `EyeOff`, `Server`, `Sun`, `Moon`, `Palette`, `Trees`, `LayoutPanelLeft`, `LayoutPanelTop`, `Plus`, `Search`, `Settings`, `Star`, `Trash2`, `Send`, `X`
+Used icons: `Mail`, `ChevronRight`, `ChevronLeft`, `Eye`, `EyeOff`, `Server`, `Sun`, `Moon`, `Palette`, `Trees`, `LayoutPanelLeft`, `LayoutPanelTop`, `Plus`, `Search`, `Settings`, `Star`, `Trash2`, `Send`, `X`, `Tag`, `Bookmark`, `GripVertical`, `ShieldAlert`, `Code`, `Volume2`, `VolumeX`, `ZoomIn`, `ZoomOut`, `Download`, `Upload`, `Copy`
 
 **App Icon:** Custom SVG in `build/icon.svg`
 - 256x256 rounded square
@@ -441,14 +527,20 @@ Used icons: `Mail`, `ChevronRight`, `ChevronLeft`, `Eye`, `EyeOff`, `Server`, `S
 
 ## CSS Architecture
 
-**Approach:** Inline `<style>` tags per component (CSS-in-JS via template literals).
+**Approach:** CSS Modules — co-located `.module.css` files per component. Class names are hashed at build time.
 
-**Namespace convention:** Onboarding uses `ob-` prefix for all classes to avoid collisions with global styles.
+**Module usage convention:** Bracket notation for hyphenated names (`styles['class-name']`). Imported as `import styles from './Component.module.css'`.
+
+**Radix portals** (Dialog, DropdownMenu, Popover) render outside the component tree and cannot be targeted by scoped module selectors. Their classes use `:global(.className)` in the `.module.css` file and remain as plain strings in JSX.
+
+**Namespace convention:** Onboarding uses `ob-` prefix for all classes to avoid collisions with global styles. These keyframes and class names are defined in `OnboardingScreen.module.css`.
 
 **Global styles** live in `src/index.css`:
 - Tailwind CSS v4 base (`@import "tailwindcss"`)
 - Theme variables (`:root`, `.theme-*`)
 - Layout classes (`.layout-vertical`, `.layout-horizontal`)
+- Density classes (`.density-compact`, `.density-comfortable`, `.density-relaxed`)
 - Utility classes (`.glass`, `.scrollable`, `.animate-fade-in`, `.bg-theme-*`, `.text-theme-*`)
+- `@keyframes shimmer` for loading skeleton animation
 
-**Component styles** are co-located inside each `.tsx` file within `<style>{...}</style>` blocks.
+**Co-located module files:** 10 `.module.css` files, one per major component (e.g. `Sidebar.module.css`, `ThreadList.module.css`, `ReadingPane.module.css`, `ComposeModal.module.css`, `SettingsModal.module.css`, `OnboardingScreen.module.css`, etc.).

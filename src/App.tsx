@@ -396,6 +396,7 @@ function App() {
         <Sidebar
           onCompose={() => setComposeState({ to: '', subject: '', body: '' })}
           onSettings={() => setIsSettingsOpen(true)}
+          onToast={showToast}
         />
         <div className="main-content">
           <ThreadList onReply={handleReply} onForward={handleForward} />

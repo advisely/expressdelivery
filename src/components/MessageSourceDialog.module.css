@@ -1,0 +1,140 @@
+/* MessageSourceDialog.module.css — Radix portal classes use :global() */
+
+:global(.msg-source-overlay) {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    animation: msg-source-fade-in 0.15s ease;
+}
+
+:global(.msg-source-content) {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgb(var(--color-bg-primary));
+    border-radius: 12px;
+    padding: 0;
+    width: 90vw;
+    max-width: 900px;
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+    z-index: 1001;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    animation: msg-source-slide-in 0.15s ease;
+}
+
+:global(.msg-source-header) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0;
+}
+
+:global(.msg-source-title) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+    overflow: hidden;
+    min-width: 0;
+}
+
+:global(.msg-source-actions) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-left: 12px;
+}
+
+:global(.msg-source-copy-btn) {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s ease;
+}
+
+:global(.msg-source-copy-btn:hover) {
+    background: var(--hover-bg);
+}
+
+:global(.msg-source-close-btn) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 4px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+:global(.msg-source-close-btn:hover) {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+:global(.msg-source-pre) {
+    flex: 1;
+    overflow: auto;
+    margin: 0;
+    padding: 16px;
+    font-family: 'Courier New', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: var(--bg-secondary);
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
+
+/* Subject label inside the title (truncated) */
+.msg-source-subject {
+    font-weight: 400;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    max-width: 300px;
+}
+
+@keyframes msg-source-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes msg-source-slide-in {
+    from { opacity: 0; transform: translate(-50%, -48%); }
+    to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :global(.msg-source-overlay),
+    :global(.msg-source-content) {
+        animation: none;
+    }
+}

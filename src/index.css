@@ -190,6 +190,39 @@
   color-scheme: dark;
 }
 
+/* ===== DENSITY MODES ===== */
+:root {
+  --thread-item-padding: 10px 16px;
+  --thread-item-gap: 4px;
+  --thread-font-size: 14px;
+  --sidebar-item-padding: 8px 16px;
+  --sidebar-item-gap: 4px;
+}
+
+.density-compact {
+  --thread-item-padding: 6px 12px;
+  --thread-item-gap: 2px;
+  --thread-font-size: 13px;
+  --sidebar-item-padding: 4px 12px;
+  --sidebar-item-gap: 2px;
+}
+
+.density-comfortable {
+  --thread-item-padding: 10px 16px;
+  --thread-item-gap: 4px;
+  --thread-font-size: 14px;
+  --sidebar-item-padding: 8px 16px;
+  --sidebar-item-gap: 4px;
+}
+
+.density-relaxed {
+  --thread-item-padding: 14px 20px;
+  --thread-item-gap: 6px;
+  --thread-font-size: 15px;
+  --sidebar-item-padding: 12px 20px;
+  --sidebar-item-gap: 6px;
+}
+
 /* ===== BASE STYLES ===== */
 
 * {

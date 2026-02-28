@@ -126,7 +126,7 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
@@ -349,6 +349,93 @@ function runMigrations(db: DatabaseType) {
             db.exec('CREATE INDEX IF NOT EXISTS idx_folders_account_path ON folders(account_id, path)');
             db.exec('CREATE INDEX IF NOT EXISTS idx_rules_account_active ON mail_rules(account_id, is_active, priority)');
             version = 10;
+        }
+
+        // Migration 11: Phase 7 — tags, saved searches, spam filter, folder colors, unsubscribe
+        if (version < 11) {
+            // User-defined tags
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS tags (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    color TEXT NOT NULL DEFAULT '#6366f1',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+                    UNIQUE(account_id, name)
+                )
+            `);
+
+            // Email-to-tag junction table
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS email_tags (
+                    email_id TEXT NOT NULL,
+                    tag_id TEXT NOT NULL,
+                    PRIMARY KEY(email_id, tag_id),
+                    FOREIGN KEY(email_id) REFERENCES emails(id) ON DELETE CASCADE,
+                    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                )
+            `);
+
+            // Saved searches / smart folders
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS saved_searches (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    query TEXT NOT NULL,
+                    icon TEXT DEFAULT 'search',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+
+            // Spam token table (Bayesian classifier)
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS spam_tokens (
+                    token TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    spam_count INTEGER DEFAULT 0,
+                    ham_count INTEGER DEFAULT 0,
+                    PRIMARY KEY(token, account_id),
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+
+            // Spam stats per account
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS spam_stats (
+                    account_id TEXT PRIMARY KEY,
+                    total_spam INTEGER DEFAULT 0,
+                    total_ham INTEGER DEFAULT 0,
+                    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            `);
+
+            // New columns on existing tables
+            const folderCols11 = db.prepare("SELECT name FROM pragma_table_info('folders')").all() as { name: string }[];
+            const folderColNames11 = new Set(folderCols11.map(c => c.name));
+            if (!folderColNames11.has('color')) {
+                db.exec("ALTER TABLE folders ADD COLUMN color TEXT");
+            }
+
+            const emailCols11 = db.prepare("SELECT name FROM pragma_table_info('emails')").all() as { name: string }[];
+            const emailColNames11 = new Set(emailCols11.map(c => c.name));
+            if (!emailColNames11.has('list_unsubscribe')) {
+                db.exec("ALTER TABLE emails ADD COLUMN list_unsubscribe TEXT");
+            }
+            if (!emailColNames11.has('spam_score')) {
+                db.exec("ALTER TABLE emails ADD COLUMN spam_score REAL");
+            }
+
+            // Indexes
+            db.exec('CREATE INDEX IF NOT EXISTS idx_email_tags_email ON email_tags(email_id)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_email_tags_tag ON email_tags(tag_id)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_tags_account ON tags(account_id)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_saved_searches_account ON saved_searches(account_id)');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_emails_spam_score ON emails(account_id, spam_score)');
+
+            version = 11;
         }
 
         db.prepare(

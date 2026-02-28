@@ -287,8 +287,8 @@ export class ImapEngine {
         try {
             const insertStmt = db.prepare(
                 `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
-                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
             );
             const insertAttStmt = db.prepare(
                 `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
@@ -323,6 +323,7 @@ export class ImapEngine {
                 // Parse body from raw RFC822 source using mailparser
                 let bodyText = '';
                 let bodyHtml: string | null = null;
+                let listUnsubscribe: string | null = null;
                 if (message.source && message.source.length > 0) {
                     try {
                         const parsed = await simpleParser(message.source, {
@@ -332,6 +333,10 @@ export class ImapEngine {
                         });
                         bodyText = parsed.text ?? '';
                         bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
+                        const listUnsubVal = parsed.headers?.get('list-unsubscribe');
+                        if (typeof listUnsubVal === 'string' && listUnsubVal.trim()) {
+                            listUnsubscribe = listUnsubVal.slice(0, 500);
+                        }
                     } catch (parseErr) {
                         logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
                     }
@@ -358,6 +363,7 @@ export class ImapEngine {
                     (bodyText || '').replace(/\s+/g, ' ').trim().slice(0, 150),
                     bodyText,
                     bodyHtml,
+                    listUnsubscribe,
                 );
 
                 if (result.changes > 0) {
@@ -571,6 +577,52 @@ export class ImapEngine {
         } catch (err) {
             logDebug(`[refetchEmailBody] error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
             return null;
+        } finally {
+            lock.release();
+        }
+    }
+
+    async fetchRawSource(accountId: string, uid: number): Promise<string> {
+        const client = this.clients.get(accountId);
+        if (!client) throw new Error('Not connected');
+
+        const db = getDatabase();
+        // Look up the folder for this specific email's UID so we can lock the right mailbox
+        const emailRow = db.prepare(
+            'SELECT folder_id FROM emails WHERE id = ?'
+        ).get(`${accountId}_${uid}`) as { folder_id: string } | undefined;
+
+        let mailboxPath: string;
+        if (emailRow?.folder_id) {
+            const folderRow = db.prepare(
+                'SELECT path FROM folders WHERE id = ?'
+            ).get(emailRow.folder_id) as { path: string } | undefined;
+            mailboxPath = folderRow?.path?.replace(/^\//, '') || 'INBOX';
+        } else {
+            // Fallback: find inbox for this account
+            const inboxRow = db.prepare(
+                "SELECT path FROM folders WHERE account_id = ? AND type = 'inbox'"
+            ).get(accountId) as { path: string } | undefined;
+            mailboxPath = inboxRow?.path?.replace(/^\//, '') || 'INBOX';
+        }
+
+        const lock = await Promise.race([
+            client.getMailboxLock(mailboxPath),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
+        ]);
+        try {
+            let raw = '';
+            for await (const msg of client.fetch(String(uid), { source: true, uid: true })) {
+                if (msg.source) {
+                    const MAX_RAW_BYTES = 512 * 1024;
+                    const capped = msg.source.slice(0, MAX_RAW_BYTES);
+                    raw = capped.toString('utf-8');
+                    if (msg.source.length > MAX_RAW_BYTES) {
+                        raw += '\n\n[Source truncated — showing first 512 KB]';
+                    }
+                }
+            }
+            return raw;
         } finally {
             lock.release();
         }

@@ -1,8 +1,8 @@
 import { memo, useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Paperclip, Trash2, Reply, Forward, Star, FolderInput, Mail, MailOpen, Inbox as InboxIcon, CheckCircle2, Send as SendIcon, CheckSquare, Square } from 'lucide-react';
+import { Search, Paperclip, Trash2, Reply, Forward, Star, FolderInput, Mail, MailOpen, Inbox as InboxIcon, CheckCircle2, Send as SendIcon, CheckSquare, Square, Bookmark } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
-import type { EmailSummary, EmailFull } from '../stores/emailStore';
+import type { EmailSummary, EmailFull, SavedSearch } from '../stores/emailStore';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
 import styles from './ThreadList.module.css';
 
@@ -15,16 +15,21 @@ interface ThreadItemProps {
     onDelete: (id: string) => void;
     onToggleCheck: (id: string, e: React.MouseEvent) => void;
     onContextMenu: (e: React.MouseEvent, thread: EmailSummary) => void;
+    onDragStart: (e: React.DragEvent, threadId: string) => void;
+    onDragEnd: () => void;
 }
 
-const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAnyChecked, onSelect, onDelete, onToggleCheck, onContextMenu }) => (
+const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAnyChecked, onSelect, onDelete, onToggleCheck, onContextMenu, onDragStart, onDragEnd }) => (
     <div
         role="button"
         tabIndex={0}
+        draggable
         className={`${styles['thread-item']} ${!thread.is_read ? styles['unread'] : ''} ${isSelected ? styles['selected'] : ''} ${isChecked ? styles['checked'] : ''} ${hasAnyChecked ? styles['show-checks'] : ''}`}
         onClick={(e) => { if (e.ctrlKey || e.metaKey || e.shiftKey) { onToggleCheck(thread.id, e); } else { onSelect(thread.id); } }}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(thread.id); } }}
         onContextMenu={(e) => onContextMenu(e, thread)}
+        onDragStart={(e) => onDragStart(e, thread.id)}
+        onDragEnd={onDragEnd}
     >
         <button
             type="button"
@@ -98,6 +103,8 @@ interface ThreadListProps {
 export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) => {
     const { t } = useTranslation();
     const emails = useEmailStore(s => s.emails);
+    const isLoading = useEmailStore(s => s.isLoading);
+    const setLoading = useEmailStore(s => s.setLoading);
     const folders = useEmailStore(s => s.folders);
     const selectedFolderId = useEmailStore(s => s.selectedFolderId);
     const selectedEmailId = useEmailStore(s => s.selectedEmailId);
@@ -111,6 +118,10 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const selectEmailRange = useEmailStore(s => s.selectEmailRange);
     const selectAllEmails = useEmailStore(s => s.selectAllEmails);
     const clearSelection = useEmailStore(s => s.clearSelection);
+    const savedSearches = useEmailStore(s => s.savedSearches);
+    const setSavedSearches = useEmailStore(s => s.setSavedSearches);
+    const selectedAccountId = useEmailStore(s => s.selectedAccountId);
+    const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
     const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
@@ -126,15 +137,25 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     useEffect(() => {
         if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
         if (!selectedFolderId) return;
+        setLoading(true);
         ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
-            .then(result => { if (result) setEmails(result); });
-    }, [selectedFolderId, setEmails]);
+            .then(result => { if (Array.isArray(result)) setEmails(result); })
+            .finally(() => setLoading(false));
+    }, [selectedFolderId, setEmails, setLoading]);
 
     useEffect(() => {
-        const cleanup = ipcOn('email:new', () => {
+        const cleanup = ipcOn('email:new', async () => {
             if (selectedFolderId) {
                 ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
-                    .then(result => { if (result) setEmails(result); });
+                    .then(result => { if (Array.isArray(result)) setEmails(result); });
+            }
+            const soundEnabled = await ipcInvoke<string>('settings:get', 'sound_enabled');
+            if (soundEnabled === 'true') {
+                try {
+                    const audio = new Audio('/sounds/notification.wav');
+                    audio.volume = 0.5;
+                    audio.play().catch(() => {});
+                } catch { /* silent fail */ }
             }
         });
         return () => { cleanup?.(); };
@@ -146,10 +167,10 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         searchTimerRef.current = setTimeout(async () => {
             if (query.trim().length > 1) {
                 const results = await ipcInvoke<EmailSummary[]>('emails:search', query);
-                if (results) setEmails(results);
+                if (Array.isArray(results)) setEmails(results);
             } else if (selectedFolderId) {
                 const result = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
-                if (result) setEmails(result);
+                if (Array.isArray(result)) setEmails(result);
             }
         }, 300);
     }, [selectedFolderId, setEmails, setSearchQuery]);
@@ -188,7 +209,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const refreshList = useCallback(async () => {
         if (selectedFolderId) {
             const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
-            if (refreshed) setEmails(refreshed);
+            if (Array.isArray(refreshed)) setEmails(refreshed);
         }
     }, [selectedFolderId, setEmails]);
 
@@ -255,6 +276,18 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         setShowMoveSubmenu(false);
     }, []);
 
+    const handleDragStart = useCallback((e: React.DragEvent, threadId: string) => {
+        e.dataTransfer.effectAllowed = 'move';
+        // If the dragged email is part of the current selection, drag the whole selection
+        const ids = selectedEmailIds.has(threadId) ? [...selectedEmailIds] : [threadId];
+        setDraggedEmailIds(ids);
+        e.dataTransfer.setData('text/plain', ids.join(','));
+    }, [selectedEmailIds, setDraggedEmailIds]);
+
+    const handleDragEnd = useCallback(() => {
+        setDraggedEmailIds([]);
+    }, [setDraggedEmailIds]);
+
     const ctxAction = useCallback(async (action: string) => {
         if (!ctxMenu) return;
         const { email } = ctxMenu;
@@ -278,7 +311,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                     if (useEmailStore.getState().selectedEmailId === email.id) setSelectedEmail(null);
                     if (selectedFolderId) {
                         const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
-                        if (refreshed) setEmails(refreshed);
+                        if (Array.isArray(refreshed)) setEmails(refreshed);
                     }
                 }
                 break;
@@ -306,7 +339,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         setCtxMenu(null);
         if (result?.success && selectedFolderId) {
             const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
-            if (refreshed) setEmails(refreshed);
+            if (Array.isArray(refreshed)) setEmails(refreshed);
         }
     }, [ctxMenu, selectedFolderId, setEmails]);
 
@@ -320,7 +353,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
             }
             if (selectedFolderId) {
                 const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
-                if (refreshed) setEmails(refreshed);
+                if (Array.isArray(refreshed)) setEmails(refreshed);
             }
         }
     }, [selectedFolderId, setEmails, setSelectedEmail]);
@@ -411,12 +444,41 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                             value={searchQuery}
                             onChange={(e) => handleSearch(e.target.value)}
                         />
+                        {searchQuery.trim().length > 1 && (
+                            <button
+                                type="button"
+                                className={styles['save-search-btn']}
+                                onClick={async () => {
+                                    if (!selectedAccountId) return;
+                                    const name = searchQuery.trim().slice(0, 50);
+                                    const result = await ipcInvoke<SavedSearch>('searches:create', selectedAccountId, name, searchQuery.trim());
+                                    if (result && !savedSearches.some(s => s.id === result.id)) {
+                                        setSavedSearches([...savedSearches, result]);
+                                    }
+                                }}
+                                title={t('threadList.saveSearch')}
+                                aria-label={t('threadList.saveSearch')}
+                            >
+                                <Bookmark size={14} />
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
 
             <div className={`${styles['thread-items']} animate-fade-in`}>
-                {emails.length === 0 && (
+                {isLoading && emails.length === 0 && (
+                    <div className={styles['skeleton-list']}>
+                        {Array.from({ length: 7 }).map((_, i) => (
+                            <div key={i} className={styles['skeleton-item']} data-testid="skeleton-item">
+                                <div className={styles['skeleton-line-short']} />
+                                <div className={styles['skeleton-line']} />
+                                <div className={styles['skeleton-line-medium']} />
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {!isLoading && emails.length === 0 && (
                     <div className={styles['empty-state']}>
                         {(() => {
                             const folder = folders.find(f => f.id === selectedFolderId);
@@ -451,6 +513,8 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                         onDelete={handleDeleteEmail}
                         onToggleCheck={handleToggleCheck}
                         onContextMenu={handleContextMenu}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
                     />
                 ))}
             </div>

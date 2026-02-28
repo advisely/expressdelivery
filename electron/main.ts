@@ -55,6 +55,10 @@ import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
 import { initAutoUpdater, setUpdateCallback, checkForUpdates, downloadUpdate, installUpdate } from './updater.js'
+import { exportEml, exportMbox } from './emailExport.js'
+import { importEml, importMbox } from './emailImport.js'
+import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
+import { trainSpam, classifySpam } from './spamFilter.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -422,7 +426,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('folders:list', (_event, accountId: string) => {
     return db.prepare(
-      'SELECT id, name, path, type FROM folders WHERE account_id = ?'
+      'SELECT id, name, path, type, color FROM folders WHERE account_id = ?'
     ).all(accountId);
   });
 
@@ -582,6 +586,36 @@ function registerIpcHandlers() {
          WHERE status = 'pending'
          ORDER BY send_at ASC LIMIT 50`
       ).all();
+    }
+    // Virtual folder: tag filter
+    if (folderId.startsWith('__tag_')) {
+      const tagId = folderId.slice(6);
+      return db.prepare(
+        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+                e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels
+         FROM emails e
+         INNER JOIN email_tags et ON et.email_id = e.id
+         WHERE et.tag_id = ?
+         ORDER BY e.date DESC LIMIT 50`
+      ).all(tagId);
+    }
+    // Virtual folder: saved search
+    if (folderId.startsWith('__search_')) {
+      const searchId = folderId.slice(9);
+      const search = db.prepare('SELECT query FROM saved_searches WHERE id = ?').get(searchId) as { query: string } | undefined;
+      if (!search) return [];
+      const sanitized = sanitizeFts5Query(search.query);
+      if (!sanitized) return [];
+      return db.prepare(
+        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+                e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels
+         FROM emails e
+         INNER JOIN emails_fts ON emails_fts.rowid = e.rowid
+         WHERE emails_fts MATCH ?
+         ORDER BY e.date DESC LIMIT 50`
+      ).all(sanitized);
     }
     return db.prepare(
       `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
@@ -897,6 +931,50 @@ function registerIpcHandlers() {
     return { success: true, repaired, failed, total: emails.length };
   });
 
+  ipcMain.handle('emails:source', async (_event, emailId: string, accountId: string) => {
+    if (!emailId || typeof emailId !== 'string') return { error: 'Invalid email ID' };
+    if (!accountId || typeof accountId !== 'string') return { error: 'Invalid account ID' };
+
+    const email = db.prepare('SELECT account_id FROM emails WHERE id = ?').get(emailId) as { account_id: string } | undefined;
+    if (!email) return { error: 'Email not found' };
+    if (email.account_id !== accountId) return { error: 'Access denied' };
+
+    const uid = extractUid(emailId);
+    if (!uid || isNaN(uid)) return { error: 'Invalid email UID' };
+
+    const connected = await imapEngine.ensureConnected(email.account_id);
+    if (!connected) return { error: 'IMAP not connected' };
+
+    try {
+      const source = await imapEngine.fetchRawSource(email.account_id, uid);
+      return { source };
+    } catch (err) {
+      logDebug(`[emails:source] error: ${err instanceof Error ? err.message : String(err)}`);
+      return { error: 'Failed to fetch source' };
+    }
+  });
+
+  ipcMain.handle('emails:unsubscribe-info', (_event, emailId: string) => {
+    if (!emailId || typeof emailId !== 'string') return { hasUnsubscribe: false };
+
+    const row = db.prepare('SELECT list_unsubscribe FROM emails WHERE id = ?').get(emailId) as { list_unsubscribe: string | null } | undefined;
+    if (!row?.list_unsubscribe) return { hasUnsubscribe: false };
+
+    const urls: Array<{ type: 'mailto' | 'http'; url: string }> = [];
+    const matches = row.list_unsubscribe.match(/<([^>]+)>/g);
+    if (matches) {
+      for (const m of matches) {
+        const url = m.slice(1, -1);
+        if (url.startsWith('mailto:')) {
+          urls.push({ type: 'mailto', url });
+        } else if (url.startsWith('http://') || url.startsWith('https://')) {
+          urls.push({ type: 'http', url });
+        }
+      }
+    }
+    return { hasUnsubscribe: urls.length > 0, urls };
+  });
+
   // Print email
   ipcMain.handle('print:email', async () => {
     if (!win) return { success: false };
@@ -958,7 +1036,7 @@ function registerIpcHandlers() {
     return row?.value ?? null;
   });
 
-  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay']);
+  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay', 'density_mode', 'reading_pane_zoom', 'sound_enabled', 'sound_custom_path']);
   ipcMain.handle('settings:set', (_event, key: string, value: string) => {
     if (!ALLOWED_SETTINGS_KEYS.has(key)) {
       throw new Error(`Setting key not allowed: ${key}`);
@@ -1649,6 +1727,193 @@ function registerIpcHandlers() {
 
   ipcMain.handle('update:install', () => {
     installUpdate();
+  });
+
+  ipcMain.handle('folders:set-color', (_event, folderId: string, color: string | null) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    if (color !== null && (typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color))) {
+      throw new Error('Invalid color format');
+    }
+    db.prepare('UPDATE folders SET color = ? WHERE id = ?').run(color, folderId);
+    return { success: true };
+  });
+
+  // Phase 7: Tags
+  ipcMain.handle('tags:list', (_event, accountId: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    return db.prepare('SELECT id, account_id, name, color, created_at FROM tags WHERE account_id = ? ORDER BY name').all(accountId);
+  });
+
+  ipcMain.handle('tags:create', (_event, accountId: string, name: string, color: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (!name || typeof name !== 'string' || name.trim().length === 0) throw new Error('Tag name required');
+    if (!color || typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error('Invalid color');
+    const id = crypto.randomUUID();
+    db.prepare('INSERT INTO tags (id, account_id, name, color) VALUES (?, ?, ?, ?)').run(id, accountId, name.trim().slice(0, 50), color);
+    return { id, account_id: accountId, name: name.trim(), color };
+  });
+
+  ipcMain.handle('tags:update', (_event, tagId: string, accountId: string, name: string, color: string) => {
+    if (!tagId || typeof tagId !== 'string') throw new Error('Invalid tag ID');
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) return { error: 'Invalid color format' };
+    const tag = db.prepare('SELECT id FROM tags WHERE id = ? AND account_id = ?').get(tagId, accountId);
+    if (!tag) throw new Error('Tag not found');
+    db.prepare('UPDATE tags SET name = ?, color = ? WHERE id = ? AND account_id = ?').run(name.trim().slice(0, 50), color, tagId, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('tags:delete', (_event, tagId: string, accountId: string) => {
+    if (!tagId || typeof tagId !== 'string') throw new Error('Invalid tag ID');
+    const tag = db.prepare('SELECT id FROM tags WHERE id = ? AND account_id = ?').get(tagId, accountId);
+    if (!tag) throw new Error('Tag not found');
+    db.prepare('DELETE FROM tags WHERE id = ? AND account_id = ?').run(tagId, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('tags:assign', (_event, emailId: string, tagId: string) => {
+    if (!emailId || !tagId) throw new Error('Email ID and tag ID required');
+    const email = db.prepare('SELECT account_id FROM emails WHERE id = ?').get(emailId) as { account_id: string } | undefined;
+    if (!email) throw new Error('Email not found');
+    const tagRow = db.prepare('SELECT account_id FROM tags WHERE id = ?').get(tagId) as { account_id: string } | undefined;
+    if (!tagRow) throw new Error('Tag not found');
+    if (email.account_id !== tagRow.account_id) throw new Error('Access denied: tag and email belong to different accounts');
+    db.prepare('INSERT OR IGNORE INTO email_tags (email_id, tag_id) VALUES (?, ?)').run(emailId, tagId);
+    return { success: true };
+  });
+
+  ipcMain.handle('tags:remove', (_event, emailId: string, tagId: string) => {
+    if (!emailId || !tagId) throw new Error('Email ID and tag ID required');
+    db.prepare('DELETE FROM email_tags WHERE email_id = ? AND tag_id = ?').run(emailId, tagId);
+    return { success: true };
+  });
+
+  ipcMain.handle('tags:emails', (_event, tagId: string) => {
+    if (!tagId || typeof tagId !== 'string') throw new Error('Invalid tag ID');
+    return db.prepare(
+      `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+              e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+              e.ai_category, e.ai_priority, e.ai_labels
+       FROM emails e
+       INNER JOIN email_tags et ON et.email_id = e.id
+       WHERE et.tag_id = ?
+       ORDER BY e.date DESC LIMIT 50`
+    ).all(tagId);
+  });
+
+  ipcMain.handle('emails:tags', (_event, emailId: string) => {
+    if (!emailId || typeof emailId !== 'string') throw new Error('Invalid email ID');
+    return db.prepare(
+      `SELECT t.id, t.name, t.color FROM tags t
+       INNER JOIN email_tags et ON et.tag_id = t.id
+       WHERE et.email_id = ?
+       ORDER BY t.name`
+    ).all(emailId);
+  });
+
+  // Phase 7: Saved searches
+  ipcMain.handle('searches:list', (_event, accountId: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    return db.prepare('SELECT id, account_id, name, query, icon, created_at FROM saved_searches WHERE account_id = ? ORDER BY name').all(accountId);
+  });
+
+  ipcMain.handle('searches:create', (_event, accountId: string, name: string, query: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (!name || typeof name !== 'string' || name.trim().length === 0) throw new Error('Search name required');
+    if (!query || typeof query !== 'string' || query.trim().length === 0) throw new Error('Search query required');
+    const id = crypto.randomUUID();
+    db.prepare('INSERT INTO saved_searches (id, account_id, name, query) VALUES (?, ?, ?, ?)').run(id, accountId, name.trim().slice(0, 100), query.trim().slice(0, 200));
+    return { id, account_id: accountId, name: name.trim(), query: query.trim(), icon: 'search' };
+  });
+
+  ipcMain.handle('searches:delete', (_event, searchId: string, accountId: string) => {
+    if (!searchId || typeof searchId !== 'string') throw new Error('Invalid search ID');
+    const search = db.prepare('SELECT id FROM saved_searches WHERE id = ? AND account_id = ?').get(searchId, accountId);
+    if (!search) throw new Error('Search not found');
+    db.prepare('DELETE FROM saved_searches WHERE id = ? AND account_id = ?').run(searchId, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('searches:run', (_event, searchId: string, accountId: string) => {
+    if (!searchId || typeof searchId !== 'string') throw new Error('Invalid search ID');
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    const search = db.prepare('SELECT query FROM saved_searches WHERE id = ? AND account_id = ?').get(searchId, accountId) as { query: string } | undefined;
+    if (!search) return [];
+    const sanitized = sanitizeFts5Query(search.query);
+    if (!sanitized) return [];
+    return db.prepare(
+      `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+              e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+              e.ai_category, e.ai_priority, e.ai_labels
+       FROM emails e
+       INNER JOIN emails_fts ON emails_fts.rowid = e.rowid
+       WHERE emails_fts MATCH ? AND e.account_id = ?
+       ORDER BY e.date DESC LIMIT 50`
+    ).all(sanitized, accountId);
+  });
+
+  // Data Portability: Email Export/Import
+  ipcMain.handle('export:eml', async (_event, emailId: string) => {
+    if (!emailId || typeof emailId !== 'string') throw new Error('Invalid email ID');
+    const emailRow = db.prepare('SELECT account_id FROM emails WHERE id = ?').get(emailId) as { account_id: string } | undefined;
+    if (!emailRow) return { success: false, error: 'Email not found' };
+    return exportEml(emailId, emailRow.account_id);
+  });
+
+  ipcMain.handle('export:mbox', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    const folderRow = db.prepare('SELECT account_id FROM folders WHERE id = ?').get(folderId) as { account_id: string } | undefined;
+    if (!folderRow) return { success: false, error: 'Folder not found' };
+    return exportMbox(folderId, folderRow.account_id);
+  });
+
+  ipcMain.handle('import:eml', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    return importEml(folderId);
+  });
+
+  ipcMain.handle('import:mbox', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    return importMbox(folderId);
+  });
+
+  // Data Portability: Contact Export/Import
+  ipcMain.handle('contacts:list', () => {
+    return db
+      .prepare('SELECT id, email, name, avatar_url FROM contacts ORDER BY name, email LIMIT 5000')
+      .all();
+  });
+
+  ipcMain.handle('contacts:export-vcard', async () => {
+    return exportVcard();
+  });
+
+  ipcMain.handle('contacts:export-csv', async () => {
+    return exportCsv();
+  });
+
+  ipcMain.handle('contacts:import-vcard', async () => {
+    return importVcard();
+  });
+
+  ipcMain.handle('contacts:import-csv', async () => {
+    return importCsv();
+  });
+
+  // Phase 7 Batch 5: Spam — Bayesian classifier training and classification
+  ipcMain.handle('spam:train', (_e, accountId: string, emailId: string, isSpam: boolean) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (!emailId   || typeof emailId   !== 'string') throw new Error('Invalid email ID');
+    if (typeof isSpam !== 'boolean') throw new Error('isSpam must be a boolean');
+    trainSpam(accountId, emailId, isSpam);
+    return { success: true };
+  });
+
+  ipcMain.handle('spam:classify', (_e, accountId: string, emailId: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (!emailId   || typeof emailId   !== 'string') throw new Error('Invalid email ID');
+    const score = classifySpam(accountId, emailId);
+    return { score };
   });
 
 }

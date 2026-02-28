@@ -22,7 +22,25 @@
     "deleteFolder": "Ordner löschen",
     "deleteFolderConfirm": "Ordner \"{{name}}\" löschen? Er muss leer sein.",
     "createSubfolder": "Unterordner erstellen",
-    "newFolderName": "Name des neuen Ordners"
+    "newFolderName": "Name des neuen Ordners",
+    "setColor": "Farbe setzen",
+    "clearColor": "Farbe entfernen",
+    "savedSearches": "Gespeicherte Suchen",
+    "deleteSavedSearch": "Suche löschen",
+    "exportMbox": "Als MBOX exportieren...",
+    "importEmails": "E-Mails importieren..."
+  },
+  "tags": {
+    "title": "Schlagwörter",
+    "create": "Schlagwort erstellen",
+    "edit": "Schlagwort bearbeiten",
+    "delete": "Löschen",
+    "assign": "Schlagwort hinzufügen",
+    "remove": "Entfernen",
+    "name": "Schlagwortname",
+    "color": "Farbe",
+    "noTags": "Keine Schlagwörter",
+    "filterBy": "Nach Schlagwort filtern"
   },
   "threadList": {
     "search": "E-Mails suchen...",
@@ -38,7 +56,26 @@
     "markUnread": "Als ungelesen markieren",
     "selected": "{{count}} ausgewählt",
     "selectAll": "Alle auswählen",
-    "clearSelection": "Auswahl aufheben"
+    "clearSelection": "Auswahl aufheben",
+    "saveSearch": "Suche speichern"
+  },
+  "export": {
+    "success": "{{count}} Elemente exportiert",
+    "failed": "Export fehlgeschlagen"
+  },
+  "import": {
+    "success": "{{count}} Elemente importiert",
+    "failed": "Import fehlgeschlagen",
+    "tooLarge": "Datei zu groß (max. 1000 Nachrichten)"
+  },
+  "contacts": {
+    "title": "Kontakte",
+    "exportVcard": "vCard exportieren",
+    "exportCsv": "CSV exportieren",
+    "importVcard": "vCard importieren",
+    "importCsv": "CSV importieren",
+    "search": "Kontakte suchen...",
+    "noContacts": "Keine Kontakte gefunden"
   },
   "readingPane": {
     "noSelection": "E-Mail zum Lesen auswählen",
@@ -58,7 +95,10 @@
     "emailMoved": "E-Mail verschoben",
     "attachments": "Anhänge",
     "download": "Herunterladen",
-    "moveTo": "Verschieben nach..."
+    "moveTo": "Verschieben nach...",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern",
+    "saveAsEml": "Als EML speichern"
   },
   "compose": {
     "newMessage": "Neue Nachricht",
@@ -106,7 +146,14 @@
   "settings": {
     "title": "Einstellungen",
     "accounts": "Konten",
+    "contacts": "Kontakte",
     "appearance": "Darstellung",
+    "density": "Anzeigedichte",
+    "densityCompact": "Kompakt",
+    "densityComfortable": "Komfortabel",
+    "densityRelaxed": "Entspannt",
+    "readingPaneZoom": "Lesebereichszoom",
+    "soundEnabled": "Ton bei neuer E-Mail abspielen",
     "aiKeys": "KI / API-Schlüssel",
     "notifications": "Benachrichtigungen",
     "rules": "Regeln",
@@ -259,5 +306,32 @@
     "newEmail": "Neue E-Mail",
     "settings": "Einstellungen",
     "help": "Diese Hilfe"
+  },
+  "messageSource": {
+    "title": "Nachrichtenquelle",
+    "copy": "Kopieren",
+    "copied": "Kopiert!",
+    "viewSource": "Quelle anzeigen",
+    "loading": "Quelle wird geladen..."
+  },
+  "unsubscribe": {
+    "banner": "Diese E-Mail stammt von einer Mailingliste",
+    "button": "Abmelden",
+    "copyLink": "Abmeldelink kopieren",
+    "copied": "Link kopiert!",
+    "mailto": "Abmelde-E-Mail senden"
+  },
+  "dragDrop": {
+    "moveToFolder": "{{count}} E-Mail(s) nach {{folder}} verschoben"
+  },
+  "spam": {
+    "reportSpam": "Als Spam melden",
+    "notSpam": "Kein Spam",
+    "trainedSpam": "Als Spam gemeldet",
+    "trainedHam": "Als kein Spam markiert"
+  },
+  "phishing": {
+    "warning": "Warnung: Diese E-Mail kann Phishing-Links enthalten",
+    "reasons": "Verdächtige Indikatoren gefunden:"
   }
 }

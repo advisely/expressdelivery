@@ -28,6 +28,21 @@
   color: var(--text-secondary);
 }
 
+.save-search-btn {
+  flex-shrink: 0;
+  padding: 4px;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.save-search-btn:hover {
+  color: var(--accent-color);
+  background: var(--hover-bg);
+}
+
 .search-input {
   border: none;
   background: transparent;
@@ -43,8 +58,7 @@
 }
 
 .thread-item {
-  padding: 16px;
-  padding-left: 16px;
+  padding: var(--thread-item-padding, 16px);
   border-bottom: 1px solid var(--glass-border);
   cursor: pointer;
   position: relative;
@@ -105,11 +119,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: var(--thread-item-gap, 4px);
 }
 
 .sender {
-  font-size: 14px;
+  font-size: var(--thread-font-size, 14px);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -368,4 +382,57 @@
   .ctx-menu {
     animation: none;
   }
+}
+
+/* Loading skeletons */
+.skeleton-list {
+  padding: 0;
+}
+
+.skeleton-item {
+  padding: var(--thread-item-padding, 16px);
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line,
+.skeleton-line-short,
+.skeleton-line-medium {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--hover-bg) 25%, var(--hover-bg-subtle) 50%, var(--hover-bg) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+.skeleton-line { width: 100%; }
+.skeleton-line-short { width: 40%; height: 14px; }
+.skeleton-line-medium { width: 70%; }
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line,
+  .skeleton-line-short,
+  .skeleton-line-medium {
+    animation: none;
+  }
+}
+
+/* Drag-and-drop */
+.thread-item[draggable="true"] {
+  cursor: grab;
+}
+
+.thread-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.thread-item.dragging {
+  opacity: 0.5;
 }

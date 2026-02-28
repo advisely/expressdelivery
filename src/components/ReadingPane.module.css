@@ -55,6 +55,13 @@
   fill: rgb(var(--color-flag));
 }
 
+.zoom-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 32px;
+  text-align: center;
+}
+
 .reading-pane-error {
   padding: 6px 24px;
   color: rgb(var(--color-danger));
@@ -372,6 +379,182 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ─── Tag section ─── */
+
+.rp-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 12px;
+  position: relative;
+}
+
+.rp-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.rp-tag-remove {
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 0 2px;
+}
+
+.rp-tag-remove:hover {
+  opacity: 1;
+}
+
+.rp-tag-add {
+  font-size: 12px;
+  color: var(--accent-color);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px dashed var(--glass-border);
+}
+
+.rp-tag-add:hover {
+  background: var(--hover-bg);
+}
+
+.rp-tag-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  background: var(--bg-elevated, rgb(var(--color-bg-elevated)));
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.rp-tag-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.rp-tag-option:hover {
+  background: var(--hover-bg);
+}
+
+.rp-tag-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.rp-tag-empty {
+  display: block;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── Unsubscribe banner ─── */
+
+.unsubscribe-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: rgba(var(--color-accent), 0.07);
+  border: 1px solid rgba(var(--color-accent), 0.25);
+  color: var(--text-primary);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.unsubscribe-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.unsubscribe-btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: var(--accent-color);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.unsubscribe-btn:hover {
+  background: var(--accent-hover);
+}
+
+.unsubscribe-copy-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.unsubscribe-copy-btn:hover {
+  background: var(--hover-bg);
+}
+
+/* ─── Phishing warning banner ─── */
+
+.phishing-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0 0 12px 0;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.phishing-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.phishing-reasons {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.phishing-reasons li {
+  margin-bottom: 2px;
 }
 
 /* ─── Reduced motion ─── */

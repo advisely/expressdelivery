@@ -12,7 +12,7 @@ interface LayoutContextType {
 const LayoutContext = createContext<LayoutContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { themeName, layout, setLayout } = useThemeStore();
+    const { themeName, layout, setLayout, densityMode } = useThemeStore();
 
     useEffect(() => {
         const root = window.document.documentElement;
@@ -25,7 +25,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         root.classList.remove('layout-vertical', 'layout-horizontal');
         root.classList.add(`layout-${layout}`);
 
-    }, [themeName, layout]);
+        root.classList.remove('density-compact', 'density-comfortable', 'density-relaxed');
+        root.classList.add(`density-${densityMode}`);
+
+    }, [themeName, layout, densityMode]);
 
     return (
         <LayoutContext.Provider value={{ layout, setLayout }}>

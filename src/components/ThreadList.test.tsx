@@ -39,6 +39,7 @@ vi.mock('lucide-react', () => ({
     Send: () => <div data-testid="icon-Send">S</div>,
     CheckSquare: () => <div data-testid="icon-CheckSquare">CSq</div>,
     Square: () => <div data-testid="icon-Square">Sq</div>,
+    Bookmark: () => <div data-testid="icon-Bookmark">Bk</div>,
 }));
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ describe('ThreadList', () => {
             selectedEmailIds: new Set<string>(),
             selectedEmail: null,
             searchQuery: '',
+            isLoading: false,
         });
     });
 
@@ -230,13 +232,15 @@ describe('ThreadList', () => {
     // 2. Empty states per folder type
     // -----------------------------------------------------------------------
     describe('Empty states', () => {
-        it('shows inbox empty state when inbox folder is empty', () => {
+        it('shows inbox empty state when inbox folder is empty', async () => {
+            mockIpcInvoke.mockResolvedValue([]);
             setupStoreWithEmails([], 'folder-inbox', [INBOX_FOLDER]);
             renderThreadList();
-            expect(screen.getByText('threadList.emptyInbox')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('threadList.emptyInbox')).toBeInTheDocument());
         });
 
-        it('shows trash empty state when trash folder is empty', () => {
+        it('shows trash empty state when trash folder is empty', async () => {
+            mockIpcInvoke.mockResolvedValue([]);
             useEmailStore.setState({
                 emails: [],
                 folders: [TRASH_FOLDER],
@@ -247,10 +251,11 @@ describe('ThreadList', () => {
                 searchQuery: '',
             });
             renderThreadList();
-            expect(screen.getByText('threadList.emptyTrash')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('threadList.emptyTrash')).toBeInTheDocument());
         });
 
-        it('shows sent empty state when sent folder is empty', () => {
+        it('shows sent empty state when sent folder is empty', async () => {
+            mockIpcInvoke.mockResolvedValue([]);
             useEmailStore.setState({
                 emails: [],
                 folders: [SENT_FOLDER],
@@ -261,10 +266,11 @@ describe('ThreadList', () => {
                 searchQuery: '',
             });
             renderThreadList();
-            expect(screen.getByText('threadList.emptySent')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('threadList.emptySent')).toBeInTheDocument());
         });
 
-        it('shows drafts empty state when drafts folder is empty', () => {
+        it('shows drafts empty state when drafts folder is empty', async () => {
+            mockIpcInvoke.mockResolvedValue([]);
             useEmailStore.setState({
                 emails: [],
                 folders: [DRAFTS_FOLDER],
@@ -275,12 +281,13 @@ describe('ThreadList', () => {
                 searchQuery: '',
             });
             renderThreadList();
-            expect(screen.getByText('threadList.emptyDrafts')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('threadList.emptyDrafts')).toBeInTheDocument());
         });
 
-        it('shows noResults state when searchQuery is set in store and emails is empty', () => {
+        it('shows noResults state when searchQuery is set in store and emails is empty', async () => {
             // noResults only shows for non-standard folder types when searchQuery is set.
             // Standard types (inbox/trash/sent/drafts) show their own empty state.
+            mockIpcInvoke.mockResolvedValue([]);
             useEmailStore.setState({
                 emails: [],
                 folders: [CUSTOM_FOLDER],
@@ -291,10 +298,11 @@ describe('ThreadList', () => {
                 searchQuery: 'xyz-no-match',
             });
             renderThreadList();
-            expect(screen.getByText('threadList.noResults')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('threadList.noResults')).toBeInTheDocument());
         });
 
-        it('shows generic noEmails state for custom folder with no search query', () => {
+        it('shows generic noEmails state for custom folder with no search query', async () => {
+            mockIpcInvoke.mockResolvedValue([]);
             useEmailStore.setState({
                 emails: [],
                 folders: [CUSTOM_FOLDER],
@@ -305,7 +313,7 @@ describe('ThreadList', () => {
                 searchQuery: '',
             });
             renderThreadList();
-            expect(screen.getByText('threadList.noEmails')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('threadList.noEmails')).toBeInTheDocument());
         });
     });
 

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 
 export type ThemeName = 'light' | 'cream' | 'midnight' | 'forest'
 export type LayoutMode = 'vertical' | 'horizontal'
+export type DensityMode = 'compact' | 'comfortable' | 'relaxed'
 
 export interface ThemeConfig {
     name: ThemeName
@@ -26,11 +27,15 @@ interface ThemeState {
     themeName: ThemeName
     layout: LayoutMode
     sidebarCollapsed: boolean
+    densityMode: DensityMode
+    readingPaneZoom: number
     setTheme: (name: ThemeName) => void
     setLayout: (layout: LayoutMode) => void
     setSidebarCollapsed: (collapsed: boolean) => void
     toggleSidebar: () => void
     cycleTheme: () => void
+    setDensityMode: (mode: DensityMode) => void
+    setReadingPaneZoom: (zoom: number) => void
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -39,6 +44,8 @@ export const useThemeStore = create<ThemeState>()(
             themeName: 'light',
             layout: 'vertical',
             sidebarCollapsed: false,
+            densityMode: 'comfortable',
+            readingPaneZoom: 100,
 
             setTheme: (themeName) => set({ themeName }),
             setLayout: (layout) => set({ layout }),
@@ -50,6 +57,9 @@ export const useThemeStore = create<ThemeState>()(
                     const idx = THEMES.findIndex((t) => t.name === state.themeName)
                     return { themeName: THEMES[(idx + 1) % THEMES.length].name }
                 }),
+
+            setDensityMode: (densityMode) => set({ densityMode }),
+            setReadingPaneZoom: (zoom) => set({ readingPaneZoom: Math.max(80, Math.min(150, zoom)) }),
         }),
         { name: 'app-theme' }
     )

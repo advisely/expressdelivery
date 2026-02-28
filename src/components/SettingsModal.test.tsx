@@ -34,6 +34,8 @@ vi.mock('lucide-react', () => ({
     GripVertical: () => <div data-testid="icon-GripVertical">GV</div>,
     Pencil: () => <div data-testid="icon-Pencil">Pe</div>,
     FileText: () => <div data-testid="icon-FileText">Ft</div>,
+    Tags: () => <div data-testid="icon-Tags">Tg</div>,
+    Users: () => <div data-testid="icon-Users">Us</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
@@ -204,10 +206,11 @@ describe('SettingsModal Integration Tests', () => {
     // --- New tests for Test Connection feature ---
 
     it('resets test status to idle when a credential field changes after a successful test', async () => {
-        // Arrange: first call is the API key load (returns null), second is notification settings, third is undo_send_delay, then connection test returns success
+        // Arrange: first call is the API key load (returns null), second is notification settings, third is undo_send_delay, fourth is sound_enabled, then connection test returns success
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get undo_send_delay
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get sound_enabled
         mockIpcInvoke.mockResolvedValueOnce({ success: true }); // accounts:test
 
         renderSettings();
@@ -238,10 +241,11 @@ describe('SettingsModal Integration Tests', () => {
     });
 
     it('shows inline error and Failed label when the IPC call itself throws (network failure)', async () => {
-        // Arrange: first call is the API key load (returns null), second is notification settings, third is undo_send_delay, then simulate a hard IPC-layer rejection
+        // Arrange: first call is the API key load (returns null), second is notification settings, third is undo_send_delay, fourth is sound_enabled, then simulate a hard IPC-layer rejection
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get undo_send_delay
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get sound_enabled
         mockIpcInvoke.mockRejectedValueOnce(new Error('IPC channel closed')); // accounts:test
 
         renderSettings();
@@ -274,6 +278,7 @@ describe('SettingsModal Integration Tests', () => {
             .mockResolvedValueOnce(null)                 // apikeys:get-openrouter
             .mockResolvedValueOnce(null)                 // settings:get notifications_enabled
             .mockResolvedValueOnce(null)                 // settings:get undo_send_delay
+            .mockResolvedValueOnce(null)                 // settings:get sound_enabled
             .mockResolvedValueOnce({ success: true })    // accounts:test
             .mockResolvedValueOnce({ id: 'new-acc-id' }) // accounts:add
             .mockResolvedValueOnce([]);                  // folders:list (post-add flow)
@@ -301,12 +306,12 @@ describe('SettingsModal Integration Tests', () => {
         );
 
         // Call 1 is apikeys:get-openrouter, call 2 is settings:get (notifications_enabled),
-        // call 3 is settings:get (undo_send_delay), call 4 is accounts:test, call 5 is accounts:add
+        // call 3 is settings:get (undo_send_delay), call 4 is settings:get (sound_enabled), call 5 is accounts:test, call 6 is accounts:add
         expect(mockIpcInvoke).toHaveBeenNthCalledWith(
-            4, 'accounts:test', expect.objectContaining({ email: 'user@gmail.com' })
+            5, 'accounts:test', expect.objectContaining({ email: 'user@gmail.com' })
         );
         expect(mockIpcInvoke).toHaveBeenNthCalledWith(
-            5, 'accounts:add', expect.objectContaining({ email: 'user@gmail.com' })
+            6, 'accounts:add', expect.objectContaining({ email: 'user@gmail.com' })
         );
         // Verify accounts:test was invoked exactly once across the whole flow
         const testCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'accounts:test');
@@ -317,6 +322,7 @@ describe('SettingsModal Integration Tests', () => {
         mockIpcInvoke.mockResolvedValueOnce(null); // apikeys:get-openrouter
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get notifications_enabled
         mockIpcInvoke.mockResolvedValueOnce(null); // settings:get undo_send_delay
+        mockIpcInvoke.mockResolvedValueOnce(null); // settings:get sound_enabled
 
         renderSettings();
 

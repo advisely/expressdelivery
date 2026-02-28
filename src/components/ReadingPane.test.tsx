@@ -31,6 +31,12 @@ vi.mock('lucide-react', () => ({
     Clock: () => <div data-testid="icon-Clock">CL</div>,
     Bell: () => <div data-testid="icon-Bell">B</div>,
     Printer: () => <div data-testid="icon-Printer">PR</div>,
+    ZoomIn: () => <div data-testid="icon-ZoomIn">ZI</div>,
+    ZoomOut: () => <div data-testid="icon-ZoomOut">ZO</div>,
+    Code: () => <div data-testid="icon-Code">CO</div>,
+    Mail: () => <div data-testid="icon-Mail">M</div>,
+    Copy: () => <div data-testid="icon-Copy">CP</div>,
+    X: () => <div data-testid="icon-X">X</div>,
 }));
 
 vi.mock('../lib/formatFileSize', () => ({
@@ -56,6 +62,11 @@ vi.mock('@radix-ui/react-popover', () => ({
 
 vi.mock('./DateTimePicker', () => ({
     default: ({ label }: { label?: string }) => <div data-testid="date-time-picker">{label}</div>,
+}));
+
+vi.mock('./MessageSourceDialog', () => ({
+    MessageSourceDialog: ({ open, source }: { open: boolean; source: string; subject: string; onOpenChange: (v: boolean) => void }) =>
+        open ? <div data-testid="message-source-dialog">{source}</div> : null,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);

@@ -162,7 +162,7 @@ Last updated: 2026-02-27
 
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Unit tests | Yes | Yes | **Done** | 23 files, 488 tests, ~74% coverage |
+| Unit tests | Yes | Yes | **Done** | 25 files, 522 tests, ~76% coverage |
 | Integration tests | Yes | No | **Planned** | IMAP client not tested (SMTP unit-tested) |
 | E2E tests | Yes | No | **Planned** | No Playwright/Spectron |
 | Coverage thresholds | Unknown | Yes | **Done** | @vitest/coverage-v8, 70% line threshold, `npm run test:coverage` |
@@ -179,18 +179,18 @@ Features Mozilla Thunderbird has that ExpressDelivery is missing, prioritized by
 | Mark all as read (per folder) | Yes | Yes | **Done** | -- | Folder context menu + `emails:mark-all-read` IPC |
 | Multi-select emails (bulk actions) | Yes | Yes | **Done** | -- | Ctrl+click toggle, Shift+click range, bulk toolbar (read/star/delete/move) |
 | Right-click context menu on emails | Yes | Yes | **Done** | -- | Reply, forward, star, toggle-read, move, delete |
-| Drag-and-drop emails to folders | Yes | No | **Planned** | **P2** | Move-to-folder exists but not via drag |
+| Drag-and-drop emails to folders | Yes | Yes | **Done** | -- | HTML5 drag API on ThreadItem, drop targets on Sidebar folders |
 | Empty trash (purge) | Yes | Yes | **Done** | -- | Fixed 2026-02-27: UI now refreshes after purge |
 | Conversation/thread grouping UI | Yes | Partial | **Partial** | **P1** | thread_id exists but UI doesn't group |
-| Saved searches / smart folders | Yes | No | **Planned** | **P2** | Search exists but no saved queries |
-| Folder colors | Yes | No | **Planned** | **P3** | Visual organization |
+| Saved searches / smart folders | Yes | Yes | **Done** | -- | Virtual `__search_` folders, FTS5 execution |
+| Folder colors | Yes | Yes | **Done** | -- | 8 color presets, colored left-border in Sidebar |
 
 #### Security & Privacy
 
 | Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
 |---------|------------|----------------|--------|----------|-------|
-| Spam/junk filtering (Bayesian) | Yes (ML-based) | No | **Planned** | **P1** | No spam detection, no junk folder logic |
-| Scam/phishing detection | Yes | No | **Planned** | **P2** | No URL analysis or warning banners |
+| Spam/junk filtering (Bayesian) | Yes (ML-based) | Yes | **Done** | -- | Naive Bayes classifier, train/classify IPC, Report Spam button |
+| Scam/phishing detection | Yes | Yes | **Done** | -- | 7 heuristic rules, warning banner in ReadingPane |
 | PGP/S-MIME encryption | Yes (OpenPGP built-in) | No | **Deferred** | -- | Complex; deferred indefinitely |
 
 #### Quality of Life
@@ -199,24 +199,24 @@ Features Mozilla Thunderbird has that ExpressDelivery is missing, prioritized by
 |---------|------------|----------------|--------|----------|-------|
 | Print / Print-to-PDF | Yes | Yes | **Done** | -- | Electron `webContents.printToPDF()` via `print:email-pdf` IPC |
 | Notification click navigates to email | Yes | Yes | **Done** | -- | Email ID passed in notification, window focused + email selected on click |
-| Sound alerts on new mail | Yes | No | **Planned** | **P2** | OS notification exists but no audio |
-| Undo send (delay queue) | Yes (via add-on) | Yes | **Done** | -- | Configurable 0-10s delay, cancel button in toast |
-| Keyboard shortcut help overlay | Yes | No | **Planned** | **P2** | `?` to show shortcut cheat sheet |
+| Sound alerts on new mail | Yes | Yes | **Done** | -- | notification.wav, Audio API, toggle in Settings |
+| Undo send (delay queue) | Yes (via add-on) | Yes | **Done** | -- | Configurable 0-30s delay, cancel button in toast |
+| Keyboard shortcut help overlay | Yes | Yes | **Done** | -- | `?` to show shortcut cheat sheet |
 | Empty state illustrations | No | Yes | **Done** | -- | Friendly message + icon for empty inbox/folder/search |
-| Loading skeleton placeholders | No | No | **Planned** | **P2** | Skeleton UI while emails load |
-| Confirmation toasts for actions | Partial | No | **Planned** | **P2** | Visual feedback for move/archive/delete |
-| Zoom / font size control | Yes | No | **Planned** | **P3** | User-adjustable reading pane text size |
-| Compact/comfortable density modes | Yes (3 modes) | No | **Planned** | **P3** | Fixed density currently |
-| User-defined tags/labels | Yes (color-coded) | AI labels only | **Planned** | **P2** | No manual tag system |
+| Loading skeleton placeholders | No | Yes | **Done** | -- | Shimmer animation while emails load |
+| Confirmation toasts for actions | Partial | Yes | **Done** | -- | Visual feedback for move/archive/delete with undo |
+| Zoom / font size control | Yes | Yes | **Done** | -- | 80-150% zoom in ReadingPane |
+| Compact/comfortable density modes | Yes (3 modes) | Yes | **Done** | -- | Compact/comfortable/relaxed, CSS variables |
+| User-defined tags/labels | Yes (color-coded) | Yes | **Done** | -- | CRUD, color picker, assign/remove, sidebar section |
 
 #### Data Portability
 
 | Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
 |---------|------------|----------------|--------|----------|-------|
-| Email export (EML/MBOX) | Yes | No | **Planned** | **P2** | No data export |
-| Email import (EML/MBOX) | Yes | No | **Planned** | **P2** | Can't migrate from other clients |
-| Contact import/export (vCard/CSV) | Yes | No | **Planned** | **P2** | Contacts are local-only |
-| Message source viewer (raw headers) | Yes | No | **Planned** | **P2** | Debugging/power-user tool |
+| Email export (EML/MBOX) | Yes | Yes | **Done** | -- | EML single + MBOX folder export |
+| Email import (EML/MBOX) | Yes | Yes | **Done** | -- | EML/MBOX file picker, 1000 msg cap |
+| Contact import/export (vCard/CSV) | Yes | Yes | **Done** | -- | vCard 3.0 + CSV, Settings Contacts tab |
+| Message source viewer (raw headers) | Yes | Yes | **Done** | -- | Raw RFC822 via IMAP, Radix Dialog, copy button |
 
 #### Protocols & Sync
 
@@ -334,23 +334,38 @@ Essential desktop email client features and quality-of-life improvements identif
 - [x] Quality pipeline: 12 remediation items (3 critical, 1 high, 8 medium)
 
 ### Phase 7: Power User & Portability (v1.5.0)
-Advanced features for power users, data portability, and enhanced filtering.
+Advanced features for power users, data portability, and enhanced filtering. 6 implementation batches.
 
-- [ ] User-defined tags/labels (create, color-pick, assign to emails, filter by tag)
-- [ ] Spam/junk filtering (Bayesian classifier, train from user actions, junk folder)
-- [ ] Email export (EML single, MBOX folder, right-click "Save as...")
-- [ ] Email import (EML/MBOX file picker, import to selected folder)
-- [ ] Contact import/export (vCard, CSV)
-- [ ] Drag-and-drop emails to folders (HTML5 drag API, visual drop indicator)
-- [ ] Saved searches / smart folders (persist search queries, virtual folder in sidebar)
-- [ ] Message source viewer (raw headers + MIME parts, modal or tab)
-- [ ] Sound alerts on new mail (configurable, system default or custom audio file)
-- [ ] Scam/phishing URL detection (warn on suspicious links in reading pane)
-- [ ] Loading skeleton placeholders (shimmer UI while emails load)
-- [ ] Compact / comfortable / relaxed density modes (3 settings, persisted)
-- [ ] Zoom / font size control in reading pane
-- [ ] Folder colors (color picker on folder, custom sidebar accents)
-- [ ] Mailing list unsubscribe (parse `List-Unsubscribe` header, one-click action)
+#### Batch 0: Shared Infrastructure
+- [x] **DB Migration 11**: `tags`, `email_tags`, `saved_searches`, `spam_tokens`, `spam_stats` tables; `folders.color`, `emails.list_unsubscribe`, `emails.spam_score` columns; performance indexes
+- [x] **Preload channels**: ~21 new invoke channels (tags, export/import, contacts, searches, source, spam, unsubscribe, folder color)
+- [x] **Store extensions**: `themeStore` (densityMode, readingPaneZoom), `emailStore` (Tag, SavedSearch interfaces, draggedEmailIds)
+- [x] **Settings keys**: `density_mode`, `reading_pane_zoom`, `sound_enabled`, `sound_custom_path`
+
+#### Batch 1: UI Polish & Settings
+- [x] Loading skeleton placeholders (shimmer animation while emails load, wire isLoading state)
+- [x] Compact / comfortable / relaxed density modes (3 CSS variable sets, persisted in themeStore)
+- [x] Zoom / font size control in reading pane (80-150%, ZoomIn/ZoomOut buttons, themeStore)
+- [x] Folder colors (color picker in folder context menu, 8 presets, colored left-border in Sidebar)
+- [x] Sound alerts on new mail (notification.wav asset, Audio API, toggle in Settings)
+
+#### Batch 2: Tags & Saved Searches
+- [x] User-defined tags/labels (7 IPC handlers: CRUD + assign/remove/filter, color picker, tag chips in ReadingPane, Tags sidebar section, Settings Tags tab)
+- [x] Saved searches / smart folders (4 IPC handlers, virtual `__search_` folders in Sidebar, "Save search" button in ThreadList, FTS5 execution)
+
+#### Batch 3: Data Portability
+- [x] Email export — EML single + MBOX folder (`electron/emailExport.ts`, ReadingPane "Save as EML", Sidebar "Export as MBOX")
+- [x] Email import — EML/MBOX file picker (`electron/emailImport.ts`, Sidebar "Import emails...", 1000 msg cap)
+- [x] Contact import/export — vCard 3.0 + CSV (`electron/contactPortability.ts`, Settings Contacts tab)
+
+#### Batch 4: DnD, Message Source, Unsubscribe
+- [x] Drag-and-drop emails to folders (HTML5 drag API on ThreadItem, drop targets on Sidebar folders, visual drop indicator, multi-email drag)
+- [x] Message source viewer (raw RFC822 via IMAP, `MessageSourceDialog` Radix Dialog with `<pre>` + copy, "View Source" in ReadingPane)
+- [x] Mailing list unsubscribe (parse `List-Unsubscribe` header in IMAP sync, unsubscribe banner in ReadingPane, copy link / compose mailto)
+
+#### Batch 5: Security & Intelligence
+- [x] Spam/junk filtering (`electron/spamFilter.ts` Naive Bayes classifier, token frequency on subject+from+body, train from user mark-spam/not-spam, Laplace smoothing, log-sum-exp)
+- [x] Scam/phishing URL detection (`src/lib/phishingDetector.ts`, 7 heuristics: IP URLs, suspicious TLDs, excessive subdomains, brand spoofing, HTTP on sensitive paths, long URLs, @ sign obfuscation; red warning banner in ReadingPane)
 
 ---
 
@@ -389,9 +404,17 @@ Advanced features for power users, data portability, and enhanced filtering.
 17. ~~**Undo send**~~ -- Done: configurable 0-10s delay, cancel toast
 18. **Thread grouping UI** -- Both reference clients group conversations visually (deferred to Phase 7)
 
-### Phase 7 (planned)
-19. **User-defined tags** -- Thunderbird has color-coded custom tags
-20. **Spam filtering** -- Thunderbird has Bayesian ML filter
-21. **Data portability** -- Both clients support EML/MBOX import/export
-22. **Drag-and-drop** -- Standard in both reference clients
-23. **Density modes** -- Thunderbird has 3 density settings
+### Phase 7 (complete -- v1.5.0)
+19. ~~**User-defined tags**~~ -- Done: CRUD, color picker, assign/remove, tag section in ReadingPane, Tags sidebar section, Settings Tags tab
+20. ~~**Spam filtering**~~ -- Done: Bayesian Naive Bayes classifier (`electron/spamFilter.ts`), train/classify IPC, Report Spam button
+21. ~~**Data portability**~~ -- Done: EML/MBOX export/import (`electron/emailExport.ts`, `electron/emailImport.ts`), vCard/CSV contacts (`electron/contactPortability.ts`)
+22. ~~**Drag-and-drop**~~ -- Done: HTML5 drag API on ThreadItem, drop targets on Sidebar folders, multi-email drag
+23. ~~**Density modes**~~ -- Done: compact/comfortable/relaxed, CSS variables, persisted in themeStore
+24. ~~**Saved searches**~~ -- Done: CRUD IPC, virtual `__search_` folders, "Save search" button
+25. ~~**Message source**~~ -- Done: raw RFC822 via IMAP, `MessageSourceDialog` Radix Dialog, copy button
+26. ~~**Sound alerts**~~ -- Done: notification.wav, Audio API, toggle in Settings
+27. ~~**Phishing detection**~~ -- Done: 7 heuristic rules (`src/lib/phishingDetector.ts`), red warning banner in ReadingPane
+28. ~~**Loading skeletons**~~ -- Done: shimmer animation, wired isLoading state
+29. ~~**Zoom control**~~ -- Done: 80-150% zoom in ReadingPane, ZoomIn/ZoomOut buttons
+30. ~~**Folder colors**~~ -- Done: 8 color presets, color picker in folder context menu
+31. ~~**Mailing list unsubscribe**~~ -- Done: List-Unsubscribe header parsing, unsubscribe banner, copy link
