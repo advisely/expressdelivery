@@ -2,8 +2,9 @@ import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { Search, Paperclip, Trash2, Reply, Forward, Star, FolderInput, Mail, MailOpen, Inbox as InboxIcon, CheckCircle2, Send as SendIcon, CheckSquare, Square, Bookmark } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
-import type { EmailSummary, EmailFull, SavedSearch } from '../stores/emailStore';
+import type { EmailSummary, EmailFull, SavedSearch, Account } from '../stores/emailStore';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
+import { getProviderIcon } from '../lib/providerIcons';
 import styles from './ThreadList.module.css';
 
 interface ThreadItemProps {
@@ -11,6 +12,8 @@ interface ThreadItemProps {
     isSelected: boolean;
     isChecked: boolean;
     hasAnyChecked: boolean;
+    isUnified: boolean;
+    accounts: Account[];
     onSelect: (id: string) => void;
     onDelete: (id: string) => void;
     onToggleCheck: (id: string, e: React.MouseEvent) => void;
@@ -19,7 +22,7 @@ interface ThreadItemProps {
     onDragEnd: () => void;
 }
 
-const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAnyChecked, onSelect, onDelete, onToggleCheck, onContextMenu, onDragStart, onDragEnd }) => (
+const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAnyChecked, isUnified, accounts, onSelect, onDelete, onToggleCheck, onContextMenu, onDragStart, onDragEnd }) => (
     <div
         role="button"
         tabIndex={0}
@@ -41,7 +44,23 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAn
         </button>
         <div className={styles['thread-item-body']}>
             <div className={styles['thread-item-header']}>
-                <span className={styles['sender']}>{thread.from_name || thread.from_email}</span>
+                <span className={styles['sender']}>
+                    {thread.from_name || thread.from_email}
+                    {isUnified && thread.account_id && (() => {
+                        const acct = accounts.find(a => a.id === thread.account_id);
+                        if (!acct) return null;
+                        const ProviderIcon = getProviderIcon(acct.provider);
+                        return (
+                            <span
+                                className={styles['tl-account-badge']}
+                                title={acct.email}
+                                aria-label={`From account: ${acct.email}`}
+                            >
+                                <ProviderIcon size={12} />
+                            </span>
+                        );
+                    })()}
+                </span>
                 <span className={styles['thread-meta']}>
                     {thread.ai_priority != null && thread.ai_priority >= 3 && (
                         <span
@@ -118,6 +137,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const selectEmailRange = useEmailStore(s => s.selectEmailRange);
     const selectAllEmails = useEmailStore(s => s.selectAllEmails);
     const clearSelection = useEmailStore(s => s.clearSelection);
+    const accounts = useEmailStore(s => s.accounts);
     const savedSearches = useEmailStore(s => s.savedSearches);
     const setSavedSearches = useEmailStore(s => s.setSavedSearches);
     const selectedAccountId = useEmailStore(s => s.selectedAccountId);
@@ -509,6 +529,8 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                         isSelected={selectedEmailId === thread.id}
                         isChecked={selectedEmailIds.has(thread.id)}
                         hasAnyChecked={hasSelection}
+                        isUnified={selectedFolderId === '__unified'}
+                        accounts={accounts}
                         onSelect={handleSelectEmail}
                         onDelete={handleDeleteEmail}
                         onToggleCheck={handleToggleCheck}

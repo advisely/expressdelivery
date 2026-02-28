@@ -36,6 +36,10 @@ vi.mock('lucide-react', () => ({
     FileText: () => <div data-testid="icon-FileText">Ft</div>,
     Tags: () => <div data-testid="icon-Tags">Tg</div>,
     Users: () => <div data-testid="icon-Users">Us</div>,
+    Bot: () => <div data-testid="icon-Bot">Bt</div>,
+    Copy: () => <div data-testid="icon-Copy">Cp</div>,
+    RefreshCw: () => <div data-testid="icon-RefreshCw">Rw</div>,
+    Wrench: () => <div data-testid="icon-Wrench">Wr</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
@@ -336,5 +340,187 @@ describe('SettingsModal Integration Tests', () => {
         const templatesCalls = mockIpcInvoke.mock.calls.filter(([ch]) => ch === 'templates:list');
         expect(rulesCalls).toHaveLength(0);
         expect(templatesCalls).toHaveLength(0);
+    });
+
+    // --- Agentic / MCP tab tests ---
+
+    /**
+     * Helper: set up IPC mocks, render, and navigate to the Agentic tab.
+     * Returns the userEvent instance so callers can continue interacting.
+     */
+    async function switchToAgenticTab(overrides?: {
+        running?: boolean;
+        port?: number;
+        connectedCount?: number;
+        token?: string;
+        enabled?: string | null;
+        tools?: Array<{ name: string; description: string }>;
+    }) {
+        const user = userEvent.setup();
+        const opts = {
+            running: true,
+            port: 3000,
+            connectedCount: 0,
+            token: 'test-token-abc123',
+            enabled: null,
+            tools: [{ name: 'search_emails', description: 'Search emails' }],
+            ...overrides,
+        };
+
+        // Use mockImplementation so that both the mount calls (apikeys:get-openrouter,
+        // settings:get notifications_enabled, settings:get undo_send_delay,
+        // settings:get sound_enabled) and the tab-activation calls are handled
+        // correctly regardless of invocation order.
+        mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+            if (channel === 'mcp:get-status') return { running: opts.running, port: opts.port, connectedCount: opts.connectedCount };
+            if (channel === 'mcp:get-token') return { token: opts.token };
+            if (channel === 'mcp:get-tools') return { tools: opts.tools };
+            if (channel === 'settings:get' && args[0] === 'mcp_enabled') return opts.enabled;
+            return null;
+        });
+
+        renderSettings();
+        const tab = screen.getByRole('tab', { name: /mcp\.title/i });
+        await user.click(tab);
+        return user;
+    }
+
+    it('renders Agentic tab trigger with correct role and label', () => {
+        renderSettings();
+
+        // The tab trigger must be present in the tab list with the i18n key as its accessible name
+        const agenticTab = screen.getByRole('tab', { name: /mcp\.title/i });
+        expect(agenticTab).toBeInTheDocument();
+
+        // It must behave as an inactive tab on initial render (accounts tab is default)
+        expect(agenticTab).toHaveAttribute('data-state', 'inactive');
+    });
+
+    it('lazy-loads MCP status on Agentic tab activation and shows running state', async () => {
+        await switchToAgenticTab({ running: true });
+
+        // Wait for async IPC data to populate the UI
+        await waitFor(() => {
+            expect(screen.getByText(/mcp\.running/i)).toBeInTheDocument();
+        });
+
+        // The four tab-activation IPC calls must have been made
+        expect(mockIpcInvoke).toHaveBeenCalledWith('mcp:get-status');
+        expect(mockIpcInvoke).toHaveBeenCalledWith('mcp:get-token');
+        expect(mockIpcInvoke).toHaveBeenCalledWith('mcp:get-tools');
+        expect(mockIpcInvoke).toHaveBeenCalledWith('settings:get', 'mcp_enabled');
+    });
+
+    it('shows stopped status text when server is not running', async () => {
+        await switchToAgenticTab({ running: false });
+
+        await waitFor(() => {
+            expect(screen.getByText(/mcp\.stopped/i)).toBeInTheDocument();
+        });
+
+        // Running text must not be present when the server is stopped
+        expect(screen.queryByText(/mcp\.running/i)).not.toBeInTheDocument();
+    });
+
+    it('shows connected agent count when connectedCount is greater than zero', async () => {
+        await switchToAgenticTab({ running: true, connectedCount: 3 });
+
+        await waitFor(() => {
+            // The component renders: t('mcp.connectedAgents'): {connectedCount}
+            // In the test environment the key resolves to its raw form "mcp.connectedAgents"
+            expect(screen.getByText(/mcp\.connectedAgents/i)).toBeInTheDocument();
+        });
+
+        // The numeric count must be visible in the status agents area
+        expect(screen.getByText(/mcp\.connectedAgents/i).textContent).toContain('3');
+    });
+
+    it('port input reflects current port value and Apply button is disabled when unchanged', async () => {
+        await switchToAgenticTab({ port: 3000 });
+
+        await waitFor(() => {
+            expect(screen.getByText(/mcp\.running/i)).toBeInTheDocument();
+        });
+
+        const portInput = screen.getByRole('spinbutton');
+        expect(portInput).toHaveValue(3000);
+
+        // Apply button is disabled because the input matches the current port
+        const applyBtn = screen.getByText(/mcp\.portApply/i).closest('button');
+        expect(applyBtn).toBeDisabled();
+
+        // Changing the port value enables the Apply button
+        fireEvent.change(portInput, { target: { value: '3001' } });
+        expect(applyBtn).not.toBeDisabled();
+    });
+
+    it('token input is password type by default and clicking eye icon reveals it as text', async () => {
+        const user = await switchToAgenticTab({ token: 'super-secret-token' });
+
+        await waitFor(() => {
+            expect(screen.getByText(/mcp\.running/i)).toBeInTheDocument();
+        });
+
+        // The token input is hidden by default
+        const tokenInput = screen.getByDisplayValue('super-secret-token');
+        expect(tokenInput).toHaveAttribute('type', 'password');
+
+        // Click the Eye icon button to reveal the token
+        const eyeBtn = screen.getByTitle(/mcp\.showToken/i);
+        await user.click(eyeBtn);
+
+        // After the toggle the input type becomes text
+        expect(tokenInput).toHaveAttribute('type', 'text');
+
+        // Clicking again conceals the token
+        const eyeOffBtn = screen.getByTitle(/mcp\.hideToken/i);
+        await user.click(eyeOffBtn);
+        expect(tokenInput).toHaveAttribute('type', 'password');
+    });
+
+    it('clicking the toggle switch calls mcp:toggle with the opposite enabled value', async () => {
+        // Server currently enabled (enabled = null means not 'false', so treated as true)
+        const user = await switchToAgenticTab({ running: true, enabled: null });
+
+        await waitFor(() => {
+            expect(screen.getByText(/mcp\.running/i)).toBeInTheDocument();
+        });
+
+        // Prepare the mcp:toggle response
+        mockIpcInvoke.mockImplementation(async (channel: string) => {
+            if (channel === 'mcp:toggle') return { success: true, running: false };
+            return null;
+        });
+
+        const toggleSwitch = screen.getByRole('switch', { name: /mcp\.serverToggle/i });
+        expect(toggleSwitch).toHaveAttribute('aria-checked', 'true');
+
+        await user.click(toggleSwitch);
+
+        expect(mockIpcInvoke).toHaveBeenCalledWith('mcp:toggle', false);
+    });
+
+    it('renders all tool names from the tools response in the tools list', async () => {
+        const tools = [
+            { name: 'search_emails', description: 'Search your emails using FTS5' },
+            { name: 'send_email', description: 'Send an email via SMTP' },
+        ];
+
+        await switchToAgenticTab({ tools });
+
+        await waitFor(() => {
+            expect(screen.getByText('search_emails')).toBeInTheDocument();
+        });
+
+        // Both tool names must be rendered
+        expect(screen.getByText('search_emails')).toBeInTheDocument();
+        expect(screen.getByText('send_email')).toBeInTheDocument();
+
+        // Tool descriptions must also be visible
+        expect(screen.getByText('Search your emails using FTS5')).toBeInTheDocument();
+        expect(screen.getByText('Send an email via SMTP')).toBeInTheDocument();
+
+        // The tools count label includes the number of tools
+        expect(screen.getByText(/mcp\.toolsTitle/i).textContent).toContain('2');
     });
 });

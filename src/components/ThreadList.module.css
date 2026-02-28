@@ -226,6 +226,16 @@
   vertical-align: middle;
 }
 
+/* Account badge for unified inbox */
+.tl-account-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  vertical-align: middle;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
 .thread-items {
   /* Container for the list of thread items */
 }

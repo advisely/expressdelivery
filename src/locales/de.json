@@ -333,5 +333,30 @@
   "phishing": {
     "warning": "Warnung: Diese E-Mail kann Phishing-Links enthalten",
     "reasons": "Verdächtige Indikatoren gefunden:"
+  },
+  "mcp": {
+    "title": "Agentisch / MCP",
+    "serverToggle": "MCP-Server",
+    "serverDesc": "Aktivieren Sie den Model Context Protocol-Server, damit KI-Agenten (Claude, OpenClaw usw.) auf Ihr Postfach zugreifen können.",
+    "status": "Status",
+    "running": "Läuft",
+    "stopped": "Gestoppt",
+    "port": "Port",
+    "portApply": "Anwenden",
+    "portError": "Port muss zwischen 1024 und 65535 liegen",
+    "authToken": "Auth-Token",
+    "regenerate": "Regenerieren",
+    "regenerateConfirm": "Token regenerieren? Alle verbundenen Agenten werden getrennt.",
+    "showToken": "Token anzeigen",
+    "hideToken": "Token verbergen",
+    "copied": "Kopiert!",
+    "copyToken": "Token kopieren",
+    "copyUrl": "URL kopieren",
+    "endpoint": "SSE-Endpunkt",
+    "connectedAgents": "Verbundene Agenten",
+    "configTitle": "Agenten-Konfiguration",
+    "configDesc": "Fügen Sie dies zur MCP-Konfiguration Ihres KI-Tools hinzu:",
+    "toolsTitle": "Verfügbare Tools",
+    "noTools": "Keine Tools verfügbar"
   }
 }

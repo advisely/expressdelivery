@@ -36,7 +36,9 @@ vi.mock('lucide-react', () => ({
     Code: () => <div data-testid="icon-Code">CO</div>,
     Mail: () => <div data-testid="icon-Mail">M</div>,
     Copy: () => <div data-testid="icon-Copy">CP</div>,
+    Sparkles: () => <div data-testid="icon-Sparkles">SP</div>,
     X: () => <div data-testid="icon-X">X</div>,
+    AlertTriangle: () => <div data-testid="icon-AlertTriangle">AT</div>,
 }));
 
 vi.mock('../lib/formatFileSize', () => ({
@@ -346,5 +348,490 @@ describe('ReadingPane', () => {
         // Ensure no bare srcset= remains (only data-blocked-srcset= should exist)
         const withoutBlocked = srcdoc.replace(/data-blocked-srcset=/g, '');
         expect(withoutBlocked).not.toContain('srcset=');
+    });
+
+    // --- Thread Conversation Tests ---
+
+    describe('Thread conversation collapse/expand', () => {
+        it('renders collapsed older messages and expanded latest in thread view', async () => {
+            const threadEmails = [
+                { ...mockEmail, id: 'msg-1', from_name: 'Alice', snippet: 'First message', body_html: '<p>First</p>' },
+                { ...mockEmail, id: 'msg-2', from_name: 'Bob', snippet: 'Second message', body_html: '<p>Second</p>' },
+                { ...mockEmail, id: 'msg-3', from_name: 'Carol', snippet: 'Third message', body_html: '<p>Third</p>' },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmails;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-abc' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:thread', 'thread-abc');
+            });
+
+            // Older messages (not the last) should be collapsed — button aria-label "Expand message"
+            await waitFor(() => {
+                const expandBtns = screen.getAllByLabelText('readingPane.expandMessage');
+                expect(expandBtns.length).toBeGreaterThanOrEqual(1);
+            });
+
+            // The last message is always expanded — its toggle button has aria-label "Collapse message"
+            // but is disabled. We check that the last header has aria-expanded true via the
+            // "Collapse message" label (the component renders it as the collapseMessage key).
+            const collapseBtns = screen.getAllByLabelText('readingPane.collapseMessage');
+            expect(collapseBtns.length).toBeGreaterThanOrEqual(1);
+        });
+
+        it('expands a collapsed thread message on click', async () => {
+            const threadEmails = [
+                { ...mockEmail, id: 'msg-1', from_name: 'Alice', snippet: 'First message', body_html: '<p>First</p>' },
+                { ...mockEmail, id: 'msg-2', from_name: 'Bob', snippet: 'Second message', body_html: '<p>Second</p>' },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmails;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-xyz' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                expect(screen.getAllByLabelText('readingPane.expandMessage').length).toBeGreaterThanOrEqual(1);
+            });
+
+            // Click the "Expand message" button on the first (collapsed) message
+            const expandBtn = screen.getAllByLabelText('readingPane.expandMessage')[0];
+            fireEvent.click(expandBtn);
+
+            // After expanding, that button should now show "Collapse message"
+            await waitFor(() => {
+                const collapseBtns = screen.getAllByLabelText('readingPane.collapseMessage');
+                // The first message is now expanded, so there are at least 2 collapse buttons
+                // (the newly expanded one + the last message which was already expanded)
+                expect(collapseBtns.length).toBeGreaterThanOrEqual(2);
+            });
+        });
+
+        // -------------------------------------------------------------------
+        // Edge cases
+        // -------------------------------------------------------------------
+
+        it('does not render thread conversation view when thread returns empty array', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return [];
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-empty' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:thread', 'thread-empty');
+            });
+
+            // threadEmails.length is 0 (< 2), so thread-conversation div must not appear;
+            // the single-email body view (iframe) should be rendered instead.
+            await waitFor(() => {
+                expect(screen.queryByLabelText('readingPane.expandMessage')).not.toBeInTheDocument();
+                expect(screen.queryByLabelText('readingPane.collapseMessage')).not.toBeInTheDocument();
+            });
+
+            // The standard single-email iframe should still render
+            expect(screen.getByTitle('Email content')).toBeInTheDocument();
+        });
+
+        it('does not render thread conversation view when thread returns only one message', async () => {
+            // The component only shows thread view when result.length > 1
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return [mockEmail];
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-single' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:thread', 'thread-single');
+            });
+
+            // A single-message thread must never show expand/collapse controls
+            await waitFor(() => {
+                expect(screen.queryByLabelText('readingPane.expandMessage')).not.toBeInTheDocument();
+            });
+        });
+
+        it('does not fetch thread when thread_id is null', () => {
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: null } });
+            renderReadingPane();
+
+            // emails:thread must not be called when there is no thread_id
+            expect(mockIpcInvoke).not.toHaveBeenCalledWith('emails:thread', expect.anything());
+        });
+
+        it('resets expanded state when switching to a different threaded email', async () => {
+            const threadEmailsA = [
+                { ...mockEmail, id: 'a-1', from_name: 'Alice', snippet: 'A1', body_html: '<p>A1</p>' },
+                { ...mockEmail, id: 'a-2', from_name: 'Alice', snippet: 'A2', body_html: '<p>A2</p>' },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmailsA;
+                return null;
+            });
+            const emailA = { ...mockEmail, id: 'a-1', thread_id: 'thread-A' };
+            useEmailStore.setState({ selectedEmail: emailA });
+            renderReadingPane();
+
+            await waitFor(() => {
+                expect(screen.getAllByLabelText('readingPane.expandMessage').length).toBeGreaterThanOrEqual(1);
+            });
+
+            // Expand the first (collapsed) message in thread A
+            const expandBtn = screen.getAllByLabelText('readingPane.expandMessage')[0];
+            fireEvent.click(expandBtn);
+
+            await waitFor(() => {
+                expect(screen.getAllByLabelText('readingPane.collapseMessage').length).toBeGreaterThanOrEqual(2);
+            });
+
+            // Now switch to a different email with a different thread — expansion state must reset
+            const emailB: EmailFull = { ...mockEmail, id: 'b-1', thread_id: 'thread-B', body_html: '<p>B</p>' };
+            useEmailStore.setState({ selectedEmail: emailB });
+
+            await waitFor(() => {
+                // After switching, no expand buttons (thread-B returns only 2 messages so only 1 collapse btn)
+                // and the first message in B is collapsed again
+                const expandBtns = screen.queryAllByLabelText('readingPane.expandMessage');
+                // expandBtns count may vary; main assertion is no stale collapse buttons beyond 1
+                const collapseBtns = screen.queryAllByLabelText('readingPane.collapseMessage');
+                // Either 0 (no thread loaded yet) or only the last-message collapse button
+                expect(collapseBtns.length).toBeLessThanOrEqual(1);
+                expect(expandBtns.length).toBeLessThanOrEqual(1);
+            });
+        });
+
+        it('renders thread message sender as from_email when from_name is null', async () => {
+            const threadEmails = [
+                { ...mockEmail, id: 'msg-noname-1', from_name: null, from_email: 'anon@example.com', snippet: 'Anon msg', body_html: '<p>Hi</p>' },
+                { ...mockEmail, id: 'msg-noname-2', from_name: null, from_email: 'other@example.com', snippet: 'Other msg', body_html: '<p>There</p>' },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmails;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-noname', from_name: null, from_email: 'anon@example.com' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                // The thread message header renders <strong>{from_name || from_email}</strong>
+                expect(screen.getByText('anon@example.com')).toBeInTheDocument();
+            });
+        });
+
+        it('uses from_email initial for avatar when from_name is null in thread message', async () => {
+            const threadEmails = [
+                { ...mockEmail, id: 'msg-init-1', from_name: null, from_email: 'zebra@example.com', snippet: 'Z msg', body_html: '<p>Z</p>' },
+                { ...mockEmail, id: 'msg-init-2', from_name: null, from_email: 'zebra@example.com', snippet: 'Z2 msg', body_html: '<p>Z2</p>' },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmails;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-init', from_name: null, from_email: 'zebra@example.com' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                // Avatar uses charAt(0).toUpperCase() — for from_email 'zebra@...' the initial is 'Z'
+                const avatars = screen.getAllByText('Z');
+                expect(avatars.length).toBeGreaterThanOrEqual(1);
+            });
+        });
+
+        it('rapidly toggling expand/collapse does not corrupt expand state', async () => {
+            const threadEmails = [
+                { ...mockEmail, id: 'rapid-1', from_name: 'Alice', snippet: 'First', body_html: '<p>First</p>' },
+                { ...mockEmail, id: 'rapid-2', from_name: 'Bob', snippet: 'Last', body_html: '<p>Last</p>' },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmails;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-rapid' } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                expect(screen.getAllByLabelText('readingPane.expandMessage').length).toBeGreaterThanOrEqual(1);
+            });
+
+            const expandBtn = screen.getAllByLabelText('readingPane.expandMessage')[0];
+
+            // Rapid toggle: click 3 times (expand → collapse → expand)
+            fireEvent.click(expandBtn);
+            await waitFor(() => {
+                expect(screen.getAllByLabelText('readingPane.collapseMessage').length).toBeGreaterThanOrEqual(2);
+            });
+
+            const collapseBtn = screen.getAllByLabelText('readingPane.collapseMessage').find(
+                btn => !(btn as HTMLButtonElement).disabled
+            );
+            if (collapseBtn) {
+                fireEvent.click(collapseBtn);
+                await waitFor(() => {
+                    expect(screen.getAllByLabelText('readingPane.expandMessage').length).toBeGreaterThanOrEqual(1);
+                });
+
+                // Expand again — should be stable
+                const expandBtnAgain = screen.getAllByLabelText('readingPane.expandMessage')[0];
+                fireEvent.click(expandBtnAgain);
+                await waitFor(() => {
+                    expect(screen.getAllByLabelText('readingPane.collapseMessage').length).toBeGreaterThanOrEqual(2);
+                });
+            }
+        });
+
+        it('renders "(no content)" placeholder for thread message with no body_html and no body_text', async () => {
+            const threadEmails: EmailFull[] = [
+                { ...mockEmail, id: 'no-body-1', from_name: 'Alice', snippet: 'Empty', body_html: null, body_text: null },
+                { ...mockEmail, id: 'no-body-2', from_name: 'Bob', snippet: 'Empty2', body_html: null, body_text: null },
+            ];
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:thread') return threadEmails;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: { ...mockEmail, thread_id: 'thread-nobody', body_html: null, body_text: null } });
+            renderReadingPane();
+
+            await waitFor(() => {
+                // The last thread message is always expanded; it has no body, so "(no content)" must appear
+                expect(screen.getByText('readingPane.noContent')).toBeInTheDocument();
+            });
+        });
+    });
+
+    // --- AI Reply Tests ---
+
+    describe('AI Reply', () => {
+        it('renders AI Reply button (Sparkles icon)', () => {
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            renderReadingPane();
+            expect(screen.getByTestId('icon-Sparkles')).toBeInTheDocument();
+        });
+
+        it('calls ai:suggest-reply IPC and triggers onReply on success', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') return { html: '<p>AI reply</p>' };
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            const onReply = vi.fn();
+            renderReadingPane({ onReply });
+
+            // Click the AI Reply dropdown trigger (button with title readingPane.aiReply)
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+
+            // Wait for tone menu items to appear and click the first one
+            await waitFor(() => {
+                expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0);
+            });
+            const toneItems = screen.getAllByRole('menuitem');
+            fireEvent.click(toneItems[0]);
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('ai:suggest-reply', expect.objectContaining({
+                    emailId: 'email-1',
+                    accountId: 'acc-1',
+                }));
+                expect(onReply).toHaveBeenCalledWith(mockEmail, '<p>AI reply</p>');
+            });
+        });
+
+        it('shows error when AI reply fails', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') return { error: 'No API key' };
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            const onReply = vi.fn();
+            renderReadingPane({ onReply });
+
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+
+            await waitFor(() => {
+                expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0);
+            });
+            const toneItems = screen.getAllByRole('menuitem');
+            fireEvent.click(toneItems[0]);
+
+            await waitFor(() => {
+                expect(screen.getByRole('alert')).toBeInTheDocument();
+            });
+            expect(screen.getByRole('alert').textContent).toContain('No API key');
+            expect(onReply).not.toHaveBeenCalled();
+        });
+
+        // -------------------------------------------------------------------
+        // Edge cases
+        // -------------------------------------------------------------------
+
+        it('does not call ai:suggest-reply when onReply prop is undefined', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') return { html: '<p>AI reply</p>' };
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            // Render WITHOUT onReply prop — handleAiReply must short-circuit
+            renderReadingPane();
+
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+
+            await waitFor(() => {
+                expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0);
+            });
+            const toneItems = screen.getAllByRole('menuitem');
+            fireEvent.click(toneItems[0]);
+
+            // ai:suggest-reply must NOT have been called because !onReply guard fires first
+            await new Promise(r => setTimeout(r, 50));
+            expect(mockIpcInvoke).not.toHaveBeenCalledWith('ai:suggest-reply', expect.anything());
+        });
+
+        it('clears previous AI reply error when a new tone is selected', async () => {
+            let callCount = 0;
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') {
+                    callCount++;
+                    if (callCount === 1) return { error: 'API error on first call' };
+                    return { html: '<p>Success on second call</p>' };
+                }
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            const onReply = vi.fn();
+            renderReadingPane({ onReply });
+
+            // First call: trigger error
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+            await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
+            fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByRole('alert').textContent).toContain('API error on first call');
+            });
+
+            // Second call: trigger success — error must be cleared
+            fireEvent.click(aiReplyBtn);
+            await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
+            fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+            await waitFor(() => {
+                expect(onReply).toHaveBeenCalledWith(mockEmail, '<p>Success on second call</p>');
+            });
+        });
+
+        it('shows network-level error when ai:suggest-reply IPC throws', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') throw new Error('Network failure');
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            const onReply = vi.fn();
+            renderReadingPane({ onReply });
+
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+
+            await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
+            fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByRole('alert')).toBeInTheDocument();
+            });
+            // Component uses t('readingPane.aiReplyFailed') as fallback message on catch
+            expect(screen.getByRole('alert').textContent).toContain('readingPane.aiReplyFailed');
+            expect(onReply).not.toHaveBeenCalled();
+        });
+
+        it('disables AI Reply button while a request is in flight', async () => {
+            let resolveRequest!: (v: unknown) => void;
+            const pendingPromise = new Promise(resolve => { resolveRequest = resolve; });
+
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') return pendingPromise;
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            renderReadingPane({ onReply: vi.fn() });
+
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+            await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
+            fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+            // While the request is still pending the button must be disabled
+            await waitFor(() => {
+                expect(screen.getByTitle('readingPane.aiReply')).toBeDisabled();
+            });
+
+            // Clean up the pending promise
+            resolveRequest({ html: '<p>Done</p>' });
+        });
+
+        it('saves selected tone to settings:set when a tone is picked', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') return { html: '<p>OK</p>' };
+                return null;
+            });
+            useEmailStore.setState({ selectedEmail: mockEmail });
+            renderReadingPane({ onReply: vi.fn() });
+
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+
+            await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
+            // The first tone is 'professional'
+            fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('settings:set', 'ai_compose_tone', 'professional');
+            });
+        });
+
+        it('passes the selected account_id from the email to ai:suggest-reply', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'settings:get') return null;
+                if (channel === 'settings:set') return null;
+                if (channel === 'ai:suggest-reply') return { html: '<p>OK</p>' };
+                return null;
+            });
+            const emailWithAccount = { ...mockEmail, account_id: 'acc-specific-99' };
+            useEmailStore.setState({ selectedEmail: emailWithAccount });
+            renderReadingPane({ onReply: vi.fn() });
+
+            const aiReplyBtn = screen.getByTitle('readingPane.aiReply');
+            fireEvent.click(aiReplyBtn);
+            await waitFor(() => expect(screen.getAllByRole('menuitem').length).toBeGreaterThan(0));
+            fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('ai:suggest-reply', expect.objectContaining({
+                    accountId: 'acc-specific-99',
+                }));
+            });
+        });
     });
 });

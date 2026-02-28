@@ -34,7 +34,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-installer
-          path: release/**/*.exe
+          path: release/**/*Setup*.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -97,7 +97,7 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/windows/**/*.exe
+            artifacts/windows/**/*Setup*.exe
             artifacts/linux/**/*.AppImage
             artifacts/linux/**/*.deb
             artifacts/linux/**/*.rpm

@@ -52,6 +52,7 @@ interface ComposeState {
   subject: string;
   body: string;
   draftId?: string;
+  accountId?: string;
 }
 
 interface PendingSend {
@@ -233,12 +234,13 @@ function App() {
     return () => { cancelled = true; };
   }, [selectedAccountId, setFolders, selectFolder]);
 
-  const handleReply = useCallback((email: EmailFull) => {
+  const handleReply = useCallback((email: EmailFull, initialBody?: string) => {
     const subject = email.subject?.startsWith('Re:') ? email.subject : `Re: ${email.subject ?? ''}`;
     setComposeState({
       to: email.from_email ?? '',
       subject,
-      body: '',
+      body: initialBody ?? '',
+      accountId: email.account_id,
     });
   }, []);
 
@@ -255,6 +257,7 @@ function App() {
       to: '',
       subject,
       body: forwardedBody,
+      accountId: email.account_id,
     });
   }, []);
 
@@ -412,6 +415,7 @@ function App() {
               initialSubject={composeState.subject}
               initialBody={composeState.body}
               draftId={composeState.draftId}
+              initialAccountId={composeState.accountId}
             />
           )}
 

@@ -18,16 +18,22 @@ interface ClientSession {
     transport: SSEServerTransport;
 }
 
+export interface McpServerOptions {
+    port?: number;
+    authToken?: string;
+}
+
 export class McpServerManager {
     private app: express.Express;
-    private port: number = 3000;
+    private port: number;
     private transports: Map<string, ClientSession> = new Map();
     private tools: Map<string, ToolDefinition>;
     private authToken: string;
     private connectionCallback: ((count: number) => void) | null = null;
 
-    constructor() {
-        this.authToken = crypto.randomBytes(32).toString('hex');
+    constructor(options?: McpServerOptions) {
+        this.port = options?.port ?? 3000;
+        this.authToken = options?.authToken ?? crypto.randomBytes(32).toString('hex');
         this.app = express();
         this.app.use(cors({ origin: false }));
         this.app.use(express.json());
@@ -148,15 +154,34 @@ export class McpServerManager {
         return this.authToken;
     }
 
+    /** Get the configured port */
+    public getPort(): number {
+        return this.port;
+    }
+
+    /** Whether the HTTP server is currently listening */
+    public isRunning(): boolean {
+        return this.httpServer !== null;
+    }
+
+    /** Return tool names + descriptions for UI display */
+    public getToolList(): Array<{ name: string; description: string }> {
+        return Array.from(this.tools.entries()).map(([name, def]) => ({
+            name,
+            description: def.description,
+        }));
+    }
+
     private httpServer: ReturnType<typeof this.app.listen> | null = null;
 
     public start() {
+        if (this.httpServer) return;
         this.httpServer = this.app.listen(this.port, '127.0.0.1', () => {
             logDebug(`[MCP Server] Listening on http://127.0.0.1:${this.port}/sse`);
         });
     }
 
-    public stop() {
+    public stop(): Promise<void> {
         for (const [sessionId, session] of this.transports) {
             try {
                 session.transport.close();
@@ -165,17 +190,51 @@ export class McpServerManager {
             }
         }
         this.transports.clear();
-        this.httpServer?.close();
-        this.httpServer = null;
+        return new Promise((resolve) => {
+            if (this.httpServer) {
+                this.httpServer.close(() => resolve());
+                this.httpServer = null;
+            } else {
+                resolve();
+            }
+        });
     }
 }
 
 let _mcpServer: McpServerManager | null = null;
+let _connectionCallback: ((count: number) => void) | null = null;
 
 /** Lazy factory — MCP server is created on first access (deferred from module load time) */
-export function getMcpServer(): McpServerManager {
+export function getMcpServer(options?: McpServerOptions): McpServerManager {
     if (!_mcpServer) {
-        _mcpServer = new McpServerManager();
+        _mcpServer = new McpServerManager(options);
+        if (_connectionCallback) {
+            _mcpServer.setConnectionCallback(_connectionCallback);
+        }
     }
     return _mcpServer;
+}
+
+/** Store the connection callback so it persists across restarts */
+export function setMcpConnectionCallback(cb: (count: number) => void) {
+    _connectionCallback = cb;
+    if (_mcpServer) {
+        _mcpServer.setConnectionCallback(cb);
+    }
+}
+
+/** Restart the MCP server with new options (port/token change) */
+export async function restartMcpServer(options: McpServerOptions): Promise<McpServerManager> {
+    if (_mcpServer) {
+        await _mcpServer.stop();
+        _mcpServer = null;
+    }
+    const server = getMcpServer(options);
+    try {
+        server.start();
+    } catch (err) {
+        _mcpServer = null;
+        throw err;
+    }
+    return server;
 }

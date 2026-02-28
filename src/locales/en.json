@@ -333,5 +333,30 @@
   "phishing": {
     "warning": "Warning: This email may contain phishing links",
     "reasons": "Suspicious indicators found:"
+  },
+  "mcp": {
+    "title": "Agentic / MCP",
+    "serverToggle": "MCP Server",
+    "serverDesc": "Enable the Model Context Protocol server so AI agents (Claude, OpenClaw, etc.) can access your mailbox.",
+    "status": "Status",
+    "running": "Running",
+    "stopped": "Stopped",
+    "port": "Port",
+    "portApply": "Apply",
+    "portError": "Port must be between 1024 and 65535",
+    "authToken": "Auth Token",
+    "regenerate": "Regenerate",
+    "regenerateConfirm": "Regenerate token? All connected agents will be disconnected.",
+    "showToken": "Show token",
+    "hideToken": "Hide token",
+    "copied": "Copied!",
+    "copyToken": "Copy token",
+    "copyUrl": "Copy URL",
+    "endpoint": "SSE Endpoint",
+    "connectedAgents": "Connected agents",
+    "configTitle": "Agent Configuration",
+    "configDesc": "Add this to your AI tool's MCP configuration:",
+    "toolsTitle": "Available Tools",
+    "noTools": "No tools available"
   }
 }

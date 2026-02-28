@@ -5,7 +5,8 @@ import * as Tabs from '@radix-ui/react-tabs';
 import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
-    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText, Tags as TagsIcon, Users
+    CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText, Tags as TagsIcon, Users,
+    Bot, Copy, RefreshCw, Wrench
 } from 'lucide-react';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
@@ -93,6 +94,19 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [newTagName, setNewTagName] = useState('');
     const [newTagColor, setNewTagColor] = useState('#6366f1');
 
+    // Agentic / MCP tab state
+    const [mcpLoaded, setMcpLoaded] = useState(false);
+    const [mcpEnabled, setMcpEnabled] = useState(true);
+    const [mcpRunning, setMcpRunning] = useState(false);
+    const [mcpPort, setMcpPort] = useState(3000);
+    const [mcpPortInput, setMcpPortInput] = useState('3000');
+    const [mcpPortError, setMcpPortError] = useState('');
+    const [mcpToken, setMcpToken] = useState('');
+    const [showMcpToken, setShowMcpToken] = useState(false);
+    const [mcpConnectedCount, setMcpConnectedCount] = useState(0);
+    const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
+    const [mcpCopied, setMcpCopied] = useState<string | null>(null);
+
     const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
     // Mail rules state
@@ -156,8 +170,17 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         return () => {
             setFormPassword('');
             setApiKey('');
+            setMcpToken('');
         };
     }, []);
+
+    // Clear MCP token from memory when navigating away from Agentic tab
+    useEffect(() => {
+        if (activeTab !== 'agentic' && mcpToken) {
+            setMcpToken('');
+            setShowMcpToken(false);
+        }
+    }, [activeTab, mcpToken]);
 
     // Load rules when Rules tab is first activated
     const rulesAccountId = accounts[0]?.id;
@@ -208,6 +231,33 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             });
         return () => { cancelled = true; };
     }, [activeTab, contactsLoaded]);
+
+    // Load MCP status when Agentic tab is first activated
+    useEffect(() => {
+        if (activeTab !== 'agentic' || mcpLoaded) return;
+        let cancelled = false;
+        Promise.all([
+            ipcInvoke<{ running: boolean; port: number; connectedCount: number }>('mcp:get-status'),
+            ipcInvoke<{ token: string }>('mcp:get-token'),
+            ipcInvoke<{ tools: Array<{ name: string; description: string }> }>('mcp:get-tools'),
+            ipcInvoke<string | null>('settings:get', 'mcp_enabled'),
+        ]).then(([status, tokenResult, toolsResult, enabledVal]) => {
+            if (cancelled) return;
+            if (status) {
+                setMcpRunning(status.running);
+                setMcpPort(status.port);
+                setMcpPortInput(String(status.port));
+                setMcpConnectedCount(status.connectedCount);
+            }
+            if (tokenResult) setMcpToken(tokenResult.token);
+            if (toolsResult?.tools) setMcpTools(toolsResult.tools);
+            setMcpEnabled(enabledVal !== 'false');
+            setMcpLoaded(true);
+        }).catch(() => {
+            if (!cancelled) setMcpLoaded(true);
+        });
+        return () => { cancelled = true; };
+    }, [activeTab, mcpLoaded]);
 
     const handleSaveTemplate = async () => {
         if (!editingTemplate) return;
@@ -539,6 +589,53 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         }
     };
 
+    // --- MCP handlers ---
+    const handleMcpToggle = async () => {
+        const prev = mcpEnabled;
+        const newEnabled = !prev;
+        setMcpEnabled(newEnabled);
+        try {
+            const result = await ipcInvoke<{ success: boolean; running: boolean }>('mcp:toggle', newEnabled);
+            if (result) setMcpRunning(result.running);
+        } catch {
+            setMcpEnabled(prev);
+        }
+    };
+
+    const handleMcpPortApply = async () => {
+        const port = parseInt(mcpPortInput, 10);
+        if (isNaN(port) || !Number.isInteger(port) || port < 1024 || port > 65535) {
+            setMcpPortError(t('mcp.portError'));
+            return;
+        }
+        setMcpPortError('');
+        try {
+            await ipcInvoke('mcp:set-port', port);
+            setMcpPort(port);
+            setMcpRunning(true);
+        } catch {
+            setMcpPortError(t('mcp.portError'));
+        }
+    };
+
+    const handleMcpRegenerateToken = async () => {
+        if (!confirm(t('mcp.regenerateConfirm'))) return;
+        const result = await ipcInvoke<{ token: string }>('mcp:regenerate-token');
+        if (result) {
+            setMcpToken(result.token);
+            setMcpConnectedCount(0);
+            setMcpRunning(true);
+        }
+    };
+
+    const handleMcpCopy = async (text: string, label: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setMcpCopied(label);
+            setTimeout(() => setMcpCopied(null), 2000);
+        } catch { /* clipboard write failed — no feedback */ }
+    };
+
     const isEditing = editingAccountId !== null;
     const hasPassword = formPassword.trim().length > 0;
 
@@ -600,6 +697,10 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             <Tabs.Trigger className={styles['tab-btn']} value="contacts">
                                 <Users size={16} />
                                 <span>{t('settings.contacts')}</span>
+                            </Tabs.Trigger>
+                            <Tabs.Trigger className={styles['tab-btn']} value="agentic">
+                                <Bot size={16} />
+                                <span>{t('mcp.title')}</span>
                             </Tabs.Trigger>
                         </Tabs.List>
 
@@ -1385,6 +1486,155 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         ))}
                                     {contacts.length === 0 && contactsLoaded && (
                                         <p className={styles['rules-empty']}>{t('contacts.noContacts')}</p>
+                                    )}
+                                </div>
+                            </div>
+                        </Tabs.Content>
+
+                        {/* Agentic / MCP Tab */}
+                        <Tabs.Content className={styles['settings-tab-panel']} value="agentic">
+                            <div className={styles['agentic-view']}>
+                                {/* Server toggle */}
+                                <div className={styles['agentic-toggle-row']}>
+                                    <div className={styles['agentic-toggle-info']}>
+                                        <span className={styles['agentic-toggle-label']}>{t('mcp.serverToggle')}</span>
+                                        <span className={styles['agentic-toggle-desc']}>{t('mcp.serverDesc')}</span>
+                                    </div>
+                                    <button
+                                        className={`${styles['notif-switch']} ${mcpEnabled ? styles['notif-switch-on'] : ''}`}
+                                        onClick={handleMcpToggle}
+                                        aria-label={t('mcp.serverToggle')}
+                                        role="switch"
+                                        aria-checked={mcpEnabled}
+                                    >
+                                        <span className={styles['notif-switch-thumb']} />
+                                    </button>
+                                </div>
+
+                                {/* Status */}
+                                <div className={styles['status-row']}>
+                                    <span className={`${styles['status-dot']} ${mcpRunning ? styles['status-dot-on'] : styles['status-dot-off']}`} />
+                                    <span className={styles['status-text']}>
+                                        {t('mcp.status')}: {mcpRunning ? t('mcp.running') : t('mcp.stopped')}
+                                    </span>
+                                    {mcpRunning && mcpConnectedCount > 0 && (
+                                        <span className={styles['status-agents']}>
+                                            {t('mcp.connectedAgents')}: {mcpConnectedCount}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Port */}
+                                <div className={styles['port-row']}>
+                                    <label className={styles['port-label']} htmlFor="mcp-port-input">{t('mcp.port')}</label>
+                                    <input
+                                        id="mcp-port-input"
+                                        type="number"
+                                        className={styles['port-input']}
+                                        value={mcpPortInput}
+                                        onChange={e => { setMcpPortInput(e.target.value); setMcpPortError(''); }}
+                                        min={1024}
+                                        max={65535}
+                                    />
+                                    <button
+                                        className={styles['port-apply-btn']}
+                                        onClick={handleMcpPortApply}
+                                        disabled={mcpPortInput === String(mcpPort)}
+                                    >
+                                        {t('mcp.portApply')}
+                                    </button>
+                                    {mcpPortError && <span className={styles['port-error']} role="alert">{mcpPortError}</span>}
+                                </div>
+
+                                {/* Auth token */}
+                                <div className={styles['token-section']}>
+                                    <div className={styles['token-label']}>{t('mcp.authToken')}</div>
+                                    <div className={styles['token-input-row']}>
+                                        <input
+                                            type={showMcpToken ? 'text' : 'password'}
+                                            className={styles['token-input']}
+                                            value={mcpToken}
+                                            readOnly
+                                        />
+                                        <button
+                                            className={styles['token-btn']}
+                                            onClick={() => setShowMcpToken(!showMcpToken)}
+                                            title={showMcpToken ? t('mcp.hideToken') : t('mcp.showToken')}
+                                        >
+                                            {showMcpToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                        <button
+                                            className={styles['token-btn']}
+                                            onClick={() => handleMcpCopy(mcpToken, 'token')}
+                                            title={t('mcp.copyToken')}
+                                        >
+                                            <Copy size={16} />
+                                        </button>
+                                    </div>
+                                    <div className={styles['token-actions']}>
+                                        <button className={styles['test-btn']} onClick={handleMcpRegenerateToken}>
+                                            <RefreshCw size={14} />
+                                            {t('mcp.regenerate')}
+                                        </button>
+                                        {mcpCopied === 'token' && (
+                                            <span className={styles['copied-feedback']}>{t('mcp.copied')}</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* SSE Endpoint */}
+                                <div className={styles['endpoint-section']}>
+                                    <div className={styles['endpoint-label']}>{t('mcp.endpoint')}</div>
+                                    <div className={styles['endpoint-url-row']}>
+                                        <code className={styles['endpoint-url']}>
+                                            {`http://127.0.0.1:${mcpPort}/sse`}
+                                        </code>
+                                        <button
+                                            className={styles['token-btn']}
+                                            onClick={() => handleMcpCopy(`http://127.0.0.1:${mcpPort}/sse`, 'url')}
+                                            title={t('mcp.copyUrl')}
+                                        >
+                                            <Copy size={16} />
+                                        </button>
+                                        {mcpCopied === 'url' && (
+                                            <span className={styles['copied-feedback']}>{t('mcp.copied')}</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Agent configuration block */}
+                                <div className={styles['config-section']}>
+                                    <div className={styles['config-label']}>{t('mcp.configTitle')}</div>
+                                    <div className={styles['config-desc']}>{t('mcp.configDesc')}</div>
+                                    <pre className={styles['config-block']}>{JSON.stringify({
+                                        "mcpServers": {
+                                            "express-delivery": {
+                                                "url": `http://127.0.0.1:${mcpPort}/sse`,
+                                                "headers": {
+                                                    "Authorization": "Bearer <your-token>"
+                                                }
+                                            }
+                                        }
+                                    }, null, 2)}</pre>
+                                </div>
+
+                                {/* Available tools */}
+                                <div className={styles['tools-section']}>
+                                    <div className={styles['tools-label']}>
+                                        <Wrench size={14} className={styles['tools-label-icon']} />
+                                        {t('mcp.toolsTitle')} ({mcpTools.length})
+                                    </div>
+                                    {mcpTools.length > 0 ? (
+                                        <div className={styles['tools-list']}>
+                                            {mcpTools.map(tool => (
+                                                <div key={tool.name} className={styles['tool-item']}>
+                                                    <span className={styles['tool-name']}>{tool.name}</span>
+                                                    <span className={styles['tool-desc']}>{tool.description}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className={styles['rules-empty']}>{t('mcp.noTools')}</p>
                                     )}
                                 </div>
                             </div>

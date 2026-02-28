@@ -18,7 +18,7 @@ vi.mock('../lib/formatFileSize', () => ({
 let mockEditorContent = '';
 const mockEditor = {
     getHTML: () => mockEditorContent,
-    chain: () => ({ focus: () => ({ toggleBold: () => ({ run: vi.fn() }), toggleItalic: () => ({ run: vi.fn() }), toggleUnderline: () => ({ run: vi.fn() }), toggleBulletList: () => ({ run: vi.fn() }), toggleOrderedList: () => ({ run: vi.fn() }), setLink: () => ({ run: vi.fn() }) }) }),
+    chain: () => ({ focus: () => ({ toggleBold: () => ({ run: vi.fn() }), toggleItalic: () => ({ run: vi.fn() }), toggleUnderline: () => ({ run: vi.fn() }), toggleBulletList: () => ({ run: vi.fn() }), toggleOrderedList: () => ({ run: vi.fn() }), setLink: () => ({ run: vi.fn() }), insertContent: () => ({ run: vi.fn() }) }) }),
     isActive: () => false,
     on: vi.fn(),
     off: vi.fn(),
@@ -158,8 +158,10 @@ describe('ComposeModal', () => {
     });
 
     it('calls email:send IPC with correct params on successful send', async () => {
-        mockIpcInvoke.mockResolvedValueOnce(null); // templates:list (on mount)
-        mockIpcInvoke.mockResolvedValueOnce({ success: true }); // email:send
+        mockIpcInvoke.mockImplementation((channel: string) => {
+            if (channel === 'email:send') return Promise.resolve({ success: true });
+            return Promise.resolve(null);
+        });
         const onClose = vi.fn();
         mockEditorContent = '<p>Hello world</p>';
         renderCompose({ onClose });
@@ -299,6 +301,277 @@ describe('ComposeModal', () => {
             const payload = call![1] as { html: string };
             expect(payload.html).toContain('Best regards');
             expect(payload.html).toContain('<hr />');
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Account selection
+    // -----------------------------------------------------------------------
+    describe('Account selection', () => {
+        it('uses initialAccountId for sending when provided', async () => {
+            useEmailStore.setState({
+                accounts: [
+                    { id: 'acc-1', email: 'first@example.com', provider: 'gmail', display_name: 'First', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: null },
+                    { id: 'acc-2', email: 'second@example.com', provider: 'outlook', display_name: 'Second', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: null },
+                ],
+            });
+            mockIpcInvoke.mockImplementation((channel: string) => {
+                if (channel === 'email:send') return Promise.resolve({ success: true });
+                return Promise.resolve(null);
+            });
+            mockEditorContent = '<p>Hello</p>';
+            const onClose = vi.fn();
+            renderCompose({ onClose, initialAccountId: 'acc-2' });
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+            fireEvent.click(screen.getByText('compose.send'));
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('email:send', expect.objectContaining({
+                    accountId: 'acc-2',
+                }));
+            });
+        });
+
+        it('falls back to first account when initialAccountId is not found', async () => {
+            useEmailStore.setState({
+                accounts: [
+                    { id: 'acc-1', email: 'first@example.com', provider: 'gmail', display_name: 'First', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: null },
+                ],
+            });
+            mockIpcInvoke.mockImplementation((channel: string) => {
+                if (channel === 'email:send') return Promise.resolve({ success: true });
+                return Promise.resolve(null);
+            });
+            mockEditorContent = '<p>Hello</p>';
+            const onClose = vi.fn();
+            renderCompose({ onClose, initialAccountId: 'nonexistent' });
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+            fireEvent.click(screen.getByText('compose.send'));
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('email:send', expect.objectContaining({
+                    accountId: 'acc-1',
+                }));
+            });
+        });
+
+        // -------------------------------------------------------------------
+        // Edge cases — Phase 8
+        // -------------------------------------------------------------------
+
+        it('shows compose.noAccount error when accounts array is empty and send is clicked', async () => {
+            // Explicitly test empty accounts array — sendingAccount becomes undefined
+            useEmailStore.setState({ accounts: [] });
+            renderCompose();
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+            fireEvent.click(screen.getByText('compose.send'));
+
+            // sendingAccount is undefined → accountId undefined → error
+            expect(screen.getByRole('alert')).toHaveTextContent('compose.noAccount');
+        });
+
+        it('does not call email:send IPC when accounts array is empty', async () => {
+            useEmailStore.setState({ accounts: [] });
+            renderCompose();
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+            fireEvent.click(screen.getByText('compose.send'));
+
+            await new Promise(r => setTimeout(r, 50));
+            expect(mockIpcInvoke).not.toHaveBeenCalledWith('email:send', expect.anything());
+        });
+
+        it('falls back to accounts[0] when initialAccountId is empty string', async () => {
+            useEmailStore.setState({
+                accounts: [
+                    { id: 'acc-1', email: 'first@example.com', provider: 'gmail', display_name: 'First', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: null },
+                ],
+            });
+            mockIpcInvoke.mockImplementation((channel: string) => {
+                if (channel === 'email:send') return Promise.resolve({ success: true });
+                return Promise.resolve(null);
+            });
+            mockEditorContent = '<p>Hello</p>';
+            const onClose = vi.fn();
+            // initialAccountId is empty string — `if (initialAccountId)` is falsy → falls through to accounts[0]
+            renderCompose({ onClose, initialAccountId: '' });
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+            fireEvent.click(screen.getByText('compose.send'));
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('email:send', expect.objectContaining({
+                    accountId: 'acc-1',
+                }));
+            });
+        });
+
+        it('uses account signature from matched initialAccountId', () => {
+            useEmailStore.setState({
+                accounts: [
+                    { id: 'acc-1', email: 'first@example.com', provider: 'gmail', display_name: 'First', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: 'Regards, First' },
+                    { id: 'acc-2', email: 'second@example.com', provider: 'outlook', display_name: 'Second', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: 'Best, Second' },
+                ],
+            });
+            // initialAccountId targets acc-2, so its signature "Best, Second" should appear
+            renderCompose({ initialAccountId: 'acc-2' });
+            expect(screen.getByText(/Best, Second/)).toBeInTheDocument();
+            expect(screen.queryByText(/Regards, First/)).not.toBeInTheDocument();
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Optimal send time
+    // -----------------------------------------------------------------------
+    describe('Optimal send time', () => {
+        it('shows suggested send time hint when analytics:busiest-hours returns data', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'analytics:busiest-hours') {
+                    return [{ hour: 9, count: 42 }];
+                }
+                return null;
+            });
+            renderCompose();
+
+            // The suggested time hint renders when busiestHours[0] exists.
+            // t('compose.suggestedTime') returns the key itself; the span text is
+            // "compose.suggestedTime: <locale time>" so we match with a regex.
+            await waitFor(() => {
+                expect(screen.getByText(/compose\.suggestedTime/)).toBeInTheDocument();
+            });
+        });
+
+        it('does not show suggested send time hint when analytics:busiest-hours returns empty array', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'analytics:busiest-hours') return [];
+                return null;
+            });
+            renderCompose();
+
+            // Give the effect time to settle
+            await new Promise(r => setTimeout(r, 50));
+
+            // busiestHours.length === 0 → hint must not render
+            expect(screen.queryByText(/compose\.suggestedTime/)).not.toBeInTheDocument();
+        });
+
+        it('does not show suggested send time hint when analytics:busiest-hours returns null', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'analytics:busiest-hours') return null;
+                return null;
+            });
+            renderCompose();
+
+            await new Promise(r => setTimeout(r, 50));
+
+            // null is not an array → Array.isArray guard fires → busiestHours stays empty
+            expect(screen.queryByText(/compose\.suggestedTime/)).not.toBeInTheDocument();
+        });
+
+        it('does not show suggested send time hint when analytics:busiest-hours returns a non-array value', async () => {
+            // A non-array truthy return (e.g. an object) should not populate busiestHours
+            // and must not cause a crash. This exercises the Array.isArray guard path.
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'analytics:busiest-hours') return { error: 'Service unavailable' };
+                return null;
+            });
+            renderCompose();
+
+            await new Promise(r => setTimeout(r, 50));
+
+            // Non-array result → Array.isArray is false → setBusiestHours not called → hint absent
+            expect(screen.queryByText(/compose\.suggestedTime/)).not.toBeInTheDocument();
+        });
+
+        it('does not fetch busiest hours when accounts array is empty (no sendingAccount)', async () => {
+            useEmailStore.setState({ accounts: [] });
+            renderCompose();
+
+            await new Promise(r => setTimeout(r, 50));
+
+            // The effect guard: `if (!accountId) return;` fires when sendingAccount is undefined
+            expect(mockIpcInvoke).not.toHaveBeenCalledWith('analytics:busiest-hours', expect.anything());
+        });
+
+        it('refetches busiest hours when sendingAccount changes', async () => {
+            // Start with acc-1
+            useEmailStore.setState({
+                accounts: [
+                    { id: 'acc-1', email: 'first@example.com', provider: 'gmail', display_name: 'First', imap_host: null, imap_port: null, smtp_host: null, smtp_port: null, signature_html: null },
+                ],
+            });
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'analytics:busiest-hours') return [{ hour: 10, count: 5 }];
+                return null;
+            });
+            renderCompose({ initialAccountId: 'acc-1' });
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('analytics:busiest-hours', 'acc-1');
+            });
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // onSendPending path
+    // -----------------------------------------------------------------------
+    describe('onSendPending delegation', () => {
+        it('calls onSendPending instead of email:send IPC when prop is provided', async () => {
+            mockEditorContent = '<p>Hello</p>';
+            const onSendPending = vi.fn();
+            const onClose = vi.fn();
+            mockIpcInvoke.mockResolvedValue(null);
+
+            renderCompose({ onSendPending, onClose });
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'user@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Test Subject' } });
+            fireEvent.click(screen.getByText('compose.send'));
+
+            await waitFor(() => {
+                expect(onSendPending).toHaveBeenCalledWith(expect.objectContaining({
+                    accountId: 'acc-1',
+                    to: ['user@test.com'],
+                    subject: 'Test Subject',
+                }));
+                expect(onClose).toHaveBeenCalled();
+            });
+
+            // email:send IPC must NOT have been called
+            expect(mockIpcInvoke).not.toHaveBeenCalledWith('email:send', expect.anything());
+        });
+
+        it('calls onSendPending with cc and bcc when they are filled', async () => {
+            mockEditorContent = '<p>Hello</p>';
+            const onSendPending = vi.fn();
+            mockIpcInvoke.mockResolvedValue(null);
+
+            renderCompose({ onSendPending });
+
+            fireEvent.change(screen.getByPlaceholderText('compose.recipientPlaceholder'), { target: { value: 'to@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.subjectPlaceholder'), { target: { value: 'Subject' } });
+
+            // Expand CC/BCC and fill them
+            fireEvent.click(screen.getByLabelText('compose.toggleCcBcc'));
+            fireEvent.change(screen.getByPlaceholderText('compose.ccPlaceholder'), { target: { value: 'cc@test.com' } });
+            fireEvent.change(screen.getByPlaceholderText('compose.bccPlaceholder'), { target: { value: 'bcc@test.com' } });
+
+            fireEvent.click(screen.getByText('compose.send'));
+
+            await waitFor(() => {
+                expect(onSendPending).toHaveBeenCalledWith(expect.objectContaining({
+                    cc: ['cc@test.com'],
+                    bcc: ['bcc@test.com'],
+                }));
+            });
         });
     });
 });

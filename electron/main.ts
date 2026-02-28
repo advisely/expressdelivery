@@ -48,7 +48,7 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 import { initDatabase, getDatabase, closeDatabase } from './db.js'
-import { getMcpServer } from './mcpServer.js'
+import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
 import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
@@ -278,7 +278,7 @@ function registerIpcHandlers() {
     const inbox = folders.find(f => f.type === 'inbox');
     const emails = inbox
       ? db.prepare(
-        `SELECT id, thread_id, subject, from_name, from_email, to_email,
+        `SELECT id, thread_id, account_id, subject, from_name, from_email, to_email,
                 date, snippet, is_read, is_flagged, has_attachments,
                 ai_category, ai_priority, ai_labels
          FROM emails WHERE folder_id = ? AND (is_snoozed = 0 OR is_snoozed IS NULL)
@@ -552,22 +552,33 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:list', (_event, folderId: string) => {
-    // Virtual folder: unified inbox (all accounts)
+    // Virtual folder: unified inbox (all accounts) — thread-deduped
     if (folderId === '__unified') {
       return db.prepare(
-        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+        `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
                 e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
-                e.ai_category, e.ai_priority, e.ai_labels
+                e.ai_category, e.ai_priority, e.ai_labels,
+                (SELECT COUNT(*) FROM emails e2
+                 INNER JOIN folders f2 ON e2.folder_id = f2.id
+                 WHERE e2.thread_id = e.thread_id AND f2.type = 'inbox'
+                   AND (e2.is_snoozed = 0 OR e2.is_snoozed IS NULL)) AS thread_count
          FROM emails e
          INNER JOIN folders f ON e.folder_id = f.id
          WHERE f.type = 'inbox' AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)
+           AND e.id = (
+             SELECT e3.id FROM emails e3
+             INNER JOIN folders f3 ON e3.folder_id = f3.id
+             WHERE e3.thread_id = e.thread_id AND f3.type = 'inbox'
+               AND (e3.is_snoozed = 0 OR e3.is_snoozed IS NULL)
+             ORDER BY e3.date DESC LIMIT 1
+           )
          ORDER BY e.date DESC LIMIT 50`
       ).all();
     }
     // Virtual folder: snoozed emails
     if (folderId === '__snoozed') {
       return db.prepare(
-        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+        `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
                 e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
                 e.ai_category, e.ai_priority, e.ai_labels
          FROM emails e
@@ -591,7 +602,7 @@ function registerIpcHandlers() {
     if (folderId.startsWith('__tag_')) {
       const tagId = folderId.slice(6);
       return db.prepare(
-        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+        `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
                 e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
                 e.ai_category, e.ai_priority, e.ai_labels
          FROM emails e
@@ -608,7 +619,7 @@ function registerIpcHandlers() {
       const sanitized = sanitizeFts5Query(search.query);
       if (!sanitized) return [];
       return db.prepare(
-        `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+        `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
                 e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
                 e.ai_category, e.ai_priority, e.ai_labels
          FROM emails e
@@ -618,7 +629,7 @@ function registerIpcHandlers() {
       ).all(sanitized);
     }
     return db.prepare(
-      `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
+      `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
               e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
               e.ai_category, e.ai_priority, e.ai_labels,
               (SELECT COUNT(*) FROM emails e2 WHERE e2.thread_id = e.thread_id AND e2.folder_id = ?) AS thread_count
@@ -1029,14 +1040,14 @@ function registerIpcHandlers() {
     return { status: 'error', lastSync };
   });
 
-  const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key']);
+  const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key', 'mcp_auth_token']);
   ipcMain.handle('settings:get', (_event, key: string) => {
     if (BLOCKED_SETTINGS_GET_KEYS.has(key)) return null;
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
     return row?.value ?? null;
   });
 
-  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay', 'density_mode', 'reading_pane_zoom', 'sound_enabled', 'sound_custom_path']);
+  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay', 'density_mode', 'reading_pane_zoom', 'sound_enabled', 'sound_custom_path', 'ai_compose_tone', 'mcp_enabled', 'mcp_port', 'mcp_auth_token']);
   ipcMain.handle('settings:set', (_event, key: string, value: string) => {
     if (!ALLOWED_SETTINGS_KEYS.has(key)) {
       throw new Error(`Setting key not allowed: ${key}`);
@@ -1385,6 +1396,112 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
+  // --- Phase 8: AI compose + analytics ---
+
+  ipcMain.handle('ai:suggest-reply', async (_event, params: {
+    emailId: string;
+    accountId: string;
+    tone?: string;
+  }) => {
+    if (!params?.emailId || typeof params.emailId !== 'string') {
+      return { error: 'Invalid email ID' };
+    }
+    if (!params?.accountId || typeof params.accountId !== 'string') {
+      return { error: 'Invalid account ID' };
+    }
+
+    const VALID_TONES = new Set(['professional', 'casual', 'friendly', 'formal', 'concise']);
+    const tone = (typeof params.tone === 'string' && VALID_TONES.has(params.tone))
+      ? params.tone as 'professional' | 'casual' | 'friendly' | 'formal' | 'concise'
+      : 'professional';
+
+    // Cross-account ownership check
+    const email = db.prepare(`
+      SELECT id, account_id, thread_id, subject, from_name, from_email,
+             to_email, date, body_text, snippet
+      FROM emails WHERE id = ?
+    `).get(params.emailId) as Record<string, unknown> | undefined;
+    if (!email) return { error: 'Email not found' };
+    if (email.account_id !== params.accountId) return { error: 'Access denied' };
+
+    // Get decrypted API key
+    const keyRow = db.prepare("SELECT value FROM settings WHERE key = 'openrouter_api_key'").get() as { value: string } | undefined;
+    if (!keyRow?.value) return { error: 'OpenRouter API key not configured. Add it in Settings > AI / API Keys.' };
+    let apiKey: string;
+    try {
+      apiKey = decryptData(Buffer.from(keyRow.value, 'base64'));
+    } catch {
+      return { error: 'Failed to decrypt API key' };
+    }
+    if (!apiKey) return { error: 'OpenRouter API key is empty' };
+
+    // Thread context (last 3 messages)
+    let threadContext: Array<{ fromName: string | null; fromEmail: string | null; bodyText: string | null }> = [];
+    if (email.thread_id) {
+      const threadEmails = db.prepare(`
+        SELECT from_name, from_email, body_text, snippet
+        FROM emails WHERE thread_id = ? AND account_id = ?
+        ORDER BY date ASC
+      `).all(email.thread_id as string, params.accountId) as Array<Record<string, unknown>>;
+      threadContext = threadEmails.slice(-3).map(te => ({
+        fromName: te.from_name as string | null,
+        fromEmail: te.from_email as string | null,
+        bodyText: typeof te.body_text === 'string' ? te.body_text.slice(0, 500) : (te.snippet as string | null),
+      }));
+    }
+
+    // Sender history (last 3)
+    const senderHistory = db.prepare(`
+      SELECT subject, snippet
+      FROM emails WHERE account_id = ? AND from_email = ?
+      ORDER BY date DESC LIMIT 3
+    `).all(params.accountId, email.from_email) as Array<{ subject: string | null; snippet: string | null }>;
+
+    // Account info
+    const account = db.prepare(
+      'SELECT email, display_name FROM accounts WHERE id = ?'
+    ).get(params.accountId) as { email: string; display_name: string | null } | undefined;
+    if (!account) return { error: 'Account not found' };
+
+    try {
+      const { generateReply } = await import('./openRouterClient.js');
+      const html = await generateReply({
+        apiKey,
+        emailSubject: (email.subject as string | null) ?? '',
+        emailBody: typeof email.body_text === 'string'
+          ? email.body_text.slice(0, 2000)
+          : (email.snippet as string | null) ?? '',
+        fromName: email.from_name as string | null,
+        fromEmail: email.from_email as string | null,
+        senderHistory,
+        threadContext,
+        tone,
+        accountEmail: account.email,
+        accountDisplayName: account.display_name,
+      });
+      return { html };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logDebug(`[ai:suggest-reply] error: ${msg.replace(/[\r\n\0]/g, ' ').slice(0, 500)}`);
+      return { error: `AI generation failed: ${msg.slice(0, 200)}` };
+    }
+  });
+
+  ipcMain.handle('analytics:busiest-hours', (_event, accountId: string) => {
+    if (!accountId || typeof accountId !== 'string') return [];
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(accountId);
+    if (!account) return [];
+
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+
+    return db.prepare(`
+      SELECT CAST(strftime('%H', date, 'localtime') AS INTEGER) as hour, COUNT(*) as count
+      FROM emails WHERE account_id = ? AND date >= ?
+      GROUP BY hour ORDER BY count DESC LIMIT 3
+    `).all(accountId, since.toISOString()) as Array<{ hour: number; count: number }>;
+  });
+
   // --- Phase 4: Snooze handlers ---
 
   ipcMain.handle('emails:snooze', (_event, params: { emailId: string; snoozeUntil: string }) => {
@@ -1706,6 +1823,74 @@ function registerIpcHandlers() {
     return { count: getMcpServer().getConnectedCount() };
   });
 
+  // --- MCP management handlers ---
+
+  ipcMain.handle('mcp:get-status', () => {
+    const mcp = getMcpServer();
+    return {
+      running: mcp.isRunning(),
+      port: mcp.getPort(),
+      connectedCount: mcp.getConnectedCount(),
+    };
+  });
+
+  ipcMain.handle('mcp:get-token', () => {
+    return { token: getMcpServer().getAuthToken() };
+  });
+
+  ipcMain.handle('mcp:regenerate-token', async () => {
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const mcp = getMcpServer();
+    const port = mcp.getPort();
+
+    // Persist new token (encrypted)
+    const encrypted = encryptData(newToken).toString('base64');
+    db.prepare(
+      "INSERT INTO settings (key, value) VALUES ('mcp_auth_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(encrypted);
+
+    // Restart server with new token (disconnects all agents)
+    await restartMcpServer({ port, authToken: newToken });
+
+    return { token: newToken };
+  });
+
+  ipcMain.handle('mcp:set-port', async (_event: Electron.IpcMainInvokeEvent, port: number) => {
+    if (typeof port !== 'number' || !Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error('Port must be an integer between 1024 and 65535');
+    }
+
+    db.prepare(
+      "INSERT INTO settings (key, value) VALUES ('mcp_port', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(String(port));
+
+    const token = getMcpServer().getAuthToken();
+    await restartMcpServer({ port, authToken: token });
+
+    return { success: true, port };
+  });
+
+  ipcMain.handle('mcp:toggle', async (_event: Electron.IpcMainInvokeEvent, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new Error('enabled must be a boolean');
+
+    db.prepare(
+      "INSERT INTO settings (key, value) VALUES ('mcp_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(enabled ? 'true' : 'false');
+
+    const mcp = getMcpServer();
+    if (enabled && !mcp.isRunning()) {
+      mcp.start();
+    } else if (!enabled && mcp.isRunning()) {
+      await mcp.stop();
+    }
+
+    return { success: true, running: mcp.isRunning() };
+  });
+
+  ipcMain.handle('mcp:get-tools', () => {
+    return { tools: getMcpServer().getToolList() };
+  });
+
   // --- Auto-update handlers ---
   ipcMain.handle('update:check', async () => {
     try {
@@ -1968,13 +2153,40 @@ app.whenReady().then(() => {
 
   // Defer non-critical services to after window creation
   try {
-    const mcp = getMcpServer();
-    mcp.start();
-    mcp.setConnectionCallback((count: number) => {
+    const db = getDatabase();
+    const mcpEnabledRow = db.prepare("SELECT value FROM settings WHERE key = 'mcp_enabled'").get() as { value: string } | undefined;
+    const mcpEnabled = mcpEnabledRow?.value !== 'false'; // default true
+
+    const mcpPortRow = db.prepare("SELECT value FROM settings WHERE key = 'mcp_port'").get() as { value: string } | undefined;
+    const parsedPort = mcpPortRow ? parseInt(mcpPortRow.value, 10) : 3000;
+    const mcpPort = Number.isInteger(parsedPort) && parsedPort >= 1024 && parsedPort <= 65535 ? parsedPort : 3000;
+
+    // Load persisted token or generate + persist a new one
+    const mcpTokenRow = db.prepare("SELECT value FROM settings WHERE key = 'mcp_auth_token'").get() as { value: string } | undefined;
+    let mcpAuthToken: string | undefined;
+    if (mcpTokenRow) {
+      try {
+        mcpAuthToken = decryptData(Buffer.from(mcpTokenRow.value, 'base64'));
+      } catch {
+        logDebug('[MCP] Failed to decrypt persisted token, generating new one');
+      }
+    }
+    if (!mcpAuthToken) {
+      mcpAuthToken = crypto.randomBytes(32).toString('hex');
+      const encrypted = encryptData(mcpAuthToken).toString('base64');
+      db.prepare("INSERT INTO settings (key, value) VALUES ('mcp_auth_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(encrypted);
+    }
+
+    const mcp = getMcpServer({ port: mcpPort, authToken: mcpAuthToken });
+    setMcpConnectionCallback((count: number) => {
       if (win && !win.isDestroyed()) {
         win.webContents.send('mcp:status', { connectedAgents: count });
       }
     });
+
+    if (mcpEnabled) {
+      mcp.start();
+    }
   } catch (err: unknown) {
     logDebug(`[ERROR] MCP server start failed: ${err instanceof Error ? err.message : String(err)}`);
   }

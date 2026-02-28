@@ -333,5 +333,30 @@
   "phishing": {
     "warning": "Attention : Cet e-mail peut contenir des liens de phishing",
     "reasons": "Indicateurs suspects trouvés :"
+  },
+  "mcp": {
+    "title": "Agentique / MCP",
+    "serverToggle": "Serveur MCP",
+    "serverDesc": "Activer le serveur Model Context Protocol pour que les agents IA (Claude, OpenClaw, etc.) puissent accéder à votre boîte mail.",
+    "status": "Statut",
+    "running": "En cours",
+    "stopped": "Arrêté",
+    "port": "Port",
+    "portApply": "Appliquer",
+    "portError": "Le port doit être entre 1024 et 65535",
+    "authToken": "Jeton d'authentification",
+    "regenerate": "Régénérer",
+    "regenerateConfirm": "Régénérer le jeton ? Tous les agents connectés seront déconnectés.",
+    "showToken": "Afficher le jeton",
+    "hideToken": "Masquer le jeton",
+    "copied": "Copié !",
+    "copyToken": "Copier le jeton",
+    "copyUrl": "Copier l'URL",
+    "endpoint": "Point d'accès SSE",
+    "connectedAgents": "Agents connectés",
+    "configTitle": "Configuration d'agent",
+    "configDesc": "Ajoutez ceci à la configuration MCP de votre outil IA :",
+    "toolsTitle": "Outils disponibles",
+    "noTools": "Aucun outil disponible"
   }
 }

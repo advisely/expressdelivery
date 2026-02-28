@@ -43,6 +43,20 @@ vi.mock('lucide-react', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Provider icons mock — returns a simple stub component for any provider
+// ---------------------------------------------------------------------------
+vi.mock('../lib/providerIcons', () => ({
+    getProviderIcon: (provider: string) => {
+        const ProviderIconStub = ({ size }: { size?: number }) => (
+            <div data-testid={`provider-icon-${provider}`} data-size={size}>PI</div>
+        );
+        ProviderIconStub.displayName = `ProviderIcon_${provider}`;
+        return ProviderIconStub;
+    },
+    PROVIDER_ICONS: {},
+}));
+
+// ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 const makeSummary = (overrides: Partial<EmailSummary> = {}): EmailSummary => ({
@@ -1460,6 +1474,200 @@ describe('ThreadList', () => {
             await waitFor(() =>
                 expect(mockIpcInvoke).toHaveBeenCalledWith('emails:read', 'email-1')
             );
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // 21. Unified inbox account badge
+    // -----------------------------------------------------------------------
+    describe('Unified inbox account badge', () => {
+        it('renders provider icon badge when viewing unified inbox', () => {
+            const accounts = [
+                {
+                    id: 'acc-1',
+                    email: 'alice@gmail.com',
+                    provider: 'gmail',
+                    display_name: 'Alice',
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                },
+            ];
+            useEmailStore.setState({
+                emails: [makeSummary({ id: 'email-1', account_id: 'acc-1' })],
+                folders: [INBOX_FOLDER],
+                selectedFolderId: '__unified',
+                selectedEmailId: null,
+                selectedEmailIds: new Set<string>(),
+                selectedEmail: null,
+                searchQuery: '',
+                accounts,
+            });
+            renderThreadList();
+
+            // The provider icon badge should appear with the account email as aria-label
+            expect(screen.getByLabelText('From account: alice@gmail.com')).toBeInTheDocument();
+        });
+
+        it('does not render account badge for regular folder', () => {
+            const accounts = [
+                {
+                    id: 'acc-1',
+                    email: 'alice@gmail.com',
+                    provider: 'gmail',
+                    display_name: 'Alice',
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                },
+            ];
+            useEmailStore.setState({
+                emails: [makeSummary({ id: 'email-1', account_id: 'acc-1' })],
+                folders: [INBOX_FOLDER],
+                selectedFolderId: 'folder-inbox',
+                selectedEmailId: null,
+                selectedEmailIds: new Set<string>(),
+                selectedEmail: null,
+                searchQuery: '',
+                accounts,
+            });
+            renderThreadList();
+
+            // No "From account:" badge should appear for a non-unified folder
+            expect(screen.queryByLabelText('From account: alice@gmail.com')).not.toBeInTheDocument();
+        });
+
+        // -------------------------------------------------------------------
+        // Edge cases — Phase 8
+        // -------------------------------------------------------------------
+
+        it('does not render account badge when email has no account_id (undefined)', () => {
+            // EmailSummary.account_id is optional — when absent, no badge should render
+            const accounts = [
+                {
+                    id: 'acc-1',
+                    email: 'alice@gmail.com',
+                    provider: 'gmail',
+                    display_name: 'Alice',
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                },
+            ];
+            useEmailStore.setState({
+                // account_id is deliberately omitted — uses makeSummary default (no account_id key)
+                emails: [makeSummary({ id: 'email-1' })],
+                folders: [INBOX_FOLDER],
+                selectedFolderId: '__unified',
+                selectedEmailId: null,
+                selectedEmailIds: new Set<string>(),
+                selectedEmail: null,
+                searchQuery: '',
+                accounts,
+            });
+            renderThreadList();
+
+            // thread.account_id is undefined → the guard `thread.account_id && (() => {...})()`
+            // short-circuits and returns null, so no badge at all
+            expect(screen.queryByLabelText(/From account:/)).not.toBeInTheDocument();
+        });
+
+        it('does not render account badge when account_id does not match any account', () => {
+            // account_id set to a value that is not in the accounts array
+            const accounts = [
+                {
+                    id: 'acc-known',
+                    email: 'known@gmail.com',
+                    provider: 'gmail',
+                    display_name: 'Known',
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                },
+            ];
+            useEmailStore.setState({
+                emails: [makeSummary({ id: 'email-1', account_id: 'acc-does-not-exist' })],
+                folders: [INBOX_FOLDER],
+                selectedFolderId: '__unified',
+                selectedEmailId: null,
+                selectedEmailIds: new Set<string>(),
+                selectedEmail: null,
+                searchQuery: '',
+                accounts,
+            });
+            renderThreadList();
+
+            // accounts.find returns undefined → component guard `if (!acct) return null`
+            expect(screen.queryByLabelText(/From account:/)).not.toBeInTheDocument();
+        });
+
+        it('renders distinct badges for emails from different accounts in unified inbox', () => {
+            const accounts = [
+                {
+                    id: 'acc-1',
+                    email: 'alice@gmail.com',
+                    provider: 'gmail',
+                    display_name: 'Alice',
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                },
+                {
+                    id: 'acc-2',
+                    email: 'bob@outlook.com',
+                    provider: 'outlook',
+                    display_name: 'Bob',
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                },
+            ];
+            useEmailStore.setState({
+                emails: [
+                    makeSummary({ id: 'email-1', account_id: 'acc-1', subject: 'Alice email' }),
+                    makeSummary({ id: 'email-2', account_id: 'acc-2', subject: 'Bob email', from_email: 'bob@outlook.com' }),
+                ],
+                folders: [INBOX_FOLDER],
+                selectedFolderId: '__unified',
+                selectedEmailId: null,
+                selectedEmailIds: new Set<string>(),
+                selectedEmail: null,
+                searchQuery: '',
+                accounts,
+            });
+            renderThreadList();
+
+            // Both account badges should be present
+            expect(screen.getByLabelText('From account: alice@gmail.com')).toBeInTheDocument();
+            expect(screen.getByLabelText('From account: bob@outlook.com')).toBeInTheDocument();
+        });
+
+        it('renders empty accounts array without crashing in unified inbox', () => {
+            useEmailStore.setState({
+                emails: [makeSummary({ id: 'email-1', account_id: 'acc-1' })],
+                folders: [INBOX_FOLDER],
+                selectedFolderId: '__unified',
+                selectedEmailId: null,
+                selectedEmailIds: new Set<string>(),
+                selectedEmail: null,
+                searchQuery: '',
+                accounts: [],
+            });
+            // Should not throw — accounts.find returns undefined → null render
+            renderThreadList();
+            expect(screen.queryByLabelText(/From account:/)).not.toBeInTheDocument();
         });
     });
 });

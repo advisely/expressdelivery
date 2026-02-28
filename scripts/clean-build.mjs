@@ -9,17 +9,19 @@
  *   node scripts/clean-build.mjs [--win] [--linux] [--nsis] [--restore-host]
  *
  * Flags:
- *   --win           Package for Windows (unpacked)
- *   --linux         Package for Linux (unpacked)
- *   --nsis          Also produce Windows NSIS installer (implies --win)
+ *   --win           Package for Windows (unpacked locally, NSIS installer in CI)
+ *   --linux         Package for Linux (unpacked locally, AppImage+deb+rpm in CI)
+ *   --nsis          Produce Windows NSIS installer even locally (implies --win)
  *   --restore-host  After packaging, rebuild better-sqlite3 for host Node
  *                   so vitest keeps working (default: true)
  *   --no-restore    Skip the host restore step
  *
+ * In CI (CI=true), full installers are always produced regardless of flags.
+ *
  * Examples:
- *   node scripts/clean-build.mjs --win              # Windows unpacked only
- *   node scripts/clean-build.mjs --win --nsis        # Windows unpacked + installer
- *   node scripts/clean-build.mjs --linux --win       # Linux first, then Windows (correct order)
+ *   node scripts/clean-build.mjs --win              # Windows unpacked only (local)
+ *   node scripts/clean-build.mjs --win --nsis        # Windows NSIS installer (local)
+ *   node scripts/clean-build.mjs --linux --win       # Linux + Windows (correct order)
  *   node scripts/clean-build.mjs                     # Defaults to --win
  */
 
@@ -142,7 +144,9 @@ run('npx vite build', 'Vite bundle');
 // correct for safety.
 
 if (buildLinux) {
-  run('npx electron-builder --linux --dir', 'Package Linux (unpacked)');
+  // In CI, build full installers (AppImage/deb/rpm); locally, use --dir for speed
+  const linuxFlag = process.env.CI ? '' : ' --dir';
+  run(`npx electron-builder --linux${linuxFlag}`, `Package Linux${linuxFlag ? ' (unpacked)' : ' (AppImage + deb + rpm)'}`);
 }
 
 if (buildWin) {
@@ -157,11 +161,10 @@ if (buildWin) {
     );
   }
 
-  run('npx electron-builder --win --dir', 'Package Windows (unpacked)');
+  // In CI, always produce NSIS installer; locally, use --dir unless --nsis flag
+  const winFlag = (process.env.CI || buildNsis) ? '' : ' --dir';
+  run(`npx electron-builder --win${winFlag}`, `Package Windows${winFlag ? ' (unpacked)' : ' (NSIS installer)'}`);
 
-  if (buildNsis) {
-    run('npx electron-builder --win nsis --x64', 'Package Windows NSIS installer');
-  }
 }
 
 // ── Step 7: Verify packaged binary ───────────────────────────────────────────

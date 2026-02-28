@@ -27,6 +27,7 @@ export interface EmailSummary {
     ai_priority: number | null
     ai_labels: string | null
     thread_count?: number
+    account_id?: string
 }
 
 export interface EmailFull extends EmailSummary {

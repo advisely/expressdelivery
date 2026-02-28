@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type FC } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type FC } from 'react';
 import styles from './ComposeModal.module.css';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Link, ChevronDown, ChevronUp, CalendarClock, FileText } from 'lucide-react';
@@ -40,9 +40,10 @@ interface ComposeModalProps {
     initialSubject?: string;
     initialBody?: string;
     draftId?: string;
+    initialAccountId?: string;
 }
 
-export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, initialTo = '', initialSubject = '', initialBody = '', draftId }) => {
+export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, initialTo = '', initialSubject = '', initialBody = '', draftId, initialAccountId }) => {
     const { t } = useTranslation();
     const [to, setTo] = useState(initialTo);
     const [cc, setCc] = useState('');
@@ -54,14 +55,22 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
     const [currentDraftId, setCurrentDraftId] = useState<string | null>(draftId ?? null);
     const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
     const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+    const [busiestHours, setBusiestHours] = useState<Array<{ hour: number; count: number }>>([]);
     const [templates, setTemplates] = useState<Array<{ id: string; name: string; body_html: string }>>([]);
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
     const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const draftBodyRef = useRef(initialBody);
     const accounts = useEmailStore(s => s.accounts);
+    const sendingAccount = useMemo(() => {
+        if (initialAccountId) {
+            return accounts.find(a => a.id === initialAccountId) ?? accounts[0];
+        }
+        return accounts[0];
+    }, [accounts, initialAccountId]);
 
-    // Determine initial HTML content for editor
-    const initialHtml = initialBody.trimStart().startsWith('<') ? initialBody : (initialBody ? `<p>${initialBody.replace(/\n/g, '<br />')}</p>` : '');
+    // Determine initial HTML content for editor — sanitize to prevent XSS from AI/template HTML
+    const sanitizedBody = initialBody ? DOMPurify.sanitize(initialBody) : '';
+    const initialHtml = sanitizedBody.trimStart().startsWith('<') ? sanitizedBody : (sanitizedBody ? `<p>${sanitizedBody.replace(/\n/g, '<br />')}</p>` : '');
 
     const editor = useEditor({
         extensions: [
@@ -75,7 +84,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
         },
     });
 
-    const accountSignature = accounts[0]?.signature_html ?? null;
+    const accountSignature = sendingAccount?.signature_html ?? null;
 
     const handleAttachFiles = async () => {
         const files = await ipcInvoke<ComposeAttachment[]>('dialog:open-file');
@@ -111,7 +120,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
     useEffect(() => {
         const bodyHtml = draftBodyRef.current;
         if (!to.trim() && !subject.trim() && !bodyHtml.trim()) return;
-        const accountId = accounts[0]?.id;
+        const accountId = sendingAccount?.id;
         if (!accountId) return;
 
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
@@ -133,13 +142,22 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
         return () => {
             if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
         };
-    }, [to, cc, bcc, subject, accounts, currentDraftId]);
+    }, [to, cc, bcc, subject, sendingAccount?.id, currentDraftId]);
 
     // Load reply templates on mount
     useEffect(() => {
         ipcInvoke<Array<{ id: string; name: string; body_html: string }>>('templates:list')
             .then(result => { if (result) setTemplates(result); });
     }, []);
+
+    // Fetch busiest hours for send time hint
+    useEffect(() => {
+        const accountId = sendingAccount?.id;
+        if (!accountId) return;
+        ipcInvoke<Array<{ hour: number; count: number }>>('analytics:busiest-hours', accountId)
+            .then(result => { if (Array.isArray(result)) setBusiestHours(result); })
+            .catch(() => { /* analytics fetch is best-effort */ });
+    }, [sendingAccount?.id]);
 
     const parseRecipients = (value: string) =>
         value.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -149,7 +167,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
         if (!to.trim()) { setError(t('compose.recipientRequired')); return; }
         if (!subject.trim()) { setError(t('compose.subjectRequired')); return; }
 
-        const accountId = accounts[0]?.id;
+        const accountId = sendingAccount?.id;
         if (!accountId) { setError(t('compose.noAccount')); return; }
 
         setSending(true);
@@ -226,7 +244,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
         if (!to.trim()) { setError(t('compose.recipientRequired')); return; }
         if (!subject.trim()) { setError(t('compose.subjectRequired')); return; }
 
-        const accountId = accounts[0]?.id;
+        const accountId = sendingAccount?.id;
         if (!accountId) { setError(t('compose.noAccount')); return; }
 
         setSending(true);
@@ -404,7 +422,7 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
                                             key={tpl.id}
                                             className={styles['template-option']}
                                             onClick={() => {
-                                                editor?.chain().focus().insertContent(tpl.body_html).run();
+                                                editor?.chain().focus().insertContent(DOMPurify.sanitize(tpl.body_html)).run();
                                                 setShowTemplatePicker(false);
                                             }}
                                         >
@@ -461,6 +479,11 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
                             </div>
                         ) : (
                             <div className={styles['send-btn-group']}>
+                                {busiestHours.length > 0 && (
+                                    <span className={styles['suggested-time']} title={t('compose.suggestedTimeHint', 'Based on your email activity')}>
+                                        {t('compose.suggestedTime', 'Suggested')}: {new Date(0, 0, 0, busiestHours[0].hour).toLocaleTimeString([], { hour: 'numeric', hour12: true })}
+                                    </span>
+                                )}
                                 <button className={`${styles['send-btn']} ${styles['send-btn-main']}`} onClick={handleSend} disabled={sending}>
                                     <span>{sending ? t('compose.sending') : t('compose.send')}</span>
                                     <Send size={14} />

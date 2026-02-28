@@ -311,21 +311,111 @@
 }
 
 .thread-message {
+  padding: 0;
+}
+
+.thread-message-divider {
+  border-top: 1px solid var(--glass-border);
+}
+
+.thread-message-collapsed {
+  padding: 4px 0;
+}
+
+.thread-message-expanded {
   padding: 16px 0;
 }
 
 .thread-message-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 4px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
   font-size: 13px;
-  color: rgb(var(--color-text-secondary));
+  color: var(--text-primary);
+  border-radius: 6px;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+
+.thread-message-collapsed .thread-message-header:not([disabled]):hover {
+  background: var(--hover-bg);
+}
+
+.thread-message-header[disabled] {
+  cursor: default;
+}
+
+.thread-msg-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-tertiary, rgba(var(--color-text), 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  color: var(--text-primary);
+}
+
+.thread-msg-sender {
+  flex-shrink: 0;
+}
+
+.thread-msg-snippet {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.thread-expand-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.thread-message-body {
+  padding: 8px 0 0 36px;
 }
 
 .thread-message-date {
   font-size: 12px;
   color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* ─── AI Reply ─── */
+
+.ai-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--glass-border);
+  border-top-color: rgb(var(--color-accent));
+  border-radius: 50%;
+  animation: attachSpin 0.6s linear infinite;
+  display: inline-block;
+}
+
+.ai-error {
+  font-size: 11px;
+  color: rgb(var(--color-danger, 238, 85, 85));
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ─── Radix portal classes (injected outside component tree) ─── */

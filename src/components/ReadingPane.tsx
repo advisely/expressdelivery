@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, Code, Mail } from 'lucide-react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, Code, Mail, Sparkles } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
@@ -22,7 +22,7 @@ const allowedRemoteImageEmails = new Set<string>();
 export function _resetAllowedRemoteImages() { allowedRemoteImageEmails.clear(); }
 
 interface ReadingPaneProps {
-    onReply?: (email: EmailFull) => void;
+    onReply?: (email: EmailFull, initialBody?: string) => void;
     onForward?: (email: EmailFull) => void;
     onToast?: (message: string, undo?: () => void) => void;
 }
@@ -204,12 +204,26 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         urls?: Array<{ type: 'mailto' | 'http'; url: string }>;
     } | null>(null);
     const [unsubCopied, setUnsubCopied] = useState(false);
+    const [aiReplyLoading, setAiReplyLoading] = useState(false);
+    const [aiReplyError, setAiReplyError] = useState<string | null>(null);
+    const [aiTone, setAiTone] = useState<'professional' | 'casual' | 'friendly' | 'formal' | 'concise'>('professional');
+
+    // Load saved AI tone preference
+    useEffect(() => {
+        ipcInvoke<string>('settings:get', 'ai_compose_tone').then(saved => {
+            if (saved && ['professional', 'casual', 'friendly', 'formal', 'concise'].includes(saved)) {
+                setAiTone(saved as typeof aiTone);
+            }
+        });
+    }, []);
 
     // Reset state on email change — restore remote image preference if previously allowed
     useEffect(() => {
         setAttachments([]);
         setCidMap({});
         setRemoteImagesBlocked(selectedEmail?.id ? !allowedRemoteImageEmails.has(selectedEmail.id) : true);
+        setAiReplyLoading(false);
+        setAiReplyError(null);
         const emailId = selectedEmail?.id;
         if (!emailId || !selectedEmail?.has_attachments) return;
         let cancelled = false;
@@ -221,9 +235,13 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         return () => { cancelled = true; };
     }, [selectedEmail]);
 
+    // Track which older thread messages the user has expanded (collapsed by default)
+    const [expandedThreadMsgIds, setExpandedThreadMsgIds] = useState<Set<string>>(new Set());
+
     // Fetch thread messages when a threaded email is selected
     useEffect(() => {
         setThreadEmails([]);
+        setExpandedThreadMsgIds(new Set());
         const threadId = selectedEmail?.thread_id;
         if (!threadId) return;
         let cancelled = false;
@@ -367,6 +385,32 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         }
     };
 
+    const handleAiReply = async (tone: typeof aiTone) => {
+        if (!selectedEmail || !onReply) return;
+        setAiReplyLoading(true);
+        setAiReplyError(null);
+        setAiTone(tone);
+        ipcInvoke('settings:set', 'ai_compose_tone', tone);
+        try {
+            const result = await ipcInvoke<{ html?: string; error?: string }>('ai:suggest-reply', {
+                emailId: selectedEmail.id,
+                accountId: selectedEmail.account_id,
+                tone,
+            });
+            if (result?.error) {
+                setAiReplyError(result.error);
+                return;
+            }
+            if (result?.html) {
+                onReply(selectedEmail, result.html);
+            }
+        } catch {
+            setAiReplyError(t('readingPane.aiReplyFailed', 'AI reply generation failed'));
+        } finally {
+            setAiReplyLoading(false);
+        }
+    };
+
     const handleMove = async (destFolderId: string) => {
         if (!selectedEmail) return;
         setActionError(null);
@@ -504,6 +548,42 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                     >
                         <Forward size={18} />
                     </button>
+                    <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
+                            <button
+                                className={styles['icon-btn']}
+                                title={t('readingPane.aiReply', 'AI Reply')}
+                                aria-label={t('readingPane.aiReply', 'AI Reply')}
+                                disabled={aiReplyLoading}
+                            >
+                                {aiReplyLoading ? (
+                                    <span className={styles['ai-spinner']} aria-label="Generating..." />
+                                ) : (
+                                    <Sparkles size={18} />
+                                )}
+                            </button>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                            <DropdownMenu.Content className="move-menu" sideOffset={5} align="start">
+                                {(['professional', 'casual', 'friendly', 'formal', 'concise'] as const).map(tone => (
+                                    <DropdownMenu.Item
+                                        key={tone}
+                                        className="move-menu-item"
+                                        onSelect={() => handleAiReply(tone)}
+                                        aria-checked={aiTone === tone}
+                                    >
+                                        {aiTone === tone ? '\u2022 ' : '  '}
+                                        {t(`readingPane.tone.${tone}`, tone.charAt(0).toUpperCase() + tone.slice(1))}
+                                    </DropdownMenu.Item>
+                                ))}
+                            </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+                    {aiReplyError && (
+                        <span className={styles['ai-error']} role="alert" title={aiReplyError}>
+                            {aiReplyError.slice(0, 60)}
+                        </span>
+                    )}
                     <button
                         className={styles['icon-btn']}
                         title={t('readingPane.delete')}
@@ -801,31 +881,70 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
                 {threadEmails.length > 1 ? (
                     <div className={styles['thread-conversation']}>
-                        {threadEmails.map((te, i) => (
-                            <div
-                                key={te.id}
-                                className={styles['thread-message']}
-                                style={i > 0 ? { borderTop: '1px solid var(--glass-border)' } : undefined}
-                            >
-                                <div className={styles['thread-message-header']}>
-                                    <strong>{te.from_name || te.from_email}</strong>
-                                    <span className={styles['thread-message-date']}>
-                                        {te.date ? new Date(te.date).toLocaleString() : ''}
-                                    </span>
+                        {threadEmails.map((te, i) => {
+                            const isLast = i === threadEmails.length - 1;
+                            const isExpanded = isLast || expandedThreadMsgIds.has(te.id);
+
+                            return (
+                                <div
+                                    key={te.id}
+                                    className={`${styles['thread-message']} ${isExpanded ? styles['thread-message-expanded'] : styles['thread-message-collapsed']}${i > 0 ? ` ${styles['thread-message-divider']}` : ''}`}
+                                >
+                                    <button
+                                        type="button"
+                                        className={styles['thread-message-header']}
+                                        onClick={() => {
+                                            if (isLast) return;
+                                            setExpandedThreadMsgIds(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(te.id)) next.delete(te.id);
+                                                else next.add(te.id);
+                                                return next;
+                                            });
+                                        }}
+                                        aria-expanded={isExpanded}
+                                        aria-label={isExpanded ? t('readingPane.collapseMessage', 'Collapse message') : t('readingPane.expandMessage', 'Expand message')}
+                                        disabled={isLast}
+                                    >
+                                        <span className={styles['thread-msg-avatar']}>
+                                            {(te.from_name || te.from_email || '?').charAt(0).toUpperCase()}
+                                        </span>
+                                        <span className={styles['thread-msg-sender']}>
+                                            <strong>{te.from_name || te.from_email}</strong>
+                                        </span>
+                                        {!isExpanded && te.snippet && (
+                                            <span className={styles['thread-msg-snippet']}>
+                                                {te.snippet.slice(0, 80)}
+                                            </span>
+                                        )}
+                                        <span className={styles['thread-message-date']}>
+                                            {te.date ? new Date(te.date).toLocaleString() : ''}
+                                        </span>
+                                        {!isLast && (
+                                            <span className={styles['thread-expand-icon']} aria-hidden="true">
+                                                {isExpanded ? '\u25B2' : '\u25BC'}
+                                            </span>
+                                        )}
+                                    </button>
+
+                                    {isExpanded && (
+                                        <div className={styles['thread-message-body']} style={{ zoom: readingPaneZoom / 100 }}>
+                                            {te.body_html ? (
+                                                <SandboxedEmailBody
+                                                    html={DOMPurify.sanitize(te.body_html, PURIFY_CONFIG_THREAD)}
+                                                />
+                                            ) : te.body_text ? (
+                                                <SandboxedEmailBody
+                                                    html={`<pre style="white-space:pre-wrap;margin:0">${escapeHtml(te.body_text)}</pre>`}
+                                                />
+                                            ) : (
+                                                <div className={styles['email-body']}>{t('readingPane.noContent', '(no content)')}</div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                                {te.body_html ? (
-                                    <SandboxedEmailBody
-                                        html={DOMPurify.sanitize(te.body_html, PURIFY_CONFIG_THREAD)}
-                                    />
-                                ) : te.body_text ? (
-                                    <SandboxedEmailBody
-                                        html={`<pre style="white-space:pre-wrap;margin:0">${escapeHtml(te.body_text)}</pre>`}
-                                    />
-                                ) : (
-                                    <div className={styles['email-body']}>(no content)</div>
-                                )}
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 ) : (
                     <div className={styles['email-body']}>

@@ -195,7 +195,16 @@
 
 .send-btn-group {
     display: flex;
-    align-items: stretch;
+    align-items: center;
+    gap: 8px;
+}
+
+.suggested-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    white-space: nowrap;
+    margin-right: auto;
 }
 
 .send-btn {

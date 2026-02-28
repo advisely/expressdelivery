@@ -2,7 +2,7 @@
 
 Feature comparison against Mailspring and Mozilla Thunderbird (reference email clients) and implementation status.
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 ---
 
@@ -26,7 +26,7 @@ Last updated: 2026-02-27
 |---------|-----------|----------------|--------|-------|
 | Multiple account support | Yes | Yes | **Done** | Add/remove/edit accounts, provider presets (Gmail, Outlook, Yahoo, iCloud, Custom), brand icons |
 | Multi-account sidebar | Yes | Yes | **Done** | Account switcher dropdown, provider icons, all accounts visible |
-| Unified inbox | Yes | No | **Planned** | Store supports multi-account; no unified view across accounts |
+| Unified inbox | Yes | Yes | **Done** | Thread-dedup, account badge, reply uses correct account |
 | IMAP connect + IDLE | Yes (C++ sync engine) | Yes | **Done** | Connects, syncs headers + body, folder sync, IDLE for new mail |
 | IMAP full message fetch | Yes | Yes | **Done** | Fetches first MIME part (body text), stored in body_text column |
 | IMAP folder sync | Yes | Yes | **Done** | `listAndSyncFolders()` syncs all mailboxes with RFC 6154 classification |
@@ -34,7 +34,7 @@ Last updated: 2026-02-27
 | Connection testing | Yes | Yes | **Done** | Standalone "Test Connection" button + test-before-save, `accounts:test` IPC, 10s timeout, status indicator (pass/fail/testing) |
 | SMTP send | Yes | Yes | **Done** | Nodemailer, TLS/STARTTLS auto-detect, injection-safe, CC/BCC |
 | Email search (full-text) | Yes (Gmail-style) | Yes | **Done** | SQLite FTS5, sanitized input, 300ms debounce |
-| Email threading | Yes | Partial | **Partial** | thread_id column exists, MCP read_thread works; UI doesn't group threads |
+| Email threading | Yes | Yes | **Done** | thread_id grouping, collapsible conversation view in ReadingPane |
 | Mark as read | Yes | Yes | **Done** | Clicking email in ThreadList calls emails:read IPC |
 | Star/flag messages | Yes | Yes | **Done** | Toggle in ThreadList + ReadingPane, `emails:toggle-flag` IPC |
 | Archive messages | Yes | Yes | **Done** | Archive button in ReadingPane, `emails:archive` IPC, IMAP MOVE |
@@ -55,7 +55,7 @@ Last updated: 2026-02-27
 | File attachments | Yes | Yes | **Done** | Send + receive attachments, IMAP on-demand download, SQLite BLOB cache, file picker, attachment chips in compose + reading pane + thread list, 25MB/file limit, max 10 per email |
 | Inline images | Yes | Yes | **Done** | CID resolution via `attachments:by-cid` IPC, MIME allowlist, data: URL rendering |
 | Signature editor | Yes | Yes | **Done** | Per-account signatures (HTML, 10KB cap, DOMPurify-sanitized, preview in compose) |
-| Quick reply templates | Yes | No | **Planned** | |
+| Quick reply templates | Yes | Yes | **Done** | DB + IPC + Settings tab + ComposeModal picker |
 | Spell check | Yes | Partial | **Partial** | TipTap contenteditable has native browser spellcheck; global webPreferences spellcheck deferred (security: sends typed input to OS spellchecker) |
 | Draft auto-save | Yes | Yes | **Done** | 2s debounce, CC/BCC, delete on send, resume via draftId |
 
@@ -121,10 +121,11 @@ Last updated: 2026-02-27
 | AI email categorization | No | Yes | **Done** | categorize_email MCP tool (category, priority 1-4, labels; account ownership enforced) |
 | AI email analytics | No | Yes | **Done** | get_email_analytics MCP tool (volume, top senders, folder dist., busiest hours, category/priority breakdown) |
 | AI suggest reply | No | Yes | **Done** | suggest_reply MCP tool (email + thread + sender history + account context, body truncated to 2KB) |
-| AI compose assistant | No | No | **Planned** | LLM-powered reply generation using suggest_reply context |
+| AI compose assistant | No | Yes | **Done** | OpenRouter LLM integration, 5 tone options, Sparkles toolbar button |
 | Multi-client MCP transport | No | Yes | **Done** | Map<sessionId, ClientSession> with per-connection Server instances |
 | AI metadata in UI | No | Yes | **Done** | Priority badges (ThreadList + ReadingPane), category pills, label badges, AI status indicator in Sidebar |
 | MCP connection status | No | Yes | **Done** | Real-time AI agent count in Sidebar (green dot + label, push via mcp:status event) |
+| MCP settings UI | No | Yes | **Done** | Settings tab: server toggle, port config, token management, endpoint URL, config block, tools list |
 
 ### Security & Privacy
 
@@ -144,7 +145,7 @@ Last updated: 2026-02-27
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
 | Mailbox insights | Yes (Pro) | Yes | **Done** | get_email_analytics MCP tool (volume, senders, folders, hours, categories) |
-| Optimal send time | Yes (Pro) | No | **Planned** | busiest_hours data available via analytics tool |
+| Optimal send time | Yes (Pro) | Yes | **Done** | analytics:busiest-hours IPC, suggested time hint in ComposeModal |
 | Email activity breakdown | Yes (Pro) | Yes | **Done** | get_email_analytics returns per-day, per-folder, per-sender, per-hour breakdown |
 
 ### Build & Distribution
@@ -162,7 +163,7 @@ Last updated: 2026-02-27
 
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Unit tests | Yes | Yes | **Done** | 25 files, 522 tests, ~76% coverage |
+| Unit tests | Yes | Yes | **Done** | 26 files, 609 tests, ~76% coverage |
 | Integration tests | Yes | No | **Planned** | IMAP client not tested (SMTP unit-tested) |
 | E2E tests | Yes | No | **Planned** | No Playwright/Spectron |
 | Coverage thresholds | Unknown | Yes | **Done** | @vitest/coverage-v8, 70% line threshold, `npm run test:coverage` |
@@ -181,7 +182,7 @@ Features Mozilla Thunderbird has that ExpressDelivery is missing, prioritized by
 | Right-click context menu on emails | Yes | Yes | **Done** | -- | Reply, forward, star, toggle-read, move, delete |
 | Drag-and-drop emails to folders | Yes | Yes | **Done** | -- | HTML5 drag API on ThreadItem, drop targets on Sidebar folders |
 | Empty trash (purge) | Yes | Yes | **Done** | -- | Fixed 2026-02-27: UI now refreshes after purge |
-| Conversation/thread grouping UI | Yes | Partial | **Partial** | **P1** | thread_id exists but UI doesn't group |
+| Conversation/thread grouping UI | Yes | Yes | **Done** | -- | Collapsible thread conversation view in ReadingPane |
 | Saved searches / smart folders | Yes | Yes | **Done** | -- | Virtual `__search_` folders, FTS5 execution |
 | Folder colors | Yes | Yes | **Done** | -- | 8 color presets, colored left-border in Sidebar |
 
@@ -367,6 +368,59 @@ Advanced features for power users, data portability, and enhanced filtering. 6 i
 - [x] Spam/junk filtering (`electron/spamFilter.ts` Naive Bayes classifier, token frequency on subject+from+body, train from user mark-spam/not-spam, Laplace smoothing, log-sum-exp)
 - [x] Scam/phishing URL detection (`src/lib/phishingDetector.ts`, 7 heuristics: IP URLs, suspicious TLDs, excessive subdomains, brand spoofing, HTTP on sensitive paths, long URLs, @ sign obfuscation; red warning banner in ReadingPane)
 
+### Phase 8: Thread UI, AI Compose, Unified Inbox, Agentic Settings (v1.6.0) -- COMPLETE
+Thread conversation grouping, unified inbox polish, AI-powered compose, optimal send time, and MCP/Agentic settings UI. 1 new file, 8 new IPC handlers, 8 new preload channels.
+
+#### Infrastructure
+- [x] `account_id` added to `EmailSummary` interface for unified inbox tracking
+- [x] SQL queries updated: `__unified` gets thread-dedup + thread_count, all virtual folders return `e.account_id`
+- [x] `electron/openRouterClient.ts`: OpenRouter API client (15s timeout, 10K response cap, prompt injection sanitization)
+- [x] 2 new preload channels (`ai:suggest-reply`, `analytics:busiest-hours`), 1 new settings key (`ai_compose_tone`)
+
+#### Thread Conversation Collapse/Expand
+- [x] Collapsible thread view in ReadingPane: older messages collapsed by default, latest always expanded
+- [x] Click header to toggle expand/collapse, avatar initial + sender + snippet + date + chevron
+- [x] `aria-expanded` attribute for accessibility, zoom applied to thread message bodies
+
+#### Unified Inbox Polish
+- [x] Provider icon badge in ThreadItem when viewing `__unified` folder
+- [x] Reply/forward uses correct account (passes `account_id` through composeState)
+- [x] `sendingAccount` useMemo replaces all `accounts[0]` hardcoding in ComposeModal
+
+#### AI Compose Assistant
+- [x] `ai:suggest-reply` IPC handler: cross-account ownership, encrypted API key, thread context (3 msgs), sender history
+- [x] OpenRouter LLM integration (GPT-4o-mini, 500 max tokens, 5 tones: professional/casual/friendly/formal/concise)
+- [x] Sparkles toolbar button with Radix DropdownMenu tone picker, loading spinner, error display
+- [x] DOMPurify sanitization on AI-generated HTML and template content before TipTap insertion
+
+#### Optimal Send Time
+- [x] `analytics:busiest-hours` IPC handler (strftime localtime, top 3 hours, last 30 days)
+- [x] Suggested time hint in ComposeModal footer
+
+#### Security Hardening
+- [x] Prompt injection sanitization (strip `---` and triple-backtick from user content)
+- [x] Generic error messages (no API detail leakage to renderer)
+- [x] AI state reset on email change, log injection stripping, CSS variable colors
+- [x] `aria-checked` on tone menu items
+
+#### Agentic / MCP Settings Tab
+- [x] 9th SettingsModal tab: "Agentic / MCP" with Bot icon, lazy-loaded on activation
+- [x] MCP server toggle (enable/disable), persisted to settings DB
+- [x] Configurable port (1024-65535), persisted, server restart on change
+- [x] Auth token management: show/hide, copy, regenerate with confirm dialog
+- [x] SSE endpoint URL display with copy button
+- [x] JSON config block for external tools (Claude Desktop, OpenClaw, etc.)
+- [x] Available tools list (8 tools, name + description)
+- [x] Persisted MCP config on startup: encrypted token from DB, port, enabled state
+- [x] 6 new IPC handlers (`mcp:get-status/get-token/regenerate-token/set-port/toggle/get-tools`)
+- [x] 6 new preload channels, i18n keys in 4 locales (en/fr/es/de)
+- [x] `setMcpConnectionCallback()` + `restartMcpServer()` exports from mcpServer.ts
+
+#### Tests
+- [x] `electron/openRouterClient.test.ts` (37 tests): happy path, errors, validation, prompt injection, truncation
+- [x] ReadingPane thread collapse/expand tests (+7), ThreadList unified badge tests (+2), ComposeModal account selection tests (+2)
+- [x] 609+ tests across 26 files, all passing
+
 ---
 
 ## What ExpressDelivery Has That Mailspring & Thunderbird Don't
@@ -402,7 +456,15 @@ Advanced features for power users, data portability, and enhanced filtering. 6 i
 15. ~~**Print / Print-to-PDF**~~ -- Done: `print:email-pdf` IPC handler
 16. ~~**Notification click → email**~~ -- Done: email ID in notification, window focus + select
 17. ~~**Undo send**~~ -- Done: configurable 0-10s delay, cancel toast
-18. **Thread grouping UI** -- Both reference clients group conversations visually (not yet implemented)
+18. ~~**Thread grouping UI**~~ -- Done: collapsible conversation view in ReadingPane, collapse/expand older messages
+
+### Phase 8 (complete -- v1.6.0)
+32. ~~**Thread conversation UI**~~ -- Done: collapsible older messages, latest always expanded, avatar + snippet + date header
+33. ~~**Unified inbox polish**~~ -- Done: thread-dedup SQL, account provider badge, reply/forward uses correct account
+34. ~~**AI compose assistant**~~ -- Done: OpenRouter LLM integration, 5 tone options (professional/casual/friendly/formal/concise), Sparkles toolbar button, DOMPurify sanitization
+35. ~~**Quick reply templates**~~ -- Already Done (Phase 4): DB + IPC + Settings tab + ComposeModal picker
+36. ~~**Optimal send time**~~ -- Done: `analytics:busiest-hours` IPC, suggested time hint in ComposeModal
+37. ~~**Agentic / MCP settings**~~ -- Done: 9th tab in Settings (toggle, port, token, endpoint, config block, tools list), persisted config, 6 IPC handlers
 
 ### Phase 7 (complete -- v1.5.0)
 19. ~~**User-defined tags**~~ -- Done: CRUD, color picker, assign/remove, tag section in ReadingPane, Tags sidebar section, Settings Tags tab

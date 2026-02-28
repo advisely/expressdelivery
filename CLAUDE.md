@@ -1,6 +1,6 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 7 complete (v1.5.0). 14 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (11 migrations), 4 themes, 25 test files (522 tests), ~75 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 8 complete (v1.6.0). 14 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (11 migrations), 4 themes, 26 test files (617+ tests), ~83 IPC handlers. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
@@ -33,7 +33,7 @@ release/           # Built app artifacts
 
 | File                        | Purpose                                        |
 | --------------------------- | ---------------------------------------------- |
-| `electron/main.ts`         | Electron entry, window + tray + ~75 IPC handlers (snooze, scheduled sends, reminders, rules, update, notifications, print, bulk actions, tags, exports, imports, spam, source) |
+| `electron/main.ts`         | Electron entry, window + tray + ~77 IPC handlers (snooze, scheduled sends, reminders, rules, update, notifications, print, bulk actions, tags, exports, imports, spam, source, ai:suggest-reply, analytics:busiest-hours) |
 | `electron/db.ts`           | SQLite init, schema, 11 migrations (accounts, folders, emails, drafts, contacts, attachments, settings, snoozed_emails, scheduled_sends, reminders, mail_rules, FTS5) |
 | `electron/mcpServer.ts`    | MCP multi-client SSE server (Map-based dispatch, connection callback, timing-safe auth, lazy init via getMcpServer()) |
 | `electron/mcpTools.ts`     | 8 MCP tool handlers + buildToolRegistry() Map factory |
@@ -47,6 +47,7 @@ release/           # Built app artifacts
 | `electron/ruleEngine.ts`   | Mail rule matching + actions (from/subject/body/has_attachment x contains/equals/starts_with/ends_with) |
 | `electron/updater.ts`      | electron-updater wrapper (autoDownload: false, GitHub Releases) |
 | `electron/spamFilter.ts`   | Bayesian spam classifier (tokenize, train, classify with Laplace smoothing) |
+| `electron/openRouterClient.ts` | OpenRouter API client for AI reply generation (15s timeout, prompt sanitization) |
 | `electron/emailExport.ts`  | EML single + MBOX folder export with RFC 2822 formatting |
 | `electron/emailImport.ts`  | EML/MBOX file import with header parsing, 1000 msg cap |
 | `electron/contactPortability.ts` | vCard 3.0 + CSV contact import/export |
@@ -56,7 +57,7 @@ release/           # Built app artifacts
 | `src/components/ThreadList.tsx`  | Email list with search, multi-select, bulk actions, right-click context menu      |
 | `src/components/ReadingPane.tsx` | HTML email viewer (SandboxedEmailBody), reply/forward/delete/star/print actions, CID inline images, remote image blocking |
 | `src/components/ComposeModal.tsx`| Rich text compose (TipTap) with To/CC/BCC, reply/forward prefill, signature preview, scheduled send |
-| `src/components/SettingsModal.tsx`| Account management (add/edit/test/delete) + theme/appearance settings, lazy Radix Tabs |
+| `src/components/SettingsModal.tsx`| Account management (add/edit/test/delete) + theme/appearance + Agentic/MCP settings, lazy Radix Tabs (9 tabs) |
 | `src/components/ThemeContext.tsx` | Layout context + theme class application   |
 | `src/components/OnboardingScreen.tsx` | First-run account setup (4-step wizard, 9 CSS animations) |
 | `src/components/DateTimePicker.tsx`   | Native datetime input with quick-select presets (1h, 3h, tomorrow, next week) |
@@ -145,7 +146,7 @@ npm run lint             # eslint (strict, 0 warnings)
 - Preload script MUST build as CJS `.cjs` -- Electron requires `require()` for preload in sandboxed mode (configured in `vite.config.ts`, referenced as `preload.cjs` in `main.ts`)
 - Database uses WAL mode + foreign keys + FTS5 triggers (11 migrations); migration runner short-circuits at `CURRENT_SCHEMA_VERSION` when DB is up-to-date
 - Passwords encrypted via `electron.safeStorage` (OS keychain); decrypted values are short-lived
-- MCP server: localhost:3000, multi-client SSE + POST transport, timing-safe auth, account ownership enforcement, lazy-initialized via `getMcpServer()` factory
+- MCP server: configurable port (default 3000), multi-client SSE + POST transport, timing-safe auth, account ownership enforcement, lazy-initialized via `getMcpServer()` factory, persisted token/port/enabled in settings DB, Settings UI for management
 - React 19 useRef: `useRef<T>(undefined)` instead of `useRef<T>()`
 - Vitest 4: Use `vi.hoisted()` for mock variables referenced inside `vi.mock()` factory functions
 - TipTap + i18next packages require `--legacy-peer-deps` (eslint-plugin-react-hooks peer dep conflict)
@@ -189,9 +190,9 @@ npm run lint             # eslint (strict, 0 warnings)
 **Remaining limitation:**
 - Decrypted passwords in V8 heap (inherent to JS; mitigated with short-lived scope)
 
-## Test Coverage: ~76% (25 files, 522 tests)
+## Test Coverage: ~76% (26 files, 568 tests)
 
-**Tested:** crypto, db, db.phase6 (folder CRUD, mark-read/unread, mark-all-read, extractUid), mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures), ReadingPane (CID + remote image blocking), ThreadList (86 tests: rendering, multi-select, bulk actions, context menu, search, empty states), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete, scheduler, ruleEngine, App, ThemeContext, DateTimePicker, UpdateBanner, OnboardingScreen, spamFilter (18 tests: tokenize, train, classify), phishingDetector (16 tests: URL analysis, brand spoofing, suspicious TLDs)
+**Tested:** crypto, db, db.phase6 (folder CRUD, mark-read/unread, mark-all-read, extractUid), mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures + account selection), ReadingPane (CID + remote image blocking + thread collapse/expand + AI reply), ThreadList (88 tests: rendering, multi-select, bulk actions, context menu, search, empty states, unified inbox badge), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete, scheduler, ruleEngine, App, ThemeContext, DateTimePicker, UpdateBanner, OnboardingScreen, spamFilter (18 tests: tokenize, train, classify), phishingDetector (16 tests: URL analysis, brand spoofing, suspicious TLDs), openRouterClient (37 tests: API calls, validation, prompt injection, error handling)
 **Untested critical paths:** IMAP client (P1 -- integration complexity, deferred to E2E)
 
 ## Feature Status Summary
@@ -238,9 +239,9 @@ Full feature matrix and phased roadmap in `docs/ROADMAP.md`. Reference client: [
 - GitHub Actions: ci.yml (lint+test+tsc on push/PR), release.yml (build+publish on v* tag, SHA-pinned)
 - **Phase 6 (v1.4.0):** Multi-select emails with bulk actions (mark read/unread, star, move, delete), right-click context menu (reply, forward, star, toggle-read, move-to, delete), folder context menu (mark all read, rename, create subfolder, delete), empty trash with confirmation, folder-specific empty states, print email / save as PDF, undo send delay configuration UI, confirmation toasts with undo, keyboard shortcut help overlay (?), notification click navigation, `emails:mark-read` lightweight IPC, `extractUid` helper, cross-account folder ownership checks, transactional folder renames (FK-safe insert→migrate→delete), 488 tests across 23 files
 - **Phase 7 (v1.5.0):** User-defined tags (CRUD + assign/remove, color picker, sidebar section, ReadingPane tag chips, Settings Tags tab), saved searches (virtual `__search_` folders, FTS5 execution), loading skeletons (shimmer animation, wired isLoading), density modes (compact/comfortable/relaxed CSS variables), zoom control (80-150% in ReadingPane), folder colors (8 presets, context menu picker), sound alerts (notification.wav, toggle in Settings), drag-and-drop emails to folders (HTML5 drag API, multi-email drag), message source viewer (raw RFC822 via IMAP, Radix Dialog, copy button), mailing list unsubscribe (List-Unsubscribe header parsing, unsubscribe banner), email export/import (EML single + MBOX folder), contact import/export (vCard 3.0 + CSV), Bayesian spam filter (train/classify, Laplace smoothing), phishing URL detection (7 heuristic rules, warning banner), 522 tests across 25 files
+- **Phase 8 (v1.6.0):** Thread conversation collapse/expand (older collapsed, latest expanded, avatar+snippet headers), unified inbox polish (thread-dedup SQL, provider badge, correct reply account via sendingAccount useMemo), AI compose assistant (OpenRouter LLM, 5 tones, Sparkles button, DOMPurify sanitization), optimal send time hint (analytics:busiest-hours IPC), quick reply templates marked Done, prompt injection sanitization, 568 tests across 26 files
 
 ### What's Not Done Yet (by phase)
-- **Phase 3 (AI):** AI compose assistant (LLM-powered reply generation using suggest_reply context)
 - **Phase 5 (remaining):** E2E tests, SQLCipher at-rest encryption
 
 ## Known Issues and Technical Debt
@@ -253,6 +254,6 @@ All critical, high, and medium issues from the 2026-02-22 initial audit through 
 - [ ] Virtual folders __snoozed/__scheduled: basic query support only; advanced filtering pending
 - [ ] IMAP client untested (P1 -- integration complexity, deferred to E2E)
 - [ ] window.prompt for Insert Link should be replaced with Radix Dialog
-- [ ] accounts[0] used for compose signature -- should support multi-account compose
+- [x] ~~accounts[0] used for compose signature~~ -- fixed in Phase 8: sendingAccount useMemo with initialAccountId
 - [ ] Some SettingsModal strings still hardcoded (need matching locale keys added)
 - [ ] SQLCipher not yet integrated (documented migration path in electron/dbEncryption.ts)
