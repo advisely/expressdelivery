@@ -42,6 +42,31 @@
   color: var(--text-primary);
 }
 
+.toast-icon {
+  flex-shrink: 0;
+  color: var(--toast-icon-color, rgb(var(--color-accent)));
+}
+
+.toast-success {
+  border-left: 3px solid rgb(var(--color-success));
+  --toast-icon-color: rgb(var(--color-success));
+}
+
+.toast-error {
+  border-left: 3px solid rgb(var(--color-danger));
+  --toast-icon-color: rgb(var(--color-danger));
+}
+
+.toast-warning {
+  border-left: 3px solid rgb(var(--color-flag));
+  --toast-icon-color: rgb(var(--color-flag));
+}
+
+.toast-info {
+  border-left: 3px solid rgb(var(--color-accent));
+  --toast-icon-color: rgb(var(--color-accent));
+}
+
 .toast-action {
   background: rgb(var(--color-accent));
   border: 1px solid rgb(var(--color-accent));

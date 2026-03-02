@@ -165,6 +165,10 @@ async function deleteFolder(
     if (!folder) return { success: false, error: 'Folder not found' };
     if (PROTECTED_FOLDER_TYPES.has(folder.type)) return { success: false, error: 'Cannot delete system folder' };
 
+    // Check for child folders (path-based hierarchy)
+    const childCount = (db.prepare("SELECT COUNT(*) as count FROM folders WHERE account_id = ? AND path LIKE ? || '/%'").get(folder.account_id, folder.path) as { count: number }).count;
+    if (childCount > 0) return { success: false, error: 'Folder has subfolders — delete them first' };
+
     const emailCount = (db.prepare('SELECT COUNT(*) as count FROM emails WHERE folder_id = ?').get(folderId) as { count: number }).count;
     if (emailCount > 0) return { success: false, error: 'Folder is not empty' };
 
@@ -785,6 +789,33 @@ describe('folders:delete', () => {
         db.prepare('DELETE FROM emails WHERE id = ?').run('email-1');
 
         const result = await deleteFolder(db, 'acc-1_NowEmpty', mockImapEngine);
+
+        expect(result).toEqual({ success: true });
+    });
+
+    it('rejects deleting a folder that has child subfolders', async () => {
+        insertAccount();
+        insertFolder('acc-1_Mailspring', 'acc-1', 'Mailspring', 'Mailspring', 'other');
+        insertFolder('acc-1_Mailspring/Work', 'acc-1', 'Work', 'Mailspring/Work', 'other');
+
+        const result = await deleteFolder(db, 'acc-1_Mailspring', mockImapEngine);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('subfolders');
+        // Parent folder must still exist
+        const folder = db.prepare('SELECT * FROM folders WHERE id = ?').get('acc-1_Mailspring');
+        expect(folder).toBeDefined();
+        expect(mockImapEngine.deleteMailbox).not.toHaveBeenCalled();
+    });
+
+    it('allows deleting parent after all child subfolders are removed', async () => {
+        insertAccount();
+        insertFolder('acc-1_Parent', 'acc-1', 'Parent', 'Parent', 'other');
+        insertFolder('acc-1_Parent/Child', 'acc-1', 'Child', 'Parent/Child', 'other');
+        // Remove the child folder first
+        db.prepare('DELETE FROM folders WHERE id = ?').run('acc-1_Parent/Child');
+
+        const result = await deleteFolder(db, 'acc-1_Parent', mockImapEngine);
 
         expect(result).toEqual({ success: true });
     });

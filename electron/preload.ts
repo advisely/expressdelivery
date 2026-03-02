@@ -74,6 +74,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'folders:create',
   'folders:rename',
   'folders:delete',
+  'folders:email-count',
   'emails:mark-all-read',
   'emails:mark-read',
   'emails:mark-unread',

@@ -5,8 +5,7 @@ import { X, Send, Paperclip, Bold, Italic, Underline as UnderlineIcon, List, Lis
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import LinkExtension from '@tiptap/extension-link';
-import UnderlineExtension from '@tiptap/extension-underline';
+// Link and Underline are configured inline via StarterKit options (v3 bundles them)
 import DOMPurify from 'dompurify';
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
@@ -79,9 +78,10 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
 
     const editor = useEditor({
         extensions: [
-            StarterKit.configure({ link: false, underline: false }),
-            LinkExtension.configure({ openOnClick: false }),
-            UnderlineExtension,
+            StarterKit.configure({
+                link: { openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } },
+                underline: {},
+            }),
         ],
         content: initialHtml,
         onUpdate: ({ editor: ed }: { editor: { getHTML: () => string } }) => {

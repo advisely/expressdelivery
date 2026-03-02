@@ -44,7 +44,12 @@
     "connected": "Verbunden",
     "notSynced": "Nicht synchronisiert",
     "noAiAgents": "Keine KI-Agenten",
-    "lastCheck": "Letzte Prüfung: {{time}}"
+    "lastCheck": "Letzte Prüfung: {{time}}",
+    "folderHasChildren": "Ordner \"{{name}}\" enthält {{count}} Unterordner — alle löschen?",
+    "folderNotEmpty": "Ordner \"{{name}}\" enthält {{count}} E-Mails — verschieben oder löschen Sie sie zuerst",
+    "folderDeleted": "Ordner \"{{name}}\" gelöscht",
+    "trashEmptied": "Papierkorb geleert",
+    "deleteAll": "Alle löschen"
   },
   "tags": {
     "title": "Schlagwörter",
@@ -120,7 +125,13 @@
     "moveTo": "Verschieben nach...",
     "zoomIn": "Vergrößern",
     "zoomOut": "Verkleinern",
-    "saveAsEml": "Als EML speichern"
+    "saveAsEml": "Als EML speichern",
+    "downloadFailed": "Anhang konnte nicht heruntergeladen werden",
+    "flagFailed": "Markierung konnte nicht geändert werden",
+    "archiveFailed": "E-Mail konnte nicht archiviert werden",
+    "moveFailed": "E-Mail konnte nicht verschoben werden",
+    "snoozeFailed": "E-Mail konnte nicht zurückgestellt werden",
+    "reminderFailed": "Erinnerung konnte nicht erstellt werden"
   },
   "compose": {
     "newMessage": "Neue Nachricht",
@@ -323,7 +334,8 @@
     "reminderSubject": "Erinnerung: {{subject}}",
     "reminderDefault": "Erinnerung: E-Mail nachverfolgen",
     "dismissNotification": "Benachrichtigung schließen",
-    "undo": "Rückgängig"
+    "undo": "Rückgängig",
+    "deleteFailed": "E-Mail konnte nicht gelöscht werden"
   },
   "datetime": {
     "laterToday": "Später heute",
@@ -432,6 +444,7 @@
     "configTitle": "Agenten-Konfiguration",
     "configDesc": "Fügen Sie dies zur MCP-Konfiguration Ihres KI-Tools hinzu:",
     "toolsTitle": "Verfügbare Tools",
-    "noTools": "Keine Tools verfügbar"
+    "noTools": "Keine Tools verfügbar",
+    "toggleFailed": "MCP-Server konnte nicht umgeschaltet werden"
   }
 }

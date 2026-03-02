@@ -44,7 +44,12 @@
     "connected": "Conectado",
     "notSynced": "No sincronizado",
     "noAiAgents": "Sin agentes IA",
-    "lastCheck": "Última verificación: {{time}}"
+    "lastCheck": "Última verificación: {{time}}",
+    "folderHasChildren": "La carpeta \"{{name}}\" tiene {{count}} subcarpeta(s) — ¿eliminar todo?",
+    "folderNotEmpty": "La carpeta \"{{name}}\" tiene {{count}} correos — muévalos o elimínelos primero",
+    "folderDeleted": "Carpeta \"{{name}}\" eliminada",
+    "trashEmptied": "Papelera vaciada",
+    "deleteAll": "Eliminar todo"
   },
   "tags": {
     "title": "Etiquetas",
@@ -120,7 +125,13 @@
     "moveTo": "Mover a...",
     "zoomIn": "Acercar",
     "zoomOut": "Alejar",
-    "saveAsEml": "Guardar como EML"
+    "saveAsEml": "Guardar como EML",
+    "downloadFailed": "Error al descargar el adjunto",
+    "flagFailed": "Error al cambiar la marca",
+    "archiveFailed": "Error al archivar el correo",
+    "moveFailed": "Error al mover el correo",
+    "snoozeFailed": "Error al posponer el correo",
+    "reminderFailed": "Error al crear el recordatorio"
   },
   "compose": {
     "newMessage": "Nuevo mensaje",
@@ -323,7 +334,8 @@
     "reminderSubject": "Recordatorio: {{subject}}",
     "reminderDefault": "Recordatorio: seguimiento de correo",
     "dismissNotification": "Cerrar notificación",
-    "undo": "Deshacer"
+    "undo": "Deshacer",
+    "deleteFailed": "No se pudo eliminar el correo"
   },
   "datetime": {
     "laterToday": "Más tarde hoy",
@@ -432,6 +444,7 @@
     "configTitle": "Configuración de agente",
     "configDesc": "Agrega esto a la configuración MCP de tu herramienta IA:",
     "toolsTitle": "Herramientas disponibles",
-    "noTools": "No hay herramientas disponibles"
+    "noTools": "No hay herramientas disponibles",
+    "toggleFailed": "Error al cambiar el servidor MCP"
   }
 }

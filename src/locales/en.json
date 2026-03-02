@@ -44,7 +44,12 @@
     "connected": "Connected",
     "notSynced": "Not synced",
     "noAiAgents": "No AI agents",
-    "lastCheck": "Last check: {{time}}"
+    "lastCheck": "Last check: {{time}}",
+    "folderHasChildren": "Folder \"{{name}}\" has {{count}} subfolder(s) — delete all?",
+    "folderNotEmpty": "Folder \"{{name}}\" has {{count}} emails — move or delete them first",
+    "folderDeleted": "Folder \"{{name}}\" deleted",
+    "trashEmptied": "Trash emptied",
+    "deleteAll": "Delete all"
   },
   "tags": {
     "title": "Tags",
@@ -120,7 +125,13 @@
     "moveTo": "Move to...",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
-    "saveAsEml": "Save as EML"
+    "saveAsEml": "Save as EML",
+    "downloadFailed": "Failed to download attachment",
+    "flagFailed": "Failed to toggle flag",
+    "archiveFailed": "Failed to archive email",
+    "moveFailed": "Failed to move email",
+    "snoozeFailed": "Failed to snooze email",
+    "reminderFailed": "Failed to set reminder"
   },
   "compose": {
     "newMessage": "New Message",
@@ -323,7 +334,8 @@
     "reminderSubject": "Reminder: {{subject}}",
     "reminderDefault": "Reminder: Follow up on email",
     "dismissNotification": "Dismiss notification",
-    "undo": "Undo"
+    "undo": "Undo",
+    "deleteFailed": "Failed to delete email"
   },
   "datetime": {
     "laterToday": "Later Today",
@@ -432,6 +444,7 @@
     "configTitle": "Agent Configuration",
     "configDesc": "Add this to your AI tool's MCP configuration:",
     "toolsTitle": "Available Tools",
-    "noTools": "No tools available"
+    "noTools": "No tools available",
+    "toggleFailed": "Failed to toggle MCP server"
   }
 }

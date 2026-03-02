@@ -667,7 +667,7 @@ describe('ReadingPane', () => {
             fireEvent.click(toneItems[0]);
 
             await waitFor(() => {
-                expect(onToast).toHaveBeenCalledWith('No API key');
+                expect(onToast).toHaveBeenCalledWith('No API key', undefined, 'error');
             });
             expect(onReply).not.toHaveBeenCalled();
         });
@@ -725,7 +725,7 @@ describe('ReadingPane', () => {
             fireEvent.click(screen.getAllByRole('menuitem')[0]);
 
             await waitFor(() => {
-                expect(onToast).toHaveBeenCalledWith('API error on first call');
+                expect(onToast).toHaveBeenCalledWith('API error on first call', undefined, 'error');
             });
 
             // Second call: trigger success
@@ -758,7 +758,7 @@ describe('ReadingPane', () => {
 
             // Component calls onToast with the fallback i18n key when the IPC throws
             await waitFor(() => {
-                expect(onToast).toHaveBeenCalledWith(expect.stringContaining('readingPane.aiReplyFailed'));
+                expect(onToast).toHaveBeenCalledWith(expect.stringContaining('readingPane.aiReplyFailed'), undefined, 'error');
             });
             expect(onReply).not.toHaveBeenCalled();
         });

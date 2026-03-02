@@ -598,6 +598,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             if (result) setMcpRunning(result.running);
         } catch {
             setMcpEnabled(prev);
+            setMcpPortError(t('mcp.toggleFailed'));
         }
     };
 

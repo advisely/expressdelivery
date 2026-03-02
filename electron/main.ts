@@ -487,21 +487,59 @@ function registerIpcHandlers() {
     return { success: true, folderId: newFolderId };
   });
 
-  ipcMain.handle('folders:delete', async (_event, folderId: string) => {
+  ipcMain.handle('folders:delete', async (_event, folderId: string, recursive?: boolean) => {
     if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
 
     const folder = db.prepare('SELECT id, account_id, path, type FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; path: string; type: string } | undefined;
     if (!folder) return { success: false, error: 'Folder not found' };
     if (PROTECTED_FOLDER_TYPES.has(folder.type)) return { success: false, error: 'Cannot delete system folder' };
 
+    if (recursive) {
+      // Delete children depth-first (longest paths first), then parent
+      const children = db.prepare(
+        "SELECT id, path FROM folders WHERE account_id = ? AND path LIKE ? || '/%' ORDER BY length(path) DESC"
+      ).all(folder.account_id, folder.path) as Array<{ id: string; path: string }>;
+
+      for (const child of children) {
+        // Delete emails in child folder
+        db.prepare('DELETE FROM emails WHERE folder_id = ?').run(child.id);
+        // Delete child folder on IMAP server (best-effort)
+        await imapEngine.deleteMailbox(folder.account_id, child.path.replace(/^\//, ''));
+        db.prepare('DELETE FROM folders WHERE id = ?').run(child.id);
+      }
+
+      // Delete emails in parent folder
+      db.prepare('DELETE FROM emails WHERE folder_id = ?').run(folderId);
+      // Delete parent folder on IMAP server
+      const ok = await imapEngine.deleteMailbox(folder.account_id, folder.path.replace(/^\//, ''));
+      if (!ok) return { success: false, error: 'Failed to delete folder on server' };
+      db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
+      return { success: true };
+    }
+
+    // Non-recursive: enforce empty checks
+    const childCount = (db.prepare("SELECT COUNT(*) as count FROM folders WHERE account_id = ? AND path LIKE ? || '/%'").get(folder.account_id, folder.path) as { count: number }).count;
+    if (childCount > 0) return { success: false, error: 'Folder has subfolders — delete them first' };
+
     const emailCount = (db.prepare('SELECT COUNT(*) as count FROM emails WHERE folder_id = ?').get(folderId) as { count: number }).count;
     if (emailCount > 0) return { success: false, error: 'Folder is not empty' };
 
-    const ok = await imapEngine.deleteMailbox(folder.account_id, folder.path);
+    const ok = await imapEngine.deleteMailbox(folder.account_id, folder.path.replace(/^\//, ''));
     if (!ok) return { success: false, error: 'Failed to delete folder on server' };
 
     db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
     return { success: true };
+  });
+
+  ipcMain.handle('folders:email-count', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    const emailRow = db.prepare('SELECT COUNT(*) as count FROM emails WHERE folder_id = ?').get(folderId) as { count: number };
+    const folder = db.prepare('SELECT account_id, path FROM folders WHERE id = ?').get(folderId) as { account_id: string; path: string } | undefined;
+    let childCount = 0;
+    if (folder) {
+      childCount = (db.prepare("SELECT COUNT(*) as count FROM folders WHERE account_id = ? AND path LIKE ? || '/%'").get(folder.account_id, folder.path) as { count: number }).count;
+    }
+    return { count: emailRow.count, childCount };
   });
 
   ipcMain.handle('emails:mark-all-read', async (_event, folderId: string) => {
@@ -2261,41 +2299,43 @@ app.whenReady().then(() => {
     }
   }
 
-  // Connect saved accounts and sync folders + inbox on startup (non-blocking)
-  try {
-    const db = getDatabase();
-    const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
-    for (const account of accounts) {
-      sendSyncStatus(account.id, 'connecting', null);
-      logDebug(`[STARTUP] Connecting IMAP for ${account.id}...`);
-      imapEngine.connectAccount(account.id)
-        .then(async (connected) => {
-          logDebug(`[STARTUP] IMAP connect result for ${account.id}: ${connected}`);
-          if (connected) {
-            const folders = await imapEngine.listAndSyncFolders(account.id);
-            const inbox = folders.find(f => f.type === 'inbox');
-            if (inbox) {
-              logDebug(`[STARTUP] Syncing inbox for ${account.id}: ${inbox.path}`);
-              await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
-              const now = Date.now();
-              lastSyncTimestamps.set(account.id, now);
-              sendSyncStatus(account.id, 'connected', now);
-              logDebug(`[STARTUP] Sync complete for ${account.id}`);
+  // Defer IMAP connect until renderer has painted (avoids CPU contention during startup)
+  setTimeout(() => {
+    try {
+      const db = getDatabase();
+      const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
+      for (const account of accounts) {
+        sendSyncStatus(account.id, 'connecting', null);
+        logDebug(`[STARTUP] Connecting IMAP for ${account.id}...`);
+        imapEngine.connectAccount(account.id)
+          .then(async (connected) => {
+            logDebug(`[STARTUP] IMAP connect result for ${account.id}: ${connected}`);
+            if (connected) {
+              const folders = await imapEngine.listAndSyncFolders(account.id);
+              const inbox = folders.find(f => f.type === 'inbox');
+              if (inbox) {
+                logDebug(`[STARTUP] Syncing inbox for ${account.id}: ${inbox.path}`);
+                await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
+                const now = Date.now();
+                lastSyncTimestamps.set(account.id, now);
+                sendSyncStatus(account.id, 'connected', now);
+                logDebug(`[STARTUP] Sync complete for ${account.id}`);
+              }
+            } else {
+              sendSyncStatus(account.id, 'error', null);
             }
-          } else {
+          })
+          .catch((err) => {
+            logDebug(`[WARN] Startup IMAP connect failed for ${account.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
             sendSyncStatus(account.id, 'error', null);
-          }
-        })
-        .catch((err) => {
-          logDebug(`[WARN] Startup IMAP connect failed for ${account.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
-          sendSyncStatus(account.id, 'error', null);
-        });
+          });
+      }
+    } catch (err: unknown) {
+      logDebug(`[ERROR] Startup IMAP sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  } catch (err: unknown) {
-    logDebug(`[ERROR] Startup IMAP sync failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  }, 2000);
 
-  // 5-second polling sync: check all connected accounts for new emails
+  // 15-second polling sync: check all connected accounts for new emails
   // and update sync timestamps. This replaces reliance on IDLE (which dies
   // after reconnect exhaustion) with a reliable periodic poll.
   // Delay first poll to let startup IMAP connect finish

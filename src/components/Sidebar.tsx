@@ -30,8 +30,8 @@ import { useEmailStore, type EmailSummary, type Tag, type SavedSearch } from '..
 import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
+import type { ToastType } from '../App';
 import styles from './Sidebar.module.css';
-import { ConfirmDialog } from './ConfirmDialog';
 
 const SYSTEM_FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive']);
 
@@ -56,7 +56,7 @@ const FOLDER_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#
 interface SidebarProps {
   onCompose: () => void;
   onSettings: () => void;
-  onToast?: (message: string) => void;
+  onToast?: (message: string, undo?: () => void, type?: ToastType, confirm?: { label: string; action: () => void }) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast }) => {
@@ -76,7 +76,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected'>('none');
   const [lastCheckLabel, setLastCheckLabel] = useState('');
-  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; description?: string; variant?: 'default' | 'danger'; onConfirm: () => void }>({ open: false, title: '', onConfirm: () => {} });
 
   const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
 
@@ -95,19 +94,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
         for (const row of counts) map[row.folder_id] = row.count;
         setUnreadCounts(map);
       }
+      onToast?.(t('sidebar.trashEmptied'), undefined, 'success');
     }
-  }, [selectedAccountId, selectedFolderId, setEmails, setSelectedEmail]);
+  }, [selectedAccountId, selectedFolderId, setEmails, setSelectedEmail, onToast, t]);
 
-  const handlePurgeTrash = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handlePurgeTrash = useCallback(() => {
     if (!selectedAccountId) return;
-    setConfirmDialog({
-      open: true,
-      title: t('sidebar.emptyTrashConfirm'),
-      variant: 'danger',
-      onConfirm: doPurgeTrash,
+    onToast?.(t('sidebar.emptyTrashConfirm'), undefined, 'warning', {
+      label: t('confirm.delete'),
+      action: doPurgeTrash,
     });
-  }, [selectedAccountId, t, doPurgeTrash]);
+  }, [selectedAccountId, t, doPurgeTrash, onToast]);
 
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -151,25 +148,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:rename', folderId, renameValue.trim());
     if (result?.success) {
       await refreshFolders();
+    } else if (result?.error) {
+      onToast?.(result.error, undefined, 'error');
     }
     setRenamingFolderId(null);
     setRenameValue('');
-  }, [renameValue, refreshFolders]);
+  }, [renameValue, refreshFolders, onToast]);
 
-  const handleDeleteFolder = useCallback((folderId: string, folderName: string) => {
-    setConfirmDialog({
-      open: true,
-      title: t('sidebar.deleteFolderConfirm', { name: folderName }),
-      variant: 'danger',
-      onConfirm: async () => {
-        const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId);
-        if (result?.success) {
-          await refreshFolders();
-          if (selectedFolderId === folderId) selectFolder(null);
-        } else if (result?.error) {
-          onToast?.(result.error);
-        }
-      },
+  const handleDeleteFolder = useCallback(async (folderId: string, folderName: string) => {
+    // Pre-check: has subfolders or emails?
+    const countResult = await ipcInvoke<{ count: number; childCount: number }>('folders:email-count', folderId);
+
+    const doDelete = async (recursive: boolean) => {
+      const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId, recursive);
+      if (result?.success) {
+        await refreshFolders();
+        if (selectedFolderId === folderId) selectFolder(null);
+        onToast?.(t('sidebar.folderDeleted', { name: folderName }), undefined, 'success');
+      } else if (result?.error) {
+        onToast?.(result.error, undefined, 'error');
+      }
+    };
+
+    if (countResult && countResult.childCount > 0) {
+      // Folder has subfolders — offer recursive delete
+      onToast?.(t('sidebar.folderHasChildren', { name: folderName, count: countResult.childCount }), undefined, 'warning', {
+        label: t('sidebar.deleteAll'),
+        action: () => doDelete(true),
+      });
+      return;
+    }
+    if (countResult && countResult.count > 0) {
+      // Folder has emails — block deletion
+      onToast?.(t('sidebar.folderNotEmpty', { name: folderName, count: countResult.count }), undefined, 'warning');
+      return;
+    }
+
+    // Empty folder with no children — confirm via toast bubble
+    onToast?.(t('sidebar.deleteFolderConfirm', { name: folderName }), undefined, 'warning', {
+      label: t('confirm.delete'),
+      action: () => doDelete(false),
     });
   }, [t, refreshFolders, selectedFolderId, selectFolder, onToast]);
 
@@ -178,10 +196,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:create', selectedAccountId, newFolderName.trim(), parentPath);
     if (result?.success) {
       await refreshFolders();
+    } else if (result?.error) {
+      onToast?.(result.error, undefined, 'error');
     }
     setCreatingSubfolder(null);
     setNewFolderName('');
-  }, [newFolderName, selectedAccountId, refreshFolders]);
+  }, [newFolderName, selectedAccountId, refreshFolders, onToast]);
 
   const handleMarkAllRead = useCallback(async (folderId: string) => {
     const result = await ipcInvoke<{ success: boolean }>('emails:mark-all-read', folderId);
@@ -213,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     for (const emailId of ids) {
       await ipcInvoke('emails:move', { emailId, destFolderId: folderId });
     }
-    onToast?.(t('dragDrop.moveToFolder', { count: ids.length, folder: folderName }));
+    onToast?.(t('dragDrop.moveToFolder', { count: ids.length, folder: folderName }), undefined, 'success');
     if (selectedFolderId) {
       const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
       if (Array.isArray(refreshed)) setEmails(refreshed);
@@ -225,10 +245,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:create', selectedAccountId, newFolderName.trim());
     if (result?.success) {
       await refreshFolders();
+    } else if (result?.error) {
+      onToast?.(result.error, undefined, 'error');
     }
     setCreatingSubfolder(null);
     setNewFolderName('');
-  }, [newFolderName, selectedAccountId, refreshFolders]);
+  }, [newFolderName, selectedAccountId, refreshFolders, onToast]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -549,7 +571,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                             className="folder-ctx-item"
                             onSelect={async () => {
                               const result = await ipcInvoke<{ success: boolean; count?: number; error?: string }>('export:mbox', folder.id);
-                              if (result?.success) onToast?.(t('export.success', { count: result.count }));
+                              if (result?.success) onToast?.(t('export.success', { count: result.count }), undefined, 'success');
+                              else if (result?.error) onToast?.(result.error, undefined, 'error');
                             }}
                           >
                             <Download size={14} />
@@ -560,11 +583,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                             onSelect={async () => {
                               const result = await ipcInvoke<{ success: boolean; count?: number; error?: string }>('import:eml', folder.id);
                               if (result?.success) {
-                                onToast?.(t('import.success', { count: result.count }));
+                                onToast?.(t('import.success', { count: result.count }), undefined, 'success');
                                 if (selectedFolderId === folder.id) {
                                   const emails = await ipcInvoke<EmailSummary[]>('emails:list', folder.id);
                                   if (Array.isArray(emails)) setEmails(emails);
                                 }
+                              } else if (result?.error) {
+                                onToast?.(result.error, undefined, 'error');
                               }
                             }}
                           >
@@ -574,7 +599,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                           {isTrash && (
                             <DropdownMenu.Item
                               className="folder-ctx-item folder-ctx-danger"
-                              onSelect={(e) => handlePurgeTrash(e as unknown as React.MouseEvent)}
+                              onSelect={() => handlePurgeTrash()}
                             >
                               <Trash2 size={14} />
                               <span>{t('sidebar.emptyTrash')}</span>
@@ -775,15 +800,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
         </button>
       </div>
 
-      <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        variant={confirmDialog.variant}
-        confirmLabel={t('confirm.delete')}
-        onConfirm={confirmDialog.onConfirm}
-      />
     </aside>
   );
 };

@@ -10,6 +10,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { ipcInvoke } from '../lib/ipc';
 import { formatFileSize } from '../lib/formatFileSize';
 import { detectPhishing } from '../lib/phishingDetector';
+import type { ToastType } from '../App';
 import DateTimePicker from './DateTimePicker';
 import { MessageSourceDialog } from './MessageSourceDialog';
 import styles from './ReadingPane.module.css';
@@ -24,7 +25,7 @@ export function _resetAllowedRemoteImages() { allowedRemoteImageEmails.clear(); 
 interface ReadingPaneProps {
     onReply?: (email: EmailFull, initialBody?: string) => void;
     onForward?: (email: EmailFull) => void;
-    onToast?: (message: string, undo?: () => void) => void;
+    onToast?: (message: string, undo?: () => void, type?: ToastType, confirm?: { label: string; action: () => void }) => void;
 }
 
 function extractCids(html: string): string[] {
@@ -326,7 +327,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 });
             }
         } catch {
-            onToast?.('Failed to download attachment');
+            onToast?.(t('readingPane.downloadFailed'), undefined, 'error');
         } finally {
             setDownloadingId(null);
         }
@@ -347,10 +348,10 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
-                onToast?.(t('readingPane.emailDeleted'));
+                onToast?.(t('readingPane.emailDeleted'), undefined, 'success');
             }
         } catch {
-            onToast?.('Failed to delete email');
+            onToast?.(t('toast.deleteFailed'), undefined, 'error');
         }
     };
 
@@ -361,7 +362,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             await ipcInvoke('emails:toggle-flag', selectedEmail.id, newFlagged);
             setSelectedEmail({ ...selectedEmail, is_flagged: newFlagged ? 1 : 0 });
         } catch {
-            onToast?.('Failed to toggle flag');
+            onToast?.(t('readingPane.flagFailed'), undefined, 'error');
         }
     };
 
@@ -372,10 +373,10 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
-                onToast?.(t('readingPane.emailArchived'));
+                onToast?.(t('readingPane.emailArchived'), undefined, 'success');
             }
         } catch {
-            onToast?.('Failed to archive email');
+            onToast?.(t('readingPane.archiveFailed'), undefined, 'error');
         }
     };
 
@@ -391,14 +392,14 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 tone,
             });
             if (result?.error) {
-                onToast?.(result.error);
+                onToast?.(result.error, undefined, 'error');
                 return;
             }
             if (result?.html) {
                 onReply(selectedEmail, result.html);
             }
         } catch {
-            onToast?.(t('readingPane.aiReplyFailed', 'AI reply generation failed'));
+            onToast?.(t('readingPane.aiReplyFailed', 'AI reply generation failed'), undefined, 'error');
         } finally {
             setAiReplyLoading(false);
         }
@@ -414,10 +415,10 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
-                onToast?.(t('readingPane.emailMoved'));
+                onToast?.(t('readingPane.emailMoved'), undefined, 'success');
             }
         } catch {
-            onToast?.('Failed to move email');
+            onToast?.(t('readingPane.moveFailed'), undefined, 'error');
         }
     };
 
@@ -434,7 +435,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 await refreshEmailList();
             }
         } catch {
-            onToast?.('Failed to snooze email');
+            onToast?.(t('readingPane.snoozeFailed'), undefined, 'error');
         }
     };
 
@@ -447,7 +448,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 remindAt,
             });
         } catch {
-            onToast?.('Failed to set reminder');
+            onToast?.(t('readingPane.reminderFailed'), undefined, 'error');
         }
     };
 
@@ -628,7 +629,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                         onClick={async () => {
                             if (!selectedEmail) return;
                             await ipcInvoke('spam:train', selectedEmail.account_id, selectedEmail.id, true);
-                            onToast?.(t('spam.trainedSpam'));
+                            onToast?.(t('spam.trainedSpam'), undefined, 'success');
                         }}
                     >
                         <ShieldAlert size={18} />

@@ -44,7 +44,12 @@
     "connected": "Connecté",
     "notSynced": "Non synchronisé",
     "noAiAgents": "Aucun agent IA",
-    "lastCheck": "Dernière vérification : {{time}}"
+    "lastCheck": "Dernière vérification : {{time}}",
+    "folderHasChildren": "Le dossier \"{{name}}\" contient {{count}} sous-dossier(s) — tout supprimer ?",
+    "folderNotEmpty": "Le dossier \"{{name}}\" contient {{count}} e-mails — déplacez-les ou supprimez-les d'abord",
+    "folderDeleted": "Dossier \"{{name}}\" supprimé",
+    "trashEmptied": "Corbeille vidée",
+    "deleteAll": "Tout supprimer"
   },
   "tags": {
     "title": "Étiquettes",
@@ -120,7 +125,13 @@
     "moveTo": "Déplacer vers...",
     "zoomIn": "Zoom avant",
     "zoomOut": "Zoom arrière",
-    "saveAsEml": "Enregistrer en EML"
+    "saveAsEml": "Enregistrer en EML",
+    "downloadFailed": "Échec du téléchargement de la pièce jointe",
+    "flagFailed": "Échec du basculement du drapeau",
+    "archiveFailed": "Échec de l'archivage",
+    "moveFailed": "Échec du déplacement de l'e-mail",
+    "snoozeFailed": "Échec du report de l'e-mail",
+    "reminderFailed": "Échec de la création du rappel"
   },
   "compose": {
     "newMessage": "Nouveau message",
@@ -323,7 +334,8 @@
     "reminderSubject": "Rappel : {{subject}}",
     "reminderDefault": "Rappel : suivi d'e-mail",
     "dismissNotification": "Fermer la notification",
-    "undo": "Annuler"
+    "undo": "Annuler",
+    "deleteFailed": "Impossible de supprimer l'e-mail"
   },
   "datetime": {
     "laterToday": "Plus tard aujourd'hui",
@@ -432,6 +444,7 @@
     "configTitle": "Configuration d'agent",
     "configDesc": "Ajoutez ceci à la configuration MCP de votre outil IA :",
     "toolsTitle": "Outils disponibles",
-    "noTools": "Aucun outil disponible"
+    "noTools": "Aucun outil disponible",
+    "toggleFailed": "Impossible de basculer le serveur MCP"
   }
 }

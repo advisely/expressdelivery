@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef, Component, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
+import { CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ThreadList } from './components/ThreadList';
 import { ReadingPane } from './components/ReadingPane';
@@ -16,6 +17,15 @@ import { useKeyboardShortcuts } from './lib/useKeyboardShortcuts';
 import type { SendPayload } from './components/ComposeModal';
 import './index.css';
 import appStyles from './components/App.module.css';
+
+export type ToastType = 'info' | 'success' | 'error' | 'warning';
+
+const TOAST_ICONS: Record<ToastType, React.ElementType> = {
+  success: CheckCircle,
+  error: AlertCircle,
+  warning: AlertTriangle,
+  info: Info,
+};
 
 interface ErrorBoundaryState { hasError: boolean; error: Error | null }
 
@@ -69,7 +79,7 @@ function App() {
   const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
   const [startupReady, setStartupReady] = useState(false);
-  const [toast, setToast] = useState<{ message: string; emailId?: string; undo?: () => void } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: ToastType; undo?: () => void; confirm?: { label: string; action: () => void } } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const [undoSendDelay, setUndoSendDelay] = useState(5);
@@ -77,10 +87,11 @@ function App() {
   const countdownRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const startupRanRef = useRef(false);
 
-  const showToast = useCallback((message: string, undo?: () => void) => {
+  const showToast = useCallback((message: string, undo?: () => void, type: ToastType = 'info', confirm?: { label: string; action: () => void }) => {
     clearTimeout(toastTimerRef.current);
-    setToast({ message, undo });
-    toastTimerRef.current = setTimeout(() => setToast(null), 5000);
+    setToast({ message, type, undo, confirm });
+    // Confirmation toasts auto-dismiss after 30s; others after 5s
+    toastTimerRef.current = setTimeout(() => setToast(null), confirm ? 30_000 : 5_000);
   }, []);
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -297,8 +308,8 @@ function App() {
           if (refreshed) setEmails(refreshed);
         }
       }
-    } catch { /* deletion failed silently */ }
-  }, [setSelectedEmail, setEmails]);
+    } catch { showToast(t('toast.deleteFailed')); }
+  }, [setSelectedEmail, setEmails, showToast, t]);
 
   const handleArchiveSelected = useCallback(async () => {
     const email = useEmailStore.getState().selectedEmail;
@@ -540,11 +551,17 @@ function App() {
         )}
 
         {toast && (
-          <div className={appStyles['toast-notification']} role="alert" aria-live="polite">
+          <div className={`${appStyles['toast-notification']} ${appStyles[`toast-${toast.type}`]}`} role="alert" aria-live="polite">
+            {React.createElement(TOAST_ICONS[toast.type], { size: 16, className: appStyles['toast-icon'] })}
             <span>{toast.message}</span>
             {toast.undo && (
               <button className={appStyles['toast-action']} onClick={() => { toast.undo?.(); setToast(null); }}>
                 {t('toast.undo')}
+              </button>
+            )}
+            {toast.confirm && (
+              <button className={appStyles['toast-action']} onClick={() => { try { toast.confirm?.action(); } finally { setToast(null); } }}>
+                {toast.confirm.label}
               </button>
             )}
             <button className={appStyles['toast-close']} onClick={() => setToast(null)} aria-label={t('toast.dismissNotification')}>
