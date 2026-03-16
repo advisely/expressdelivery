@@ -43,8 +43,17 @@
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true,
-    "deleteAppDataOnUninstall": false
+    "deleteAppDataOnUninstall": false,
+    "include": "build/installer.nsh"
   },
+  "fileAssociations": [
+    {
+      "ext": "expressdelivery",
+      "name": "ExpressDelivery Update Package",
+      "description": "ExpressDelivery Update Package",
+      "role": "Viewer"
+    }
+  ],
   "linux": {
     "icon": "build/icon.png",
     "target": [

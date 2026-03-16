@@ -512,6 +512,10 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     const movableFolders = folders.filter(f => f.id !== selectedEmail.folder_id);
 
+    // Check if email is currently in the spam/junk folder
+    const currentFolder = folders.find(f => f.id === selectedEmail.folder_id);
+    const isInSpamFolder = currentFolder?.type === 'junk';
+
     // Filter out inline CID attachments from the download list
     const downloadableAttachments = attachments.filter(a => !a.content_id);
 
@@ -623,13 +627,34 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                         <Printer size={18} />
                     </button>
                     <button
-                        className={styles['icon-btn']}
-                        title={t('spam.reportSpam')}
-                        aria-label={t('spam.reportSpam')}
+                        className={`${styles['icon-btn']}${isInSpamFolder ? ` ${styles['spam-active']}` : ''}`}
+                        title={isInSpamFolder ? t('spam.notSpam') : t('spam.reportSpam')}
+                        aria-label={isInSpamFolder ? t('spam.notSpam') : t('spam.reportSpam')}
                         onClick={async () => {
                             if (!selectedEmail) return;
-                            await ipcInvoke('spam:train', selectedEmail.account_id, selectedEmail.id, true);
-                            onToast?.(t('spam.trainedSpam'), undefined, 'success');
+                            if (isInSpamFolder) {
+                                // Mark as not spam: train as ham + move back to inbox
+                                await ipcInvoke('spam:train', selectedEmail.account_id, selectedEmail.id, false);
+                                const inboxFolder = folders.find(f => f.type === 'inbox');
+                                if (inboxFolder) {
+                                    await ipcInvoke('emails:move', { emailId: selectedEmail.id, destFolderId: inboxFolder.id });
+                                    setSelectedEmail(null);
+                                    await refreshEmailList();
+                                }
+                                onToast?.(t('spam.trainedHam'), undefined, 'success');
+                            } else {
+                                // Report as spam: train + move to junk folder
+                                await ipcInvoke('spam:train', selectedEmail.account_id, selectedEmail.id, true);
+                                const junkFolder = folders.find(f => f.type === 'junk');
+                                if (junkFolder) {
+                                    await ipcInvoke('emails:move', { emailId: selectedEmail.id, destFolderId: junkFolder.id });
+                                    setSelectedEmail(null);
+                                    await refreshEmailList();
+                                    onToast?.(t('spam.movedToSpam'), undefined, 'success');
+                                } else {
+                                    onToast?.(t('spam.trainedSpam'), undefined, 'success');
+                                }
+                            }
                         }}
                     >
                         <ShieldAlert size={18} />

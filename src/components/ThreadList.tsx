@@ -3,6 +3,7 @@ import { Search, Paperclip, Trash2, Reply, Forward, Star, FolderInput, Mail, Mai
 import { useTranslation } from 'react-i18next';
 import { useEmailStore } from '../stores/emailStore';
 import type { EmailSummary, EmailFull, SavedSearch, Account } from '../stores/emailStore';
+import { useThemeStore } from '../stores/themeStore';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
 import { getProviderIcon } from '../lib/providerIcons';
 import styles from './ThreadList.module.css';
@@ -138,9 +139,10 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const selectAllEmails = useEmailStore(s => s.selectAllEmails);
     const clearSelection = useEmailStore(s => s.clearSelection);
     const accounts = useEmailStore(s => s.accounts);
+    const selectedAccountId = useEmailStore(s => s.selectedAccountId);
+    const setContextAccountId = useEmailStore(s => s.setContextAccountId);
     const savedSearches = useEmailStore(s => s.savedSearches);
     const setSavedSearches = useEmailStore(s => s.setSavedSearches);
-    const selectedAccountId = useEmailStore(s => s.selectedAccountId);
     const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
@@ -206,6 +208,8 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         }, 300);
     }, [selectedFolderId, setEmails, setSearchQuery]);
 
+    const dynamicFolderSwitch = useThemeStore(s => s.dynamicFolderSwitch);
+
     const handleSelectEmail = useCallback(async (emailId: string) => {
         selectEmail(emailId);
         // Optimistic mark-as-read update so the unread dot disappears immediately
@@ -213,9 +217,14 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         if (target && !target.is_read) {
             setEmails(emails.map(e => e.id === emailId ? { ...e, is_read: 1 } : e));
         }
+        // Dynamic folder switching: when in All Accounts mode, switch folder list
+        // to the clicked email's account for contextual navigation
+        if (selectedAccountId === '__all' && dynamicFolderSwitch && target?.account_id) {
+            setContextAccountId(target.account_id);
+        }
         const full = await ipcInvoke<EmailFull>('emails:read', emailId);
         if (full) setSelectedEmail(full);
-    }, [emails, selectEmail, setEmails, setSelectedEmail]);
+    }, [emails, selectEmail, setEmails, setSelectedEmail, selectedAccountId, dynamicFolderSwitch, setContextAccountId]);
 
     // Close context menu on click outside or Escape
     useEffect(() => {

@@ -1,6 +1,6 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client evolving into an agentic multi-channel communication platform. MCP (Model Context Protocol) integration for AI-assisted operations across email, Telegram, LinkedIn, and Twitter. **Status:** Phase 11 in progress (v1.10.0). 15 components, 2 Zustand stores, 11 MCP tools, SQLite persistence (14 migrations), 4 themes, 27 test files (648 tests), ~94 IPC handlers, custom application menu bar. Agentic channel layer (6 connectors), semantic intent parser (Ollama/OpenRouter LLM router), Playwright E2E harness. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client evolving into an agentic multi-channel communication platform. MCP (Model Context Protocol) integration for AI-assisted operations across email, Telegram, LinkedIn, and Twitter. **Status:** Phase 11 in progress (v1.10.0). 16 components, 2 Zustand stores, 11 MCP tools, SQLite persistence (14 migrations), 4 themes, 27 test files (648 tests), ~99 IPC handlers, custom application menu bar. Agentic channel layer (6 connectors), semantic intent parser (Ollama/OpenRouter LLM router), Playwright E2E harness. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
@@ -46,7 +46,7 @@ release/           # Built app artifacts
 | `electron/utils.ts`        | Shared utilities (FTS5 query sanitizer, stripCRLF, escapeAttr)         |
 | `electron/scheduler.ts`    | 30s polling scheduler for snooze wake, scheduled sends, and reminder notifications |
 | `electron/ruleEngine.ts`   | Mail rule matching + actions (from/subject/body/has_attachment x contains/equals/starts_with/ends_with) |
-| `electron/updater.ts`      | electron-updater wrapper (autoDownload: false, GitHub Releases) |
+| `electron/updater.ts`      | Dual update system: electron-updater (GitHub Releases) + file-based .expressdelivery packages (ZIP+manifest, SHA-256 integrity, Authenticode signature, NSIS silent install) |
 | `electron/spamFilter.ts`   | Bayesian spam classifier (tokenize, train, classify with Laplace smoothing) |
 | `electron/openRouterClient.ts` | OpenRouter API client for AI reply generation (15s timeout, prompt sanitization) |
 | `electron/emailExport.ts`  | EML single + MBOX folder export with RFC 2822 formatting |
@@ -62,7 +62,8 @@ release/           # Built app artifacts
 | `src/components/ThemeContext.tsx` | Layout context + theme class application   |
 | `src/components/OnboardingScreen.tsx` | First-run account setup (4-step wizard, 9 CSS animations) |
 | `src/components/DateTimePicker.tsx`   | Native datetime input with quick-select presets (1h, 3h, tomorrow, next week) |
-| `src/components/UpdateBanner.tsx`     | In-app update available/download progress/install banner |
+| `src/components/UpdateBanner.tsx`     | In-app update available/download progress/install banner (online updates) |
+| `src/components/UpdatePanel.tsx`     | Settings tab: file-based update UI (.expressdelivery packages, validation, multi-step progress, install mode detection) |
 | `src/components/ConfirmDialog.tsx` | Reusable Radix Dialog for confirm + prompt modes (replaces window.confirm/prompt) |
 | `src/components/MessageSourceDialog.tsx` | Raw RFC822 email source viewer (Radix Dialog, monospace pre, copy) |
 | `src/lib/providerPresets.ts`   | Email provider IMAP/SMTP presets (Gmail, Outlook, Yahoo, iCloud, Custom) |
@@ -76,6 +77,7 @@ release/           # Built app artifacts
 | `src/lib/ipc.ts`          | Typed IPC wrapper for renderer process          |
 | `src/lib/i18n.ts`         | react-i18next init with 4 locales (en, fr, es, de) |
 | `scripts/clean-build.mjs`  | Hydration + clean packaging (purge, rebuild native deps, package, verify) |
+| `scripts/build-expressdelivery.ps1` | Packages NSIS installer into .expressdelivery update file (ZIP + manifest.json with SHA-256 + optional Authenticode) |
 | `src/index.css`            | Global styles, 4 themes, self-hosted Outfit font, CSS variables, layout modes |
 
 ## Data Models
@@ -122,6 +124,7 @@ npm run build:all        # Clean build for Linux + Windows (correct order)
 npm run test             # vitest run
 npm run test:coverage    # vitest with @vitest/coverage-v8
 npm run lint             # eslint (strict, 0 warnings)
+npm run make:update-package  # Package NSIS installer into .expressdelivery update file
 ```
 
 ### Build Notes (IMPORTANT)
@@ -198,6 +201,7 @@ npm run lint             # eslint (strict, 0 warnings)
 - Email HTML: sandboxed iframe (no allow-same-origin), iframe-internal CSP, DOMPurify on all HTML before iframe
 - Crash handling: uncaughtException only exits for fatal errors (MODULE_NOT_FOUND, NODE_MODULE_VERSION, OOM)
 - Log injection: log:error IPC strips CR/LF/NUL, prepends [RENDERER], caps at 4000 chars
+- Update packages: .expressdelivery format with SHA-256 payload integrity, Authenticode signature verification, path traversal prevention (CWE-22), command injection prevention (CWE-78 — execFileSync with args array, no shell interpolation), payload filename sanitization
 
 **Remaining limitation:**
 - Decrypted passwords in V8 heap (inherent to JS; mitigated with short-lived scope)

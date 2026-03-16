@@ -103,6 +103,7 @@ interface EmailState {
     tags: Tag[]
     savedSearches: SavedSearch[]
     draggedEmailIds: string[]
+    contextAccountId: string | null
 
     setAccounts: (accounts: Account[]) => void
     addAccount: (account: Account) => void
@@ -127,6 +128,7 @@ interface EmailState {
     setTags: (tags: Tag[]) => void
     setSavedSearches: (searches: SavedSearch[]) => void
     setDraggedEmailIds: (ids: string[]) => void
+    setContextAccountId: (id: string | null) => void
 }
 
 export const useEmailStore = create<EmailState>()((set) => ({
@@ -145,6 +147,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     tags: [],
     savedSearches: [],
     draggedEmailIds: [],
+    contextAccountId: null,
 
     setAccounts: (accounts) => set({ accounts }),
     addAccount: (account) => set((state) => ({ accounts: [...state.accounts, account] })),
@@ -169,7 +172,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     setFolders: (folders) => set({ folders }),
     setEmails: (emails) => set({ emails: Array.isArray(emails) ? emails : [] }),
     setSelectedEmail: (selectedEmail) => set({ selectedEmail }),
-    selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
+    selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>(), contextAccountId: null }),
     selectFolder: (selectedFolderId) => set({ selectedFolderId, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
     selectEmail: (selectedEmailId) => set({ selectedEmailId }),
     toggleSelectEmail: (id) => set((state) => {
@@ -204,4 +207,5 @@ export const useEmailStore = create<EmailState>()((set) => ({
     setTags: (tags) => set({ tags }),
     setSavedSearches: (savedSearches) => set({ savedSearches }),
     setDraggedEmailIds: (draggedEmailIds) => set({ draggedEmailIds }),
+    setContextAccountId: (contextAccountId) => set({ contextAccountId }),
 }))

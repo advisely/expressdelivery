@@ -6,8 +6,9 @@ import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
     CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText, Tags as TagsIcon, Users,
-    Bot, Copy, RefreshCw, Wrench
+    Bot, Copy, RefreshCw, Wrench, Download
 } from 'lucide-react';
+import { UpdatePanel } from './UpdatePanel';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
 import { useEmailStore } from '../stores/emailStore';
@@ -68,7 +69,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const selectFolder = useEmailStore(s => s.selectFolder);
     const setFolders = useEmailStore(s => s.setFolders);
     const { layout, setLayout } = useLayout();
-    const { themeName, setTheme, densityMode, setDensityMode } = useThemeStore();
+    const { themeName, setTheme, densityMode, setDensityMode, dynamicFolderSwitch, setDynamicFolderSwitch } = useThemeStore();
     const { i18n, t } = useTranslation();
 
     // API key state
@@ -719,6 +720,10 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                 <Bot size={16} />
                                 <span>{t('mcp.title')}</span>
                             </Tabs.Trigger>
+                            <Tabs.Trigger className={styles['tab-btn']} value="update">
+                                <Download size={16} />
+                                <span>{t('updatePanel.tabTitle')}</span>
+                            </Tabs.Trigger>
                         </Tabs.List>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="accounts">
@@ -1003,6 +1008,24 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 <span>{t(`settings.density${mode.charAt(0).toUpperCase() + mode.slice(1)}`)}</span>
                                             </label>
                                         ))}
+                                    </div>
+                                </div>
+
+                                <div className={styles['setting-group']}>
+                                    <div className={styles['agentic-toggle-row']}>
+                                        <div className={styles['agentic-toggle-info']}>
+                                            <span className={styles['agentic-toggle-label']}>{t('settings.dynamicFolderSwitch')}</span>
+                                            <span className={styles['agentic-toggle-desc']}>{t('settings.dynamicFolderSwitchDesc')}</span>
+                                        </div>
+                                        <button
+                                            className={`${styles['notif-switch']} ${dynamicFolderSwitch ? styles['notif-switch-on'] : ''}`}
+                                            onClick={() => setDynamicFolderSwitch(!dynamicFolderSwitch)}
+                                            aria-label={t('settings.dynamicFolderSwitch')}
+                                            role="switch"
+                                            aria-checked={dynamicFolderSwitch}
+                                        >
+                                            <span className={styles['notif-switch-thumb']} />
+                                        </button>
                                     </div>
                                 </div>
 
@@ -1644,6 +1667,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     )}
                                 </div>
                             </div>}
+                        </Tabs.Content>
+
+                        {/* Update Tab */}
+                        <Tabs.Content className={styles['settings-tab-panel']} value="update">
+                            {isTabActive('update') && <UpdatePanel />}
                         </Tabs.Content>
                     </Tabs.Root>
                 </Dialog.Content>

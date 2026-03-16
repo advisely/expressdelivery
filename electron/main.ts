@@ -54,7 +54,7 @@ import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
-import { initAutoUpdater, setUpdateCallback, checkForUpdates, downloadUpdate, installUpdate } from './updater.js'
+import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging } from './updater.js'
 import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
@@ -614,6 +614,32 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:list', (_event, folderId: string) => {
+    // Virtual folder: all accounts by folder type (e.g., __all_inbox, __all_sent)
+    if (folderId.startsWith('__all_')) {
+      const folderType = folderId.slice(6); // e.g., 'inbox', 'sent', 'drafts', 'archive', 'trash'
+      const VALID_FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'archive', 'trash', 'junk']);
+      if (!VALID_FOLDER_TYPES.has(folderType)) return [];
+      return db.prepare(
+        `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
+                e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels,
+                (SELECT COUNT(*) FROM emails e2
+                 INNER JOIN folders f2 ON e2.folder_id = f2.id
+                 WHERE e2.thread_id = e.thread_id AND f2.type = ?
+                   AND (e2.is_snoozed = 0 OR e2.is_snoozed IS NULL)) AS thread_count
+         FROM emails e
+         INNER JOIN folders f ON e.folder_id = f.id
+         WHERE f.type = ? AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)
+           AND e.id = (
+             SELECT e3.id FROM emails e3
+             INNER JOIN folders f3 ON e3.folder_id = f3.id
+             WHERE e3.thread_id = e.thread_id AND f3.type = ?
+               AND (e3.is_snoozed = 0 OR e3.is_snoozed IS NULL)
+             ORDER BY e3.date DESC LIMIT 1
+           )
+         ORDER BY e.date DESC LIMIT 50`
+      ).all(folderType, folderType, folderType);
+    }
     // Virtual folder: unified inbox (all accounts) — thread-deduped
     if (folderId === '__unified') {
       return db.prepare(
@@ -2051,10 +2077,10 @@ function registerIpcHandlers() {
     return { tools: getMcpServer().getToolList() };
   });
 
-  // --- Auto-update handlers ---
+  // --- Auto-update handlers (online via GitHub Releases) ---
   ipcMain.handle('update:check', async () => {
     try {
-      const result = await checkForUpdates();
+      const result = await checkForUpdatesOnline();
       return { available: !!result?.updateInfo, version: result?.updateInfo?.version ?? null };
     } catch (err) {
       logDebug(`[update:check] Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -2064,7 +2090,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('update:download', async () => {
     try {
-      await downloadUpdate();
+      await downloadUpdateOnline();
       return { success: true };
     } catch (err) {
       logDebug(`[update:download] Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -2073,7 +2099,34 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('update:install', () => {
-    installUpdate();
+    installUpdateOnline();
+  });
+
+  // --- File-based update handlers (.expressdelivery packages) ---
+  ipcMain.handle('update:getInfo', () => {
+    return getUpdateInfo();
+  });
+
+  ipcMain.handle('update:pickFile', async () => {
+    return pickUpdateFile();
+  });
+
+  ipcMain.handle('update:validateFile', (_event, filePath: string) => {
+    if (typeof filePath !== 'string') throw new Error('Invalid file path');
+    return validateFile(filePath);
+  });
+
+  ipcMain.handle('update:apply', async (_event, filePath: string) => {
+    if (typeof filePath !== 'string') throw new Error('Invalid file path');
+    return applyUpdate(filePath, (step) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('update:applyProgress', step);
+      }
+    });
+  });
+
+  ipcMain.handle('update:cleanStaging', () => {
+    return { cleaned: cleanStaging() };
   });
 
   ipcMain.handle('folders:set-color', (_event, folderId: string, color: string | null) => {
@@ -2265,6 +2318,29 @@ function registerIpcHandlers() {
 
 }
 
+// ── Single Instance Lock ─────────────────────────────────────────────────────
+// Prevents duplicate instances when double-clicking .expressdelivery files.
+// Second instance forwards its argv to the first instance and exits.
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    // Focus existing window
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+    // Check if a .expressdelivery file was passed as argument
+    const updateFile = argv.find(arg => arg.endsWith('.expressdelivery'));
+    if (updateFile && win && !win.isDestroyed()) {
+      // Send the file path to the renderer for the update panel
+      win.webContents.send('update:fileOpened', updateFile);
+    }
+  });
+}
+
 app.whenReady().then(() => {
   const startupStart = performance.now();
   logDebug('app.whenReady() triggered. Initializing database...');
@@ -2397,7 +2473,9 @@ app.whenReady().then(() => {
           win.webContents.send(event, data);
         }
       });
-      checkForUpdates().catch(() => { /* silent */ });
+      checkForUpdatesOnline().catch(() => { /* silent */ });
+      // Clean stale update staging files from previous runs
+      cleanStaging();
     } catch (err: unknown) {
       logDebug(`[WARN] Auto-updater init failed: ${err instanceof Error ? err.message : String(err)}`);
     }

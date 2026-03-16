@@ -61,10 +61,16 @@ const ALLOWED_INVOKE_CHANNELS = [
   'rules:delete',
   'rules:reorder',
   'rules:test',
-  // Phase 4: Auto-update
+  // Phase 4: Auto-update (online)
   'update:check',
   'update:download',
   'update:install',
+  // File-based update (.expressdelivery packages)
+  'update:pickFile',
+  'update:validateFile',
+  'update:apply',
+  'update:getInfo',
+  'update:cleanStaging',
   // Reply templates
   'templates:list',
   'templates:create',
@@ -157,6 +163,8 @@ const ALLOWED_ON_CHANNELS = [
   'notification:click',
   'update:available',
   'update:downloaded',
+  'update:applyProgress',
+  'update:fileOpened',
   'scheduled:sent',
   'scheduled:failed',
   // Phase 10: Application menu

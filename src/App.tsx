@@ -236,6 +236,12 @@ function App() {
     if (!selectedAccountId) return;
     let cancelled = false;
     async function loadFolders() {
+      // "All Accounts" mode: no per-account folders to load — Sidebar handles this
+      if (selectedAccountId === '__all') {
+        setFolders([]);
+        selectFolder('__all_inbox');
+        return;
+      }
       const folders = await ipcInvoke<Folder[]>('folders:list', selectedAccountId);
       if (Array.isArray(folders) && !cancelled) {
         setFolders(folders);

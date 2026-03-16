@@ -55,6 +55,10 @@
   fill: rgb(var(--color-flag));
 }
 
+.spam-active {
+  color: rgb(var(--color-danger));
+}
+
 .zoom-label {
   font-size: 11px;
   color: var(--text-secondary);

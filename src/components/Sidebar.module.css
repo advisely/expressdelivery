@@ -509,6 +509,24 @@
   color: var(--text-muted);
 }
 
+.context-account-label {
+  padding: 4px 12px 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.context-account-text {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgb(var(--color-accent));
+  letter-spacing: 0.3px;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tag-dot {
   width: 8px;
   height: 8px;

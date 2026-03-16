@@ -41,6 +41,18 @@ vi.mock('lucide-react', () => ({
     RefreshCw: () => <div data-testid="icon-RefreshCw">Rw</div>,
     Wrench: () => <div data-testid="icon-Wrench">Wr</div>,
     AlertTriangle: () => <div data-testid="icon-AlertTriangle">AT</div>,
+    Download: () => <div data-testid="icon-Download">Dl</div>,
+    Shield: () => <div data-testid="icon-Shield">Sh</div>,
+    HardDrive: () => <div data-testid="icon-HardDrive">Hd</div>,
+    Power: () => <div data-testid="icon-Power">Pw</div>,
+    Rocket: () => <div data-testid="icon-Rocket">Rk</div>,
+    Upload: () => <div data-testid="icon-Upload">Up</div>,
+    Globe: () => <div data-testid="icon-Globe">Gl</div>,
+    CheckCircle: () => <div data-testid="icon-CheckCircle">Ck</div>,
+    FileArchive: () => <div data-testid="icon-FileArchive">Fa</div>,
+    Loader2: () => <div data-testid="icon-Loader2">L2</div>,
+    Package: () => <div data-testid="icon-Package">Pk</div>,
+    Sparkles: () => <div data-testid="icon-Sparkles">Sp</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);

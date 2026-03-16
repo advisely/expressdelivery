@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useTranslation } from 'react-i18next';
-import { useEmailStore, type EmailSummary, type Tag, type SavedSearch } from '../stores/emailStore';
+import { useEmailStore, type EmailSummary, type Tag, type SavedSearch, type Folder } from '../stores/emailStore';
 import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
@@ -67,6 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const setTags = useEmailStore(s => s.setTags);
   const savedSearches = useEmailStore(s => s.savedSearches);
   const setSavedSearches = useEmailStore(s => s.setSavedSearches);
+  const contextAccountId = useEmailStore(s => s.contextAccountId);
   const { sidebarCollapsed, toggleSidebar } = useThemeStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -78,7 +79,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected'>('none');
   const [lastCheckLabel, setLastCheckLabel] = useState('');
 
-  const activeAccount = accounts.find(a => a.id === selectedAccountId) ?? accounts[0];
+  const isAllAccounts = selectedAccountId === '__all';
+  const activeAccount = isAllAccounts ? null : (accounts.find(a => a.id === selectedAccountId) ?? accounts[0]);
+  const contextAccount = contextAccountId ? accounts.find(a => a.id === contextAccountId) : null;
 
   const doPurgeTrash = useCallback(async () => {
     if (!selectedAccountId) return;
@@ -113,6 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [newFolderName, setNewFolderName] = useState('');
   const [colorPickerFolderId, setColorPickerFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [contextFolders, setContextFolders] = useState<Folder[]>([]);
   const draggedEmailIds = useEmailStore(s => s.draggedEmailIds);
   const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
 
@@ -130,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const { setFolders } = useEmailStore();
 
   const refreshFolders = useCallback(async () => {
-    if (!selectedAccountId) return;
+    if (!selectedAccountId || selectedAccountId === '__all') return;
     const result = await ipcInvoke<Array<{ id: string; name: string; path: string; type: string }>>('folders:list', selectedAccountId);
     if (result) setFolders(result);
   }, [selectedAccountId, setFolders]);
@@ -266,6 +270,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     if (!selectedAccountId) return;
     let cancelled = false;
     async function loadCounts() {
+      // In All Accounts mode, skip per-account unread counts (virtual folders don't have them)
+      if (selectedAccountId === '__all') return;
       const result = await ipcInvoke<Array<{ folder_id: string; count: number }>>('folders:unread-counts', selectedAccountId);
       if (result && !cancelled) {
         const counts: Record<string, number> = {};
@@ -303,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
   // Snoozed & scheduled counts
   useEffect(() => {
-    if (!selectedAccountId) return;
+    if (!selectedAccountId || selectedAccountId === '__all') return;
     let cancelled = false;
     async function loadCounts() {
       const snoozed = await ipcInvoke<Array<unknown>>('snoozed:list', selectedAccountId);
@@ -317,9 +323,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     return () => { cancelled = true; };
   }, [selectedAccountId]);
 
+  // Load context account folders when dynamic switching triggers
+  useEffect(() => {
+    if (selectedAccountId !== '__all' || !contextAccountId) return;
+    let cancelled = false;
+    ipcInvoke<Folder[]>('folders:list', contextAccountId).then(result => {
+      if (Array.isArray(result) && !cancelled) setContextFolders(result);
+      else if (!cancelled) setContextFolders([]);
+    });
+    return () => { cancelled = true; };
+  }, [selectedAccountId, contextAccountId]);
+
   // Load tags and saved searches when account changes
   useEffect(() => {
-    if (!selectedAccountId) return;
+    if (!selectedAccountId || selectedAccountId === '__all') return;
     let cancelled = false;
     ipcInvoke<Tag[]>('tags:list', selectedAccountId).then(result => {
       if (Array.isArray(result) && !cancelled) setTags(result);
@@ -348,7 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     let cancelled = false;
 
     function pollStatus() {
-      if (!selectedAccountId || cancelled) return;
+      if (!selectedAccountId || selectedAccountId === '__all' || cancelled) return;
       ipcInvoke<{ status: string; lastSync: number | null }>('imap:status', selectedAccountId).then(result => {
         if (result && !cancelled) {
           setImapStatus(result.status as 'none' | 'error' | 'connecting' | 'connected');
@@ -405,11 +422,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             aria-label={t('sidebar.switchAccount')}
           >
             <div className={styles['avatar-icon']}>
-              {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
+              {isAllAccounts
+                ? <Layers size={20} />
+                : React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })
+              }
             </div>
             <div className={styles['account-info']}>
-              <span className={styles['account-name']}>{activeAccount?.display_name ?? t('sidebar.personal')}</span>
-              <span className={styles['account-email']}>{activeAccount?.email ?? t('sidebar.noAccount')}</span>
+              <span className={styles['account-name']}>
+                {isAllAccounts ? t('sidebar.allAccounts') : (activeAccount?.display_name ?? t('sidebar.personal'))}
+              </span>
+              <span className={styles['account-email']}>
+                {isAllAccounts
+                  ? t('sidebar.allAccountsDesc', { count: accounts.length })
+                  : (activeAccount?.email ?? t('sidebar.noAccount'))
+                }
+              </span>
             </div>
             {accounts.length > 1 && <ChevronDown size={14} className={styles['account-chevron']} />}
           </button>
@@ -420,14 +447,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             className={styles['avatar-icon']}
             onClick={() => { if (accounts.length > 1) setShowAccountPicker(!showAccountPicker); }}
             aria-label={t('sidebar.switchAccount')}
-            title={activeAccount?.email ?? t('sidebar.noAccount')}
+            title={isAllAccounts ? t('sidebar.allAccounts') : (activeAccount?.email ?? t('sidebar.noAccount'))}
           >
-            {React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })}
+            {isAllAccounts
+              ? <Layers size={20} />
+              : React.createElement(getProviderIcon(activeAccount?.provider ?? 'custom'), { size: 20 })
+            }
           </button>
         )}
 
         {showAccountPicker && accounts.length > 1 && !sidebarCollapsed && (
           <div className={styles['account-picker']}>
+            <button
+              className={`${styles['account-picker-item']} ${selectedAccountId === '__all' ? styles['active'] : ''}`}
+              onClick={() => {
+                selectAccount('__all');
+                setShowAccountPicker(false);
+              }}
+            >
+              <div className={styles['avatar-icon-sm']}><Layers size={16} /></div>
+              <div className={styles['account-info']}>
+                <span className={styles['account-name']}>{t('sidebar.allAccounts')}</span>
+                <span className={styles['account-email']}>{t('sidebar.allAccountsDesc', { count: accounts.length })}</span>
+              </div>
+            </button>
             {accounts.map(acc => {
               const AccIcon = getProviderIcon(acc.provider);
               return (
@@ -468,7 +511,53 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       </div>
 
       <nav className={styles['sidebar-nav']}>
-        {folders.length > 0
+        {/* All Accounts mode: show context account folders or merged virtual folders */}
+        {isAllAccounts && contextAccountId && contextFolders.length > 0 && !sidebarCollapsed && (
+          <div className={styles['context-account-label']}>
+            <span className={styles['context-account-text']}>
+              {contextAccount?.display_name ?? contextAccount?.email ?? ''}
+            </span>
+          </div>
+        )}
+        {isAllAccounts && !contextAccountId && (
+          <>
+            {DEFAULT_NAV.map((item) => {
+              const typeKey = item.labelKey.split('.')[1]; // e.g., 'inbox', 'sent'
+              const folderId = `__all_${typeKey}`;
+              return (
+                <button
+                  key={folderId}
+                  className={`${styles['nav-item']} ${selectedFolderId === folderId ? styles['active'] : ''}`}
+                  onClick={() => selectFolder(folderId)}
+                  title={sidebarCollapsed ? t(item.labelKey) : undefined}
+                >
+                  <item.icon size={18} className={styles['nav-icon']} />
+                  {!sidebarCollapsed && <span className={styles['nav-label']}>{t(item.labelKey)}</span>}
+                </button>
+              );
+            })}
+          </>
+        )}
+        {isAllAccounts && contextAccountId && contextFolders.length > 0 && (
+          <>
+            {contextFolders.map((folder) => {
+              const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
+              return (
+                <button
+                  key={folder.id}
+                  className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
+                  onClick={() => selectFolder(folder.id)}
+                  title={sidebarCollapsed ? folder.name : undefined}
+                  style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                >
+                  <Icon size={18} className={styles['nav-icon']} />
+                  {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
+                </button>
+              );
+            })}
+          </>
+        )}
+        {!isAllAccounts && folders.length > 0
           ? folders.map((folder, folderIdx) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               const count = unreadCounts[folder.id];
@@ -681,7 +770,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             />
           </form>
         )}
-        {accounts.length >= 2 && (
+        {accounts.length >= 2 && !isAllAccounts && (
           <button
             className={`${styles['nav-item']} ${selectedFolderId === '__unified' ? styles['active'] : ''}`}
             onClick={() => selectFolder('__unified')}
