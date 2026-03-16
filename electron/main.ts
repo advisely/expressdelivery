@@ -427,8 +427,30 @@ function registerIpcHandlers() {
 
   ipcMain.handle('folders:list', (_event, accountId: string) => {
     return db.prepare(
-      'SELECT id, name, path, type, color FROM folders WHERE account_id = ?'
+      'SELECT id, name, path, type, color, sort_order FROM folders WHERE account_id = ? ORDER BY sort_order, path'
     ).all(accountId);
+  });
+
+  ipcMain.handle('folders:reorder', async (_event, folderId: string, direction: 'up' | 'down') => {
+    if (!folderId || typeof folderId !== 'string') throw new Error('Invalid folder ID');
+    if (direction !== 'up' && direction !== 'down') throw new Error('Invalid direction');
+
+    const folder = db.prepare('SELECT id, account_id, sort_order FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; sort_order: number } | undefined;
+    if (!folder) throw new Error('Folder not found');
+
+    const neighbor = direction === 'up'
+      ? db.prepare('SELECT id, sort_order FROM folders WHERE account_id = ? AND sort_order < ? ORDER BY sort_order DESC LIMIT 1').get(folder.account_id, folder.sort_order) as { id: string; sort_order: number } | undefined
+      : db.prepare('SELECT id, sort_order FROM folders WHERE account_id = ? AND sort_order > ? ORDER BY sort_order ASC LIMIT 1').get(folder.account_id, folder.sort_order) as { id: string; sort_order: number } | undefined;
+
+    if (!neighbor) return { success: false, error: 'Already at boundary' };
+
+    const swap = db.transaction(() => {
+      db.prepare('UPDATE folders SET sort_order = ? WHERE id = ?').run(neighbor.sort_order, folder.id);
+      db.prepare('UPDATE folders SET sort_order = ? WHERE id = ?').run(folder.sort_order, neighbor.id);
+    });
+    swap();
+
+    return { success: true };
   });
 
   // Folder CRUD operations
@@ -455,8 +477,9 @@ function registerIpcHandlers() {
 
     const folderId = `${accountId}_${fullPath}`;
     db.prepare(
-      'INSERT OR IGNORE INTO folders (id, account_id, name, path, type) VALUES (?, ?, ?, ?, ?)'
-    ).run(folderId, accountId, safeName, fullPath, 'other');
+      `INSERT OR IGNORE INTO folders (id, account_id, name, path, type, sort_order)
+       VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM folders WHERE account_id = ?))`
+    ).run(folderId, accountId, safeName, fullPath, 'other', accountId);
     return { success: true, folderId };
   });
 
@@ -466,7 +489,7 @@ function registerIpcHandlers() {
     const safeName = newName.replace(/[\r\n\0/\\]/g, '').trim().slice(0, 100);
     if (!safeName) throw new Error('Invalid folder name');
 
-    const folder = db.prepare('SELECT id, account_id, path, type FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; path: string; type: string } | undefined;
+    const folder = db.prepare('SELECT id, account_id, path, type, sort_order FROM folders WHERE id = ?').get(folderId) as { id: string; account_id: string; path: string; type: string; sort_order: number } | undefined;
     if (!folder) return { success: false, error: 'Folder not found' };
     if (PROTECTED_FOLDER_TYPES.has(folder.type)) return { success: false, error: 'Cannot rename system folder' };
 
@@ -480,7 +503,7 @@ function registerIpcHandlers() {
     const newFolderId = `${folder.account_id}_${newPath}`;
     // PK rename requires: insert new → migrate children → delete old (FK-safe)
     db.transaction(() => {
-      db.prepare('INSERT INTO folders (id, account_id, name, path, type) VALUES (?, ?, ?, ?, ?)').run(newFolderId, folder.account_id, safeName, newPath, folder.type);
+      db.prepare('INSERT INTO folders (id, account_id, name, path, type, sort_order) VALUES (?, ?, ?, ?, ?, ?)').run(newFolderId, folder.account_id, safeName, newPath, folder.type, folder.sort_order);
       db.prepare('UPDATE emails SET folder_id = ? WHERE folder_id = ?').run(newFolderId, folderId);
       db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
     })();
@@ -679,6 +702,26 @@ function registerIpcHandlers() {
     ).all(folderId, folderId, folderId);
   });
 
+  // On-demand folder sync: fetch new emails from IMAP for a specific folder
+  ipcMain.handle('folders:sync', async (_event, folderId: string) => {
+    if (!folderId || typeof folderId !== 'string') return { success: false };
+    if (folderId.startsWith('__')) return { success: true, synced: 0 }; // virtual folders
+
+    const folder = db.prepare('SELECT account_id, path FROM folders WHERE id = ?').get(folderId) as { account_id: string; path: string } | undefined;
+    if (!folder) return { success: false };
+
+    if (!imapEngine.isConnected(folder.account_id)) return { success: false };
+
+    try {
+      const mailbox = folder.path.replace(/^\//, '');
+      const synced = await imapEngine.syncNewEmails(folder.account_id, mailbox);
+      return { success: true, synced: synced ?? 0 };
+    } catch (err) {
+      logDebug(`[folders:sync] Error syncing ${folderId}: ${err instanceof Error ? err.message : String(err)}`);
+      return { success: false, error: 'Sync failed' };
+    }
+  });
+
   ipcMain.handle('emails:thread', (_event, threadId: string) => {
     return db.prepare(
       `SELECT id, thread_id, message_id, subject, from_name, from_email, to_email,
@@ -689,6 +732,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:read', async (_event, emailId: string) => {
+    const perfStart = performance.now();
     const wasUnread = db.prepare('SELECT is_read FROM emails WHERE id = ?').get(emailId) as { is_read: number } | undefined;
     db.prepare('UPDATE emails SET is_read = 1 WHERE id = ?').run(emailId);
     // Notify renderer to refresh unread counts if this email was actually unread
@@ -755,14 +799,16 @@ function registerIpcHandlers() {
     }
 
     // Always return the email row even if on-demand body fetch failed
+    logDebug(`[PERF] emails:read ${emailId.slice(0, 20)}: ${(performance.now() - perfStart).toFixed(1)}ms, body=${bodyFetchStatus}`);
     return { ...email as object, bodyFetchStatus };
   });
 
   ipcMain.handle('emails:search', (_event, query: string) => {
+    const perfStart = performance.now();
     const sanitized = sanitizeFts5Query(query);
     if (!sanitized) return [];
     try {
-      return db.prepare(
+      const results = db.prepare(
         `SELECT e.id, e.subject, e.from_name, e.from_email, e.snippet, e.date,
                 e.is_read, e.is_flagged, e.has_attachments,
                 e.ai_category, e.ai_priority, e.ai_labels
@@ -771,7 +817,10 @@ function registerIpcHandlers() {
          WHERE emails_fts MATCH ?
          ORDER BY rank LIMIT 20`
       ).all(sanitized);
-    } catch {
+      logDebug(`[PERF] FTS5 search "${query.slice(0, 30)}": ${(performance.now() - perfStart).toFixed(1)}ms, ${results.length} results`);
+      return results;
+    } catch (err) {
+      logDebug(`[PERF] FTS5 search failed: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   });
@@ -808,12 +857,62 @@ function registerIpcHandlers() {
       return { filename: sanitizedName, content: att.content, contentType: getMimeType(sanitizedName) };
     });
 
-    const success = await smtpEngine.sendEmail(
+    const sendResult = await smtpEngine.sendEmail(
       params.accountId, sanitizedTo, stripCRLF(params.subject), params.html,
       sanitizeList(params.cc), sanitizeList(params.bcc),
       attachments
     );
+    const success = sendResult.success;
     if (success) {
+      // Save a copy to the Sent folder via IMAP APPEND
+      const account = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(params.accountId) as { email: string; display_name: string | null } | undefined;
+      if (account) {
+        const safeName = stripCRLF(account.display_name || account.email);
+        // RFC 2047 encode non-ASCII display names
+        const fromName = /^[\x20-\x7E]*$/.test(safeName) ? safeName : `=?UTF-8?B?${Buffer.from(safeName).toString('base64')}?=`;
+        const toStr = sanitizedTo.join(', ');
+        const sanitizedCc = sanitizeList(params.cc);
+        const ccStr = sanitizedCc ? sanitizedCc.join(', ') : '';
+        const date = new Date().toUTCString();
+        const messageId = sendResult.messageId || `<${crypto.randomUUID()}@${account.email.split('@')[1] || 'local'}>`;
+        const b64Fold = (data: string) => (data.match(/.{1,76}/g) ?? []).join('\r\n') + '\r\n';
+        const hasAttachments = attachments && attachments.length > 0;
+        const boundary = `----=_Part_${crypto.randomUUID().replace(/-/g, '')}`;
+
+        let rawMessage = `From: ${fromName} <${account.email}>\r\n`;
+        rawMessage += `To: ${toStr}\r\n`;
+        if (ccStr) rawMessage += `Cc: ${ccStr}\r\n`;
+        rawMessage += `Subject: ${stripCRLF(params.subject)}\r\n`;
+        rawMessage += `Date: ${date}\r\n`;
+        rawMessage += `Message-ID: ${messageId}\r\n`;
+        rawMessage += `MIME-Version: 1.0\r\n`;
+
+        if (hasAttachments) {
+          rawMessage += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n`;
+          rawMessage += `\r\n--${boundary}\r\n`;
+          rawMessage += `Content-Type: text/html; charset=utf-8\r\n`;
+          rawMessage += `Content-Transfer-Encoding: base64\r\n\r\n`;
+          rawMessage += b64Fold(Buffer.from(params.html, 'utf-8').toString('base64'));
+          for (const att of attachments!) {
+            rawMessage += `\r\n--${boundary}\r\n`;
+            rawMessage += `Content-Type: ${att.contentType}; name="${stripCRLF(att.filename)}"\r\n`;
+            rawMessage += `Content-Disposition: attachment; filename="${stripCRLF(att.filename)}"\r\n`;
+            rawMessage += `Content-Transfer-Encoding: base64\r\n\r\n`;
+            rawMessage += b64Fold(Buffer.from(att.content, 'base64').toString('base64'));
+          }
+          rawMessage += `\r\n--${boundary}--\r\n`;
+        } else {
+          rawMessage += `Content-Type: text/html; charset=utf-8\r\n`;
+          rawMessage += `Content-Transfer-Encoding: base64\r\n\r\n`;
+          rawMessage += b64Fold(Buffer.from(params.html, 'utf-8').toString('base64'));
+        }
+
+        // Append asynchronously — don't block the send response
+        imapEngine.appendToSent(params.accountId, Buffer.from(rawMessage))
+          .then(ok => { if (!ok) logDebug('[email:send] appendToSent returned false — Sent copy not saved'); })
+          .catch(err => logDebug(`[email:send] appendToSent error: ${err instanceof Error ? err.message : String(err)}`));
+      }
+
       const upsertContact = db.prepare(
         `INSERT INTO contacts (id, email, name) VALUES (?, ?, ?)
          ON CONFLICT(email) DO UPDATE SET name = COALESCE(excluded.name, contacts.name)`
@@ -1436,7 +1535,8 @@ function registerIpcHandlers() {
     if (!row?.value) return null;
     try {
       return decryptData(Buffer.from(row.value, 'base64'));
-    } catch {
+    } catch (err) {
+      logDebug(`[apikeys:get-openrouter] Decrypt failed: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
   });
@@ -1489,7 +1589,8 @@ function registerIpcHandlers() {
     let apiKey: string;
     try {
       apiKey = decryptData(Buffer.from(keyRow.value, 'base64'));
-    } catch {
+    } catch (err) {
+      logDebug(`[ai:suggest-reply] API key decrypt failed: ${err instanceof Error ? err.message : String(err)}`);
       return { error: 'Failed to decrypt API key' };
     }
     if (!apiKey) return { error: 'OpenRouter API key is empty' };
@@ -1955,8 +2056,9 @@ function registerIpcHandlers() {
     try {
       const result = await checkForUpdates();
       return { available: !!result?.updateInfo, version: result?.updateInfo?.version ?? null };
-    } catch {
-      return { available: false, version: null };
+    } catch (err) {
+      logDebug(`[update:check] Error: ${err instanceof Error ? err.message : String(err)}`);
+      return { available: false, version: null, error: 'Update check failed' };
     }
   });
 
@@ -1964,8 +2066,9 @@ function registerIpcHandlers() {
     try {
       await downloadUpdate();
       return { success: true };
-    } catch {
-      return { success: false };
+    } catch (err) {
+      logDebug(`[update:download] Error: ${err instanceof Error ? err.message : String(err)}`);
+      return { success: false, error: 'Download failed' };
     }
   });
 
@@ -2163,10 +2266,11 @@ function registerIpcHandlers() {
 }
 
 app.whenReady().then(() => {
+  const startupStart = performance.now();
   logDebug('app.whenReady() triggered. Initializing database...');
   try {
     initDatabase();
-    logDebug('Database initialized successfully.');
+    logDebug(`[PERF] DB init: ${(performance.now() - startupStart).toFixed(1)}ms`);
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] Database initialization failed: ${e.message}\n${e.stack}`);
@@ -2191,7 +2295,7 @@ app.whenReady().then(() => {
   logDebug('Creating main window...');
   try {
     createWindow();
-    logDebug('Main window created successfully.');
+    logDebug(`[PERF] Window created: ${(performance.now() - startupStart).toFixed(1)}ms`);
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] Window creation failed: ${e.message}\n${e.stack}`);
@@ -2200,8 +2304,8 @@ app.whenReady().then(() => {
   // Set custom application menu
   if (win) {
     Menu.setApplicationMenu(buildAppMenu(win));
-    logDebug('Application menu set.');
   }
+  logDebug(`[PERF] Startup (UI ready): ${(performance.now() - startupStart).toFixed(1)}ms`);
 
   // Wire up email:new IPC event from IMAP sync
   imapEngine.setNewEmailCallback((accountId, folderId, count) => {
@@ -2306,21 +2410,32 @@ app.whenReady().then(() => {
       const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
       for (const account of accounts) {
         sendSyncStatus(account.id, 'connecting', null);
+        const imapStart = performance.now();
         logDebug(`[STARTUP] Connecting IMAP for ${account.id}...`);
         imapEngine.connectAccount(account.id)
           .then(async (connected) => {
-            logDebug(`[STARTUP] IMAP connect result for ${account.id}: ${connected}`);
+            logDebug(`[PERF] IMAP connect ${account.id}: ${(performance.now() - imapStart).toFixed(1)}ms, success=${connected}`);
             if (connected) {
               const folders = await imapEngine.listAndSyncFolders(account.id);
+              // Sync all folders (inbox first for responsiveness)
               const inbox = folders.find(f => f.type === 'inbox');
               if (inbox) {
                 logDebug(`[STARTUP] Syncing inbox for ${account.id}: ${inbox.path}`);
                 await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
-                const now = Date.now();
-                lastSyncTimestamps.set(account.id, now);
-                sendSyncStatus(account.id, 'connected', now);
-                logDebug(`[STARTUP] Sync complete for ${account.id}`);
               }
+              // Sync remaining folders in background
+              for (const folder of folders) {
+                if (folder.type === 'inbox') continue;
+                try {
+                  await imapEngine.syncNewEmails(account.id, folder.path.replace(/^\//, ''));
+                } catch (err: unknown) {
+                  logDebug(`[STARTUP] Non-inbox sync error for ${folder.path}: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
+              const now = Date.now();
+              lastSyncTimestamps.set(account.id, now);
+              sendSyncStatus(account.id, 'connected', now);
+              logDebug(`[PERF] IMAP full sync ${account.id}: ${(performance.now() - imapStart).toFixed(1)}ms`);
             } else {
               sendSyncStatus(account.id, 'error', null);
             }
@@ -2358,19 +2473,20 @@ app.whenReady().then(() => {
               continue;
             }
           }
-          // Find inbox folder for this account
-          const inbox = db.prepare(
-            "SELECT path FROM folders WHERE account_id = ? AND type = 'inbox' LIMIT 1"
-          ).get(acct.id) as { path: string } | undefined;
-          if (!inbox) continue;
-          const mailbox = inbox.path.replace(/^\//, '');
-          await imapEngine.syncNewEmails(acct.id, mailbox);
+          // Sync all folders for this account (inbox first)
+          const allFolders = db.prepare(
+            "SELECT path, type FROM folders WHERE account_id = ? ORDER BY CASE WHEN type = 'inbox' THEN 0 ELSE 1 END"
+          ).all(acct.id) as Array<{ path: string; type: string }>;
+          for (const f of allFolders) {
+            try {
+              await imapEngine.syncNewEmails(acct.id, f.path.replace(/^\//, ''));
+            } catch (syncErr: unknown) {
+              logDebug(`[WARN] Folder sync error for ${f.path}: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`);
+            }
+          }
           const now = Date.now();
           lastSyncTimestamps.set(acct.id, now);
           sendSyncStatus(acct.id, 'connected', now);
-
-          // Body fetch for emails with missing content is handled inside
-          // syncNewEmails (second pass within the same mailbox lock).
         } catch (err: unknown) {
           logDebug(`[WARN] Periodic sync error for ${acct.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
         }

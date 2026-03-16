@@ -49,7 +49,9 @@
     "folderNotEmpty": "La carpeta \"{{name}}\" tiene {{count}} correos — muévalos o elimínelos primero",
     "folderDeleted": "Carpeta \"{{name}}\" eliminada",
     "trashEmptied": "Papelera vaciada",
-    "deleteAll": "Eliminar todo"
+    "deleteAll": "Eliminar todo",
+    "moveUp": "Subir",
+    "moveDown": "Bajar"
   },
   "tags": {
     "title": "Etiquetas",

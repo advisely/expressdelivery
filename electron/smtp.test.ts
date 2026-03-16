@@ -147,9 +147,9 @@ describe('SmtpEngine.sendEmail', () => {
     // sendMail payload: recipients
     // -------------------------------------------------------------------------
 
-    it('returns true on successful send with a string recipient', async () => {
+    it('returns success:true on successful send with a string recipient', async () => {
         const result = await engine.sendEmail('acc-1', 'to@test.com', 'Hello', '<p>hi</p>');
-        expect(result).toBe(true);
+        expect(result).toEqual({ success: true, messageId: '<abc@smtp>' });
         expect(mockSendMail).toHaveBeenCalledOnce();
     });
 
@@ -259,21 +259,21 @@ describe('SmtpEngine.sendEmail', () => {
     // Error handling: sendMail rejection returns false, never rethrows
     // -------------------------------------------------------------------------
 
-    it('returns false when nodemailer sendMail throws', async () => {
+    it('returns success:false when nodemailer sendMail throws', async () => {
         mockSendMail.mockRejectedValue(new Error('SMTP connection refused'));
         const result = await engine.sendEmail('acc-1', 'to@test.com', 'Sub', '<p>hi</p>');
-        expect(result).toBe(false);
+        expect(result).toEqual({ success: false });
     });
 
-    it('returns false for auth failure without rethrowing', async () => {
+    it('returns success:false for auth failure without rethrowing', async () => {
         mockSendMail.mockRejectedValue(new Error('Invalid login: 535 Authentication failed'));
         const result = await engine.sendEmail('acc-1', 'to@test.com', 'Sub', '<p>hi</p>');
-        expect(result).toBe(false);
+        expect(result).toEqual({ success: false });
     });
 
-    it('returns false for network timeout without rethrowing', async () => {
+    it('returns success:false for network timeout without rethrowing', async () => {
         mockSendMail.mockRejectedValue(new Error('Connection timeout'));
         const result = await engine.sendEmail('acc-1', 'to@test.com', 'Sub', '<p>hi</p>');
-        expect(result).toBe(false);
+        expect(result).toEqual({ success: false });
     });
 });

@@ -17,7 +17,7 @@ const mockDb = {
 };
 
 vi.mock('./smtp.js', () => {
-    const sendEmail = vi.fn().mockResolvedValue(true);
+    const sendEmail = vi.fn().mockResolvedValue({ success: true, messageId: '<test@smtp>' });
     return { smtpEngine: { sendEmail } };
 });
 
@@ -53,12 +53,13 @@ function getHandler(name: string) {
 // ---------------------------------------------------------------------------
 
 describe('buildToolRegistry', () => {
-    it('returns a Map with 8 tools', () => {
+    it('returns a Map with 11 tools', () => {
         const tools = buildToolRegistry();
-        expect(tools.size).toBe(8);
+        expect(tools.size).toBe(11);
         expect([...tools.keys()]).toEqual(expect.arrayContaining([
             'search_emails', 'read_thread', 'send_email', 'create_draft',
             'get_smart_summary', 'categorize_email', 'get_email_analytics', 'suggest_reply',
+            'list_channels', 'send_channel', 'parse_intent',
         ]));
     });
 
@@ -167,7 +168,7 @@ describe('send_email handler', () => {
 
     it('returns failure when SMTP returns false', async () => {
         const handler = getHandler('send_email');
-        smtpSendEmail.mockResolvedValueOnce(false);
+        smtpSendEmail.mockResolvedValueOnce({ success: false });
         const result = await handler({
             account_id: 'acc1', to: ['user@example.com'], subject: 'Hi', html: '<p>Hi</p>'
         }, db);

@@ -7,6 +7,10 @@ on:
 
 jobs:
   build-windows:
+    # Required secrets for code signing (all optional — build succeeds unsigned if omitted):
+    #   CSC_LINK          — Base64-encoded .pfx certificate or URL to .pfx file
+    #   CSC_KEY_PASSWORD  — Password for the .pfx certificate
+    # To encode a local .pfx: certutil -encode cert.pfx cert.b64 && copy cert.b64 to secret value
     runs-on: windows-latest
 
     steps:
@@ -28,6 +32,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Verify code signature
+        if: env.CSC_LINK != ''
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        shell: powershell
+        run: |
+          $installer = Get-ChildItem -Path release -Recurse -Filter "*Setup*.exe" | Select-Object -First 1
+          if (-not $installer) { Write-Error "No installer found to verify"; exit 1 }
+          Write-Host "Verifying signature on: $($installer.FullName)"
+          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" verify /pa /v "$($installer.FullName)"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Signature verification failed"; exit 1 }
+          Write-Host "Signature verification passed."
 
       # actions/upload-artifact@v4.6.2
       - name: Upload Windows artifacts

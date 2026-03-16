@@ -159,7 +159,18 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         if (!selectedFolderId) return;
         setLoading(true);
         ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
-            .then(result => { if (Array.isArray(result)) setEmails(result); })
+            .then(result => {
+                if (Array.isArray(result)) setEmails(result);
+                // Trigger background IMAP sync for this folder, then refresh if new emails arrived
+                ipcInvoke<{ success: boolean; synced?: number }>('folders:sync', selectedFolderId)
+                    .then(syncResult => {
+                        if (syncResult?.synced && syncResult.synced > 0) {
+                            ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
+                                .then(fresh => { if (Array.isArray(fresh)) setEmails(fresh); });
+                        }
+                    })
+                    .catch(() => { /* sync failure is non-blocking */ });
+            })
             .finally(() => setLoading(false));
     }, [selectedFolderId, setEmails, setLoading]);
 

@@ -115,11 +115,11 @@ export class SchedulerEngine {
       }
 
       try {
-        const success = await smtpEngine.sendEmail(
+        const sendResult = await smtpEngine.sendEmail(
           scheduled.account_id, toList, scheduled.subject, scheduled.body_html,
           ccList, bccList, attachments
         );
-        if (success) {
+        if (sendResult.success) {
           db.transaction(() => {
             db.prepare("UPDATE scheduled_sends SET status = 'sent' WHERE id = ?").run(scheduled.id);
             if (scheduled.draft_id) {

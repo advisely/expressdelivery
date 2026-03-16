@@ -932,10 +932,11 @@ describe('ThreadList', () => {
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
             const onReply = vi.fn();
 
-            // First call: mount emails:list, Second call: emails:read (context reply)
+            // mount emails:list → folders:sync (background) → emails:read (context reply)
             mockIpcInvoke
-                .mockResolvedValueOnce(null)  // mount emails:list
-                .mockResolvedValueOnce(full); // context menu: emails:read
+                .mockResolvedValueOnce(null)                         // mount emails:list
+                .mockResolvedValueOnce({ success: true, synced: 0 }) // folders:sync
+                .mockResolvedValueOnce(full);                        // context menu: emails:read
 
             renderThreadList({ onReply });
 
@@ -958,9 +959,11 @@ describe('ThreadList', () => {
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
             const onForward = vi.fn();
 
+            // mount emails:list → folders:sync (background) → emails:read (context reply)
             mockIpcInvoke
-                .mockResolvedValueOnce(null)  // mount emails:list
-                .mockResolvedValueOnce(full); // context menu: emails:read
+                .mockResolvedValueOnce(null)                         // mount emails:list
+                .mockResolvedValueOnce({ success: true, synced: 0 }) // folders:sync
+                .mockResolvedValueOnce(full);                        // context menu: emails:read
 
             renderThreadList({ onForward });
 

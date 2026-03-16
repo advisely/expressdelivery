@@ -1,6 +1,6 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted email operations. **Status:** Phase 10 complete (v1.8.0). 15 components, 2 Zustand stores, 8 MCP tools, SQLite persistence (12 migrations), 4 themes, 27 test files (646 tests), ~84 IPC handlers, custom application menu bar. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
+Electron desktop email client evolving into an agentic multi-channel communication platform. MCP (Model Context Protocol) integration for AI-assisted operations across email, Telegram, LinkedIn, and Twitter. **Status:** Phase 11 in progress (v1.10.0). 15 components, 2 Zustand stores, 11 MCP tools, SQLite persistence (14 migrations), 4 themes, 27 test files (648 tests), ~94 IPC handlers, custom application menu bar. Agentic channel layer (6 connectors), semantic intent parser (Ollama/OpenRouter LLM router), Playwright E2E harness. Full IMAP sync (body + folders + reconnect), HTML email rendering (DOMPurify), reply/forward/delete/star/archive/move, CC/BCC compose with contact autocomplete, contact auto-harvest, draft auto-save/resume, file attachments (send + receive, IMAP on-demand download, SQLite BLOB cache), keyboard shortcuts (mod+N/R/F/E/J/K/Delete/Escape), multi-account sidebar with unread badges + AI status indicator, connection testing, account editing, provider brand icons. Rich text compose (TipTap), per-account email signatures, inline CID image display, remote image blocking with privacy banner. AI-powered features: email categorization/priority/labels via MCP, mailbox analytics, suggest reply context, multi-client SSE transport, OpenRouter API key management (encrypted via safeStorage, Settings UI). App icon implemented (SVG source in `build/`, PNG/ICO generated via `npm run generate:icons`). Premium onboarding flow with 9 CSS animations, glassmorphism, and WCAG 2.1 reduced-motion support.
 
 ## Tech Stack
 
@@ -137,6 +137,16 @@ npm run lint             # eslint (strict, 0 warnings)
 **Manual rebuild (if needed):** `npx @electron/rebuild -v 40.6.0 -m . --only better-sqlite3 --force` then `npx electron-builder --win --dir`. Always delete `node_modules/better-sqlite3/build/` first to avoid stale `.forge-meta`.
 
 **Restore host binary after manual builds:** `npm rebuild better-sqlite3` (restores ABI 137 for vitest). The clean build script does this automatically unless `--no-restore` is passed.
+
+## Silent Failure Prevention
+
+- Every `catch` block must either: (a) log via `logDebug()`, or (b) have a comment explaining why silence is intentional
+- IPC handlers that perform mutations must return `{ success: boolean; error?: string }`
+- Empty `catch {}` is only acceptable for: fire-and-forget cleanup (app quit, logout, file close), clipboard operations, and test teardown
+- Scheduler failures must fire callbacks that surface to the user (toast or OS notification)
+- Search handlers must distinguish "no results" from "query failed" -- return `{ results: [], error? }` not bare `[]`
+- IMAP reconnect failures must be logged with the specific error, not just `return false`
+- All `[PERF]` prefixed log entries go to `logDebug()` for startup, search, email read, and IMAP sync timing
 
 ## Development Guidelines
 

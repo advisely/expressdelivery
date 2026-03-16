@@ -103,7 +103,7 @@ async function handleSendEmail(args: Record<string, unknown>, _db: BetterSqlite3
     }
 
     const html = (args.html as string).slice(0, 500_000);
-    const success = await smtpEngine.sendEmail(
+    const sendResult = await smtpEngine.sendEmail(
         args.account_id as string, sanitizedTo, stripCRLF(args.subject as string), html,
         undefined, undefined,
         attachments
@@ -111,11 +111,11 @@ async function handleSendEmail(args: Record<string, unknown>, _db: BetterSqlite3
     return {
         content: [{
             type: 'text',
-            text: success
+            text: sendResult.success
                 ? `Email sent to ${(args.to as string[]).join(', ')}${attachments ? ` with ${attachments.length} attachment(s)` : ''}`
                 : 'Failed to send email'
         }],
-        isError: !success,
+        isError: !sendResult.success,
     };
 }
 
@@ -398,6 +398,97 @@ async function handleSuggestReply(args: Record<string, unknown>, db: BetterSqlit
 }
 
 // ---------------------------------------------------------------------------
+// Channel tools (agentic platform)
+// ---------------------------------------------------------------------------
+
+async function handleListChannels(
+    _args: Record<string, unknown>,
+    db: BetterSqlite3.Database,
+): Promise<ToolResult> {
+    const rows = db.prepare(
+        'SELECT id, channel_type, account_name, enabled FROM channel_accounts'
+    ).all();
+    return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] };
+}
+
+async function handleSendChannel(
+    args: Record<string, unknown>,
+    db: BetterSqlite3.Database,
+): Promise<ToolResult> {
+    if (typeof args.channel_account_id !== 'string') {
+        throw new McpError(ErrorCode.InvalidParams, 'channel_account_id must be a string');
+    }
+    if (typeof args.body !== 'string' || !args.body) {
+        throw new McpError(ErrorCode.InvalidParams, 'body must be a non-empty string');
+    }
+
+    const account = db.prepare(
+        'SELECT id, channel_type, enabled FROM channel_accounts WHERE id = ?'
+    ).get(args.channel_account_id) as { id: string; channel_type: string; enabled: number } | undefined;
+
+    if (!account) throw new McpError(ErrorCode.InvalidParams, 'Channel account not found');
+    if (!account.enabled) throw new McpError(ErrorCode.InvalidParams, 'Channel account is disabled');
+
+    const to = typeof args.to === 'string' ? stripCRLF(args.to) : '';
+    const body = stripCRLF((args.body as string).slice(0, 4000));
+
+    // Log intent for audit trail
+    const intentId = crypto.randomUUID();
+    db.prepare(
+        `INSERT INTO intent_log (id, source_channel, raw_text, parsed_intent, status)
+         VALUES (?, 'mcp', ?, ?, 'pending')`
+    ).run(intentId, body, JSON.stringify({
+        action: `send_${account.channel_type}`,
+        to,
+        channel_account_id: args.channel_account_id,
+    }));
+
+    // The actual send is delegated to the channel registry at runtime
+    // MCP tool returns the intent ID for tracking
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                intentId,
+                channelType: account.channel_type,
+                status: 'pending',
+                message: `Message queued for ${account.channel_type}. Use intent ID to track status.`,
+            }),
+        }],
+    };
+}
+
+async function handleParseIntent(
+    args: Record<string, unknown>,
+    db: BetterSqlite3.Database,
+): Promise<ToolResult> {
+    if (typeof args.message !== 'string' || !args.message) {
+        throw new McpError(ErrorCode.InvalidParams, 'message must be a non-empty string');
+    }
+    const message = stripCRLF((args.message as string).slice(0, 2000));
+
+    // Fetch available channels from DB for context
+    const channels = db.prepare(
+        'SELECT channel_type, account_name FROM channel_accounts WHERE enabled = 1'
+    ).all() as Array<{ channel_type: string; account_name: string }>;
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                message,
+                hint: 'Use the LLM intent parser via the intent:parse IPC handler for full NLP parsing. This MCP tool returns context for direct agent use.',
+                availableChannels: channels.map(c => `${c.channel_type}:${c.account_name}`),
+                availableActions: [
+                    'send_email', 'reply_email', 'search_emails', 'post_linkedin',
+                    'post_twitter', 'send_telegram', 'send_whatsapp', 'create_draft',
+                ],
+            }),
+        }],
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Tool registry builder
 // ---------------------------------------------------------------------------
 
@@ -536,6 +627,40 @@ export function buildToolRegistry(): Map<string, ToolDefinition> {
             required: ['account_id', 'email_id'],
         },
         handler: handleSuggestReply,
+    });
+
+    // --- Agentic channel tools ---
+
+    tools.set('list_channels', {
+        description: 'List all configured communication channels (Telegram, WhatsApp, LinkedIn, Twitter) and their status',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+        handler: handleListChannels,
+    });
+
+    tools.set('send_channel', {
+        description: 'Send a message or post content through a configured channel (Telegram, WhatsApp, LinkedIn, Twitter)',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                channel_account_id: { type: 'string', description: 'Channel account ID to send through' },
+                to: { type: 'string', description: 'Recipient (chat ID for Telegram/WhatsApp, ignored for social posts)' },
+                body: { type: 'string', description: 'Message or post content' },
+            },
+            required: ['channel_account_id', 'body'],
+        },
+        handler: handleSendChannel,
+    });
+
+    tools.set('parse_intent', {
+        description: 'Parse a natural language message into a structured intent for action routing',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                message: { type: 'string', description: 'Natural language message to parse' },
+            },
+            required: ['message'],
+        },
+        handler: handleParseIntent,
     });
 
     return tools;

@@ -12,7 +12,7 @@ const { mockDbAll, mockDbGet, mockDbRun, mockTransaction, mockSendEmail } = vi.h
         const wrapper = () => fn();
         return wrapper;
     }),
-    mockSendEmail: vi.fn().mockResolvedValue(true),
+    mockSendEmail: vi.fn().mockResolvedValue({ success: true, messageId: '<test@smtp>' }),
 }));
 
 vi.mock('./db.js', () => ({
@@ -69,7 +69,7 @@ describe('SchedulerEngine', () => {
         mockDbAll.mockReturnValue([]);
         mockDbGet.mockReturnValue(null);
         mockDbRun.mockReturnValue({ changes: 1 });
-        mockSendEmail.mockResolvedValue(true);
+        mockSendEmail.mockResolvedValue({ success: true, messageId: '<test@smtp>' });
         scheduler = new SchedulerEngine();
     });
 
@@ -313,7 +313,7 @@ describe('SchedulerEngine', () => {
         it('calls handleSendFailure when SMTP returns false', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockResolvedValue(false);
+            mockSendEmail.mockResolvedValue({ success: false });
 
             const rowHighRetry = { ...scheduledRow, retry_count: 2 }; // MAX_RETRIES = 3, so retry_count+1 = 3 >= 3
             mockDbAll
@@ -384,7 +384,7 @@ describe('SchedulerEngine', () => {
         it('resets to pending with incremented retry when under MAX_RETRIES', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockResolvedValue(false);
+            mockSendEmail.mockResolvedValue({ success: false });
 
             // retry_count = 0, so retry_count + 1 = 1 < 3 → stays pending
             mockDbAll
@@ -401,7 +401,7 @@ describe('SchedulerEngine', () => {
         it('marks as failed at MAX_RETRIES and calls callback', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockResolvedValue(false);
+            mockSendEmail.mockResolvedValue({ success: false });
 
             // retry_count = 2, so retry_count + 1 = 3 >= 3 → permanent failure
             mockDbAll

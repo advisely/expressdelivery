@@ -57,6 +57,7 @@ export interface Folder {
     path: string
     type: string | null
     color?: string | null
+    sort_order?: number
 }
 
 export interface Tag {

@@ -122,6 +122,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'spam:classify',
   // Phase 7: Folder colors
   'folders:set-color',
+  'folders:reorder',
+  'folders:sync',
   // Phase 8: AI compose + analytics
   'ai:suggest-reply',
   'analytics:busiest-hours',
@@ -132,6 +134,17 @@ const ALLOWED_INVOKE_CHANNELS = [
   'mcp:set-port',
   'mcp:toggle',
   'mcp:get-tools',
+  // Agentic channels
+  'channels:list',
+  'channels:add',
+  'channels:remove',
+  'channels:test',
+  'channels:toggle',
+  'channels:send',
+  'channels:status',
+  'intent:parse',
+  'llm:providers',
+  'llm:set-preference',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [

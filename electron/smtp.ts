@@ -18,7 +18,7 @@ export class SmtpEngine {
         cc?: string | string[],
         bcc?: string | string[],
         attachments?: SendAttachment[]
-    ): Promise<boolean> {
+    ): Promise<{ success: boolean; messageId?: string }> {
         const db = getDatabase();
         const account = db.prepare(
             'SELECT id, email, password_encrypted, provider, display_name, smtp_host, smtp_port FROM accounts WHERE id = ?'
@@ -45,7 +45,7 @@ export class SmtpEngine {
 
         try {
             const displayName = (account.display_name as string) || (account.email as string);
-            await transporter.sendMail({
+            const info = await transporter.sendMail({
                 from: {
                     name: displayName,
                     address: account.email as string,
@@ -62,10 +62,10 @@ export class SmtpEngine {
                 })),
             });
 
-            return true;
+            return { success: true, messageId: info.messageId };
         } catch (error) {
             logDebug(`Error sending email: ${error instanceof Error ? error.message : String(error)}`);
-            return false;
+            return { success: false };
         }
     }
 }

@@ -49,7 +49,9 @@
     "folderNotEmpty": "Ordner \"{{name}}\" enthält {{count}} E-Mails — verschieben oder löschen Sie sie zuerst",
     "folderDeleted": "Ordner \"{{name}}\" gelöscht",
     "trashEmptied": "Papierkorb geleert",
-    "deleteAll": "Alle löschen"
+    "deleteAll": "Alle löschen",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten"
   },
   "tags": {
     "title": "Schlagwörter",

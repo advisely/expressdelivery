@@ -126,7 +126,7 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 12;
+const CURRENT_SCHEMA_VERSION = 14;
 
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
@@ -447,6 +447,66 @@ function runMigrations(db: DatabaseType) {
             if (!colNames.has('title')) db.exec("ALTER TABLE contacts ADD COLUMN title TEXT");
             if (!colNames.has('notes')) db.exec("ALTER TABLE contacts ADD COLUMN notes TEXT");
             version = 12;
+        }
+
+        // Migration 13: Folder sort order for user-defined ordering
+        if (version < 13) {
+            const folderCols = db.prepare("SELECT name FROM pragma_table_info('folders')").all() as { name: string }[];
+            const colNames13 = new Set(folderCols.map(c => c.name));
+            if (!colNames13.has('sort_order')) {
+                db.exec("ALTER TABLE folders ADD COLUMN sort_order INTEGER DEFAULT 0");
+            }
+            // Backfill: assign sequential sort_order per account based on current rowid order
+            const accts = db.prepare('SELECT DISTINCT account_id FROM folders').all() as { account_id: string }[];
+            for (const { account_id } of accts) {
+                const flds = db.prepare('SELECT id FROM folders WHERE account_id = ? ORDER BY rowid').all(account_id) as { id: string }[];
+                const stmt = db.prepare('UPDATE folders SET sort_order = ? WHERE id = ?');
+                flds.forEach((f, i) => stmt.run(i, f.id));
+            }
+            version = 13;
+        }
+        // Migration 14: channel accounts, channel messages, intent log (agentic platform)
+        if (version < 14) {
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS channel_accounts (
+                    id TEXT PRIMARY KEY,
+                    channel_type TEXT NOT NULL,
+                    account_name TEXT NOT NULL,
+                    config_encrypted TEXT,
+                    enabled INTEGER DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS channel_messages (
+                    id TEXT PRIMARY KEY,
+                    channel_account_id TEXT NOT NULL,
+                    channel_type TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    from_id TEXT,
+                    to_ids TEXT,
+                    body TEXT,
+                    body_html TEXT,
+                    timestamp DATETIME,
+                    thread_id TEXT,
+                    metadata TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (channel_account_id) REFERENCES channel_accounts(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_channel_messages_account ON channel_messages(channel_account_id, timestamp);
+
+                CREATE TABLE IF NOT EXISTS intent_log (
+                    id TEXT PRIMARY KEY,
+                    source_channel TEXT NOT NULL,
+                    source_message_id TEXT,
+                    raw_text TEXT NOT NULL,
+                    parsed_intent TEXT,
+                    status TEXT DEFAULT 'pending',
+                    result TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_intent_log_status ON intent_log(status, created_at);
+            `);
+            version = 14;
         }
 
         db.prepare(

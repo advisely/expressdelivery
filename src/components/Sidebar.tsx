@@ -8,6 +8,7 @@ import {
   Settings,
   Plus,
   ChevronDown,
+  ChevronUp,
   Clock,
   CalendarClock,
   Layers,
@@ -154,6 +155,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     setRenamingFolderId(null);
     setRenameValue('');
   }, [renameValue, refreshFolders, onToast]);
+
+  const handleReorderFolder = useCallback(async (folderId: string, direction: 'up' | 'down') => {
+    const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:reorder', folderId, direction);
+    if (result && !result.success && result.error) {
+      onToast?.(result.error, undefined, 'error');
+      return;
+    }
+    await refreshFolders();
+  }, [refreshFolders, onToast]);
 
   const handleDeleteFolder = useCallback(async (folderId: string, folderName: string) => {
     // Pre-check: has subfolders or emails?
@@ -459,14 +469,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
       <nav className={styles['sidebar-nav']}>
         {folders.length > 0
-          ? folders.map((folder) => {
+          ? folders.map((folder, folderIdx) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               const count = unreadCounts[folder.id];
               const isTrash = folder.type === 'trash';
               const isSystem = SYSTEM_FOLDER_TYPES.has(folder.type ?? '');
               const isRenaming = renamingFolderId === folder.id;
+              // Calculate nesting depth from path: /Archive = 0, /Archive/2024 = 1
+              const pathSegments = (folder.path ?? '').split('/').filter(Boolean);
+              const depth = Math.min(Math.max(0, pathSegments.length - 1), 6);
               return (
-                <div key={folder.id} className={styles['nav-item-row']}>
+                <div key={folder.id} className={styles['nav-item-row']} style={depth > 0 && !sidebarCollapsed ? { paddingLeft: `${depth * 16}px` } : undefined}>
                   {isRenaming ? (
                     <form
                       className={styles['rename-form']}
@@ -595,6 +608,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                           >
                             <Upload size={14} />
                             <span>{t('sidebar.importEmails')}</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Separator className="folder-ctx-separator" />
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            disabled={folderIdx === 0}
+                            onSelect={() => handleReorderFolder(folder.id, 'up')}
+                          >
+                            <ChevronUp size={14} />
+                            <span>{t('sidebar.moveUp')}</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            className="folder-ctx-item"
+                            disabled={folderIdx === folders.length - 1}
+                            onSelect={() => handleReorderFolder(folder.id, 'down')}
+                          >
+                            <ChevronDown size={14} />
+                            <span>{t('sidebar.moveDown')}</span>
                           </DropdownMenu.Item>
                           {isTrash && (
                             <DropdownMenu.Item

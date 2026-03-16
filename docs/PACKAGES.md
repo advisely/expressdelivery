@@ -1,6 +1,6 @@
 # ExpressDelivery - Package Registry
 
-Last updated: 2026-02-27
+Last updated: 2026-03-16
 
 ## Production Dependencies
 
@@ -17,20 +17,22 @@ Last updated: 2026-02-27
 | `imapflow` | ^1.2.10 | Current | IMAP client with IDLE support |
 | `nodemailer` | ^8.0.1 | Current | SMTP sender |
 | `dompurify` | ^3.3.1 | Current | HTML email sanitization |
-| `@radix-ui/react-dialog` | ^1.1.15 | Current | Accessible modal dialogs (Settings, Compose) |
+| `@radix-ui/react-dialog` | ^1.1.15 | Current | Accessible modal dialogs (Settings, Compose, Confirm) |
 | `@radix-ui/react-tabs` | ^1.1.13 | Current | Accessible tabs (Settings sections) |
 | `@radix-ui/react-dropdown-menu` | ^2.1.16 | Current | Accessible dropdown menus |
 | `@radix-ui/react-select` | ^2.2.6 | Current | Accessible select/combobox |
 | `@radix-ui/react-tooltip` | ^1.2.8 | Current | Accessible tooltips |
-| `@radix-ui/react-popover` | ^1.1.14 | Current | Accessible popovers (snooze, reminder) |
-| `@tiptap/react` | ^2.12.5 | Current | Rich text editor (compose) |
-| `@tiptap/starter-kit` | ^2.12.5 | Current | TipTap base extensions |
-| `@tiptap/extension-link` | ^2.12.5 | Current | TipTap link support |
-| `@tiptap/extension-underline` | ^2.12.5 | Current | TipTap underline support |
-| `react-i18next` | ^15.5.3 | Current | i18n framework (4 locales) |
-| `i18next` | ^25.1.3 | Current | i18n core |
-| `mailparser` | ^3.7.2 | Current | MIME email parsing |
-| `electron-updater` | ^6.6.2 | Current | Auto-update from GitHub Releases |
+| `@radix-ui/react-popover` | ^1.1.15 | Current | Accessible popovers (snooze, reminder) |
+| `@tiptap/react` | ^3.20.0 | Current | Rich text editor (compose) |
+| `@tiptap/starter-kit` | ^3.20.0 | Current | TipTap base extensions |
+| `@tiptap/extension-link` | ^3.20.0 | Current | TipTap link support |
+| `@tiptap/extension-underline` | ^3.20.0 | Current | TipTap underline support |
+| `@tiptap/pm` | ^3.20.0 | Current | TipTap ProseMirror core |
+| `react-i18next` | ^16.5.4 | Current | i18n framework (4 locales) |
+| `i18next` | ^25.8.13 | Current | i18n core |
+| `mailparser` | ^3.9.3 | Current | MIME email parsing |
+| `electron-updater` | ^6.8.3 | Current | Auto-update from GitHub Releases |
+| `grammy` | ^1.41.1 | **New** | Telegram Bot API client (agentic channel) |
 
 ## Dev Dependencies
 
@@ -38,14 +40,14 @@ Last updated: 2026-02-27
 |---------|---------|--------|---------|
 | `electron` | ^40.6.0 | Current | Desktop runtime (Chromium 132 / Node 22) |
 | `electron-builder` | ^26.8.1 | Current | App packaging (NSIS, AppImage, DMG) |
-| `@electron/rebuild` | ^4.0.1 | Current | Native module rebuild for Electron ABI |
 | `typescript` | ^5.9.3 | Current | TypeScript compiler (strict mode) |
 | `vite` | ^7.3.1 | Current | Build tool + dev server |
 | `@vitejs/plugin-react` | ^5.1.4 | Current | React Fast Refresh for Vite |
 | `vite-plugin-electron` | ^0.29.0 | Current | Electron integration for Vite |
 | `vite-plugin-electron-renderer` | ^0.14.6 | Current | Node.js polyfills for renderer |
-| `vitest` | ^4.0.18 | Current | Test runner |
+| `vitest` | ^4.0.18 | Current | Unit test runner |
 | `@vitest/coverage-v8` | ^4.0.18 | Current | Code coverage reporting |
+| `@playwright/test` | ^1.58.2 | **New** | E2E test runner (Electron integration) |
 | `jsdom` | ^28.1.0 | Current | DOM environment for vitest |
 | `@testing-library/react` | ^16.3.2 | Current | React component testing |
 | `@testing-library/jest-dom` | ^6.9.1 | Current | DOM assertion matchers |
@@ -67,39 +69,52 @@ Last updated: 2026-02-27
 | `@types/cors` | ^2.8.19 | Current | Type definitions |
 | `@types/dompurify` | ^3.2.0 | Current | Type definitions |
 | `@types/express` | ^5.0.6 | Current | Type definitions |
+| `@types/mailparser` | ^3.4.6 | Current | Type definitions |
 | `@types/nodemailer` | ^7.0.11 | Current | Type definitions |
 | `@types/react` | ^19.2.14 | Current | Type definitions |
 | `@types/react-dom` | ^19.2.3 | Current | Type definitions |
 
-## Major Upgrades Completed (2026-02-23)
+## New Packages Added (2026-03-16)
 
-All packages upgraded to latest in a single coordinated pass:
+| Package | Version | Purpose | License | Security Notes |
+|---------|---------|---------|---------|----------------|
+| `grammy` | ^1.41.1 | Telegram Bot API client for agentic channel integration | MIT | No native code, pure TypeScript, actively maintained. Bot token encrypted via safeStorage. |
+| `@playwright/test` | ^1.58.2 | E2E test framework with Electron integration | Apache-2.0 | Dev-only, not shipped in production builds. |
 
-| Package | From | To | Notes |
-|---------|------|----|-------|
-| `electron` | 30.5.1 | 40.6.0 | ABI 128 -> 143, required `@electron/rebuild` |
-| `react` + `react-dom` | 18.2.0 | 19.2.4 | `useRef<T>(undefined)` required (zero-arg removed) |
-| `vite` | 5.1.6 | 7.3.1 | Breaking config changes handled |
-| `typescript` | 5.2.2 | 5.9.3 | Minor upgrade, backwards compatible |
-| `eslint` | 8.57.0 | 10.0.2 | Flat config migration (`.eslintrc.cjs` -> `eslint.config.js`) |
-| `electron-builder` | 24.13.3 | 26.8.1 | NSIS + asar improvements |
+## Packages Used via Raw fetch() (No npm dependency)
+
+These external APIs are accessed directly without dedicated npm packages:
+
+| Service | API Version | Auth Method | Purpose |
+|---------|-------------|-------------|---------|
+| LinkedIn | v2 (UGC Posts) | OAuth 2.0 Bearer token | Social media posting |
+| Twitter/X | v2 (Tweets) | OAuth 2.0 PKCE | Social media posting |
+| Ollama | /api/generate | None (localhost only) | Local LLM inference (Gemma 2) |
+| OpenRouter | /v1/chat/completions | API key Bearer | Cloud LLM inference |
+
+## Version Updates Since Last Audit
+
+| Package | Previous | Current | Notes |
+|---------|----------|---------|-------|
+| `@tiptap/*` | ^2.12.5 | ^3.20.0 | Major version bump (TipTap v3) |
+| `react-i18next` | ^15.5.3 | ^16.5.4 | Major version bump |
+| `i18next` | ^25.1.3 | ^25.8.13 | Minor version bump |
+| `mailparser` | ^3.7.2 | ^3.9.3 | Minor version bump |
+| `electron-updater` | ^6.6.2 | ^6.8.3 | Minor version bump |
+| `@radix-ui/react-popover` | ^1.1.14 | ^1.1.15 | Patch bump |
 
 ## Build Notes
 
 - **better-sqlite3** is NAN-based (ABI-specific). Node.js v24 = ABI 137, Electron 40 = ABI 143. Use `scripts/clean-build.mjs` which purges stale `.forge-meta` and rebuilds for the correct ABI.
 - All `build:*` npm scripts use the clean build hydration script.
 - After packaging, `npm rebuild better-sqlite3` restores the host binary for vitest.
-
-## Installed (No Longer Planned)
-
-| Package | Purpose | Installed In |
-|---------|---------|-------------|
-| `@vitest/coverage-v8` | Coverage thresholds | Phase 5 |
-| `electron-updater` | Auto-update | Phase 4 |
+- **grammy** is pure TypeScript with no native modules -- no ABI concerns.
+- **@playwright/test** is dev-only and excluded from production builds by electron-builder.
 
 ## Planned Dependencies
 
 | Package | Purpose | Phase |
 |---------|---------|-------|
-| Playwright or Spectron | E2E testing | Future |
 | `@journeyapps/sqlcipher` | At-rest DB encryption | Future |
+| `@whiskeysockets/baileys` | WhatsApp client (unofficial API) | Future (P4c) |
+| `qrcode` | QR code generation for WhatsApp auth | Future (P4c) |

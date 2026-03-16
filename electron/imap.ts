@@ -232,8 +232,13 @@ export class ImapEngine {
                 client.removeListener('exists', handler);
                 this.existsHandlers.delete(accountId);
             }
-            this.lastSeenUid.delete(accountId);
-            this.syncing.delete(accountId);
+            // Clear per-folder sync state for this account
+            for (const key of this.lastSeenUid.keys()) {
+                if (key.startsWith(`${accountId}:`)) this.lastSeenUid.delete(key);
+            }
+            for (const key of this.syncing.keys()) {
+                if (key.startsWith(`${accountId}:`)) this.syncing.delete(key);
+            }
             await client.logout();
             this.clients.delete(accountId);
         }
@@ -266,23 +271,26 @@ export class ImapEngine {
         }
     }
 
-    async syncNewEmails(accountId: string, mailbox: string) {
-        if (this.syncing.get(accountId)) return;
-        this.syncing.set(accountId, true);
+    async syncNewEmails(accountId: string, mailbox: string): Promise<number> {
+        const syncKey = `${accountId}:${mailbox}`;
+        if (this.syncing.get(syncKey)) return 0;
+        this.syncing.set(syncKey, true);
 
+        let insertedCount = 0;
+        try {
         const client = this.clients.get(accountId);
-        if (!client) { this.syncing.set(accountId, false); return; }
+        if (!client) return 0;
 
         const db = getDatabase();
         const folder = db.prepare(
-            'SELECT id FROM folders WHERE account_id = ? AND path = ?'
-        ).get(accountId, `/${mailbox}`) as { id: string } | undefined;
-        if (!folder) { this.syncing.set(accountId, false); return; }
+            'SELECT id, type FROM folders WHERE account_id = ? AND path = ?'
+        ).get(accountId, `/${mailbox}`) as { id: string; type: string | null } | undefined;
+        if (!folder) return 0;
+        const isInbox = folder.type === 'inbox';
 
-        const lastUid = this.lastSeenUid.get(accountId) ?? 0;
+        const lastUid = this.lastSeenUid.get(syncKey) ?? 0;
         const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
 
-        let insertedCount = 0;
         const lock = await client.getMailboxLock(mailbox);
         try {
             const insertStmt = db.prepare(
@@ -316,7 +324,9 @@ export class ImapEngine {
                 const uid = message.uid;
                 if (lastUid > 0 && uid <= lastUid) continue;
 
-                const emailId = `${accountId}_${uid}`;
+                // IMAP UIDs are per-mailbox; include folder ID for non-INBOX to avoid collisions.
+                // INBOX keeps legacy format (${accountId}_${uid}) for backward compatibility.
+                const emailId = isInbox ? `${accountId}_${uid}` : `${folder.id}_${uid}`;
                 const env = message.envelope;
                 if (!env) continue;
 
@@ -389,8 +399,8 @@ export class ImapEngine {
                     updateBodyStmt.run(bodyText, bodyHtml, emailId);
                 }
 
-                if (uid > (this.lastSeenUid.get(accountId) ?? 0)) {
-                    this.lastSeenUid.set(accountId, uid);
+                if (uid > (this.lastSeenUid.get(syncKey) ?? 0)) {
+                    this.lastSeenUid.set(syncKey, uid);
                 }
             }
             } catch (fetchErr) {
@@ -403,12 +413,15 @@ export class ImapEngine {
             }
         } finally {
             lock.release();
-            this.syncing.set(accountId, false);
         }
 
         if (insertedCount > 0) {
             this.onNewEmail?.(accountId, folder.id, insertedCount);
         }
+        } finally {
+            this.syncing.set(syncKey, false);
+        }
+        return insertedCount;
     }
 
     async listAndSyncFolders(accountId: string): Promise<Array<{ id: string; name: string; path: string; type: string }>> {
@@ -420,17 +433,20 @@ export class ImapEngine {
         const folders: Array<{ id: string; name: string; path: string; type: string }> = [];
 
         const insertStmt = db.prepare(
-            `INSERT OR IGNORE INTO folders (id, account_id, name, path, type) VALUES (?, ?, ?, ?, ?)`
+            `INSERT OR IGNORE INTO folders (id, account_id, name, path, type, sort_order)
+             VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM folders WHERE account_id = ?))`
         );
 
-        for (const mailbox of mailboxes) {
-            const folderId = `${accountId}_${mailbox.path}`;
-            const folderPath = `/${mailbox.path}`;
-            const type = this.classifyMailbox(mailbox as { specialUse?: string; path: string; name: string });
+        db.transaction(() => {
+            for (const mailbox of mailboxes) {
+                const folderId = `${accountId}_${mailbox.path}`;
+                const folderPath = `/${mailbox.path}`;
+                const type = this.classifyMailbox(mailbox as { specialUse?: string; path: string; name: string });
 
-            insertStmt.run(folderId, accountId, mailbox.name, folderPath, type);
-            folders.push({ id: folderId, name: mailbox.name, path: folderPath, type });
-        }
+                insertStmt.run(folderId, accountId, mailbox.name, folderPath, type, accountId);
+                folders.push({ id: folderId, name: mailbox.name, path: folderPath, type });
+            }
+        })();
 
         return folders;
     }
@@ -444,6 +460,29 @@ export class ImapEngine {
             await client.messageMove(String(emailUid), destMailbox, { uid: true });
             return true;
         } catch {
+            return false;
+        } finally {
+            lock.release();
+        }
+    }
+
+    async appendToSent(accountId: string, rawMessage: Buffer | string): Promise<boolean> {
+        const client = this.clients.get(accountId);
+        if (!client) return false;
+
+        const db = getDatabase();
+        const sentFolder = db.prepare(
+            "SELECT path FROM folders WHERE account_id = ? AND type = 'sent' LIMIT 1"
+        ).get(accountId) as { path: string } | undefined;
+        if (!sentFolder) return false;
+
+        const mailbox = sentFolder.path.replace(/^\//, '');
+        const lock = await client.getMailboxLock(mailbox);
+        try {
+            await client.append(mailbox, rawMessage, ['\\Seen']);
+            return true;
+        } catch (err) {
+            logDebug(`[appendToSent] Failed for ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();

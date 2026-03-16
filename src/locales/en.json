@@ -49,7 +49,9 @@
     "folderNotEmpty": "Folder \"{{name}}\" has {{count}} emails — move or delete them first",
     "folderDeleted": "Folder \"{{name}}\" deleted",
     "trashEmptied": "Trash emptied",
-    "deleteAll": "Delete all"
+    "deleteAll": "Delete all",
+    "moveUp": "Move up",
+    "moveDown": "Move down"
   },
   "tags": {
     "title": "Tags",

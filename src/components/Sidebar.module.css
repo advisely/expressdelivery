@@ -466,6 +466,17 @@
   background: var(--hover-bg);
 }
 
+:global(.folder-ctx-separator) {
+  height: 1px;
+  margin: 4px 0;
+  background: rgb(var(--color-border));
+}
+
+:global(.folder-ctx-item[data-disabled]) {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 :global(.folder-ctx-danger) {
   color: rgb(var(--color-danger));
 }

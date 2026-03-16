@@ -49,7 +49,9 @@
     "folderNotEmpty": "Le dossier \"{{name}}\" contient {{count}} e-mails — déplacez-les ou supprimez-les d'abord",
     "folderDeleted": "Dossier \"{{name}}\" supprimé",
     "trashEmptied": "Corbeille vidée",
-    "deleteAll": "Tout supprimer"
+    "deleteAll": "Tout supprimer",
+    "moveUp": "Monter",
+    "moveDown": "Descendre"
   },
   "tags": {
     "title": "Étiquettes",
