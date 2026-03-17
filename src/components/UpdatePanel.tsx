@@ -73,7 +73,14 @@ export const UpdatePanel: FC = () => {
         const cleanupDone = ipcOn('update:downloaded', () => {
             setWebState('ready');
         });
-        return () => { cleanupAvail?.(); cleanupDone?.(); };
+        const cleanupErr = ipcOn('update:error', (...args: unknown[]) => {
+            const data = args[0] as { error?: string } | undefined;
+            if (data?.error) {
+                setWebState('error');
+                setWebError(data.error);
+            }
+        });
+        return () => { cleanupAvail?.(); cleanupDone?.(); cleanupErr?.(); };
     }, []);
 
     const handleWebCheck = async () => {

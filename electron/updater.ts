@@ -192,6 +192,7 @@ export function initAutoUpdater() {
 
   autoUpdater.on('error', (err) => {
     logDebug(`[UPDATER] Error: ${err.message}`);
+    callback?.('update:error', { error: err.message });
   });
 }
 

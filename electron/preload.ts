@@ -164,6 +164,7 @@ const ALLOWED_ON_CHANNELS = [
   'notification:click',
   'update:available',
   'update:downloaded',
+  'update:error',
   'update:applyProgress',
   'update:fileOpened',
   'scheduled:sent',

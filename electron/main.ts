@@ -2103,8 +2103,9 @@ function registerIpcHandlers() {
       const result = await checkForUpdatesOnline();
       return { available: !!result?.updateInfo, version: result?.updateInfo?.version ?? null };
     } catch (err) {
-      logDebug(`[update:check] Error: ${err instanceof Error ? err.message : String(err)}`);
-      return { available: false, version: null, error: 'Update check failed' };
+      const msg = err instanceof Error ? err.message : String(err);
+      logDebug(`[update:check] Error: ${msg}`);
+      return { available: false, version: null, error: msg };
     }
   });
 
@@ -2113,8 +2114,9 @@ function registerIpcHandlers() {
       await downloadUpdateOnline();
       return { success: true };
     } catch (err) {
-      logDebug(`[update:download] Error: ${err instanceof Error ? err.message : String(err)}`);
-      return { success: false, error: 'Download failed' };
+      const msg = err instanceof Error ? err.message : String(err);
+      logDebug(`[update:download] Error: ${msg}`);
+      return { success: false, error: msg };
     }
   });
 
