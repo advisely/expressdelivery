@@ -10,6 +10,8 @@
     "allInboxes": "All Inboxes",
     "allAccounts": "All Accounts",
     "allAccountsDesc": "{{count}} accounts combined",
+    "allAccountsFiltered": "{{count}} of {{total}} accounts",
+    "filterAccounts": "Filter accounts",
     "snoozed": "Snoozed",
     "scheduled": "Scheduled",
     "mcpConnected": "MCP connected",

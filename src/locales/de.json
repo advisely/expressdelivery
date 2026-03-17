@@ -10,6 +10,8 @@
     "allInboxes": "Alle Posteingänge",
     "allAccounts": "Alle Konten",
     "allAccountsDesc": "{{count}} Konten kombiniert",
+    "allAccountsFiltered": "{{count}} von {{total}} Konten",
+    "filterAccounts": "Konten filtern",
     "snoozed": "Zurückgestellt",
     "scheduled": "Geplant",
     "mcpConnected": "MCP verbunden",

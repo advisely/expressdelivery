@@ -10,6 +10,8 @@
     "allInboxes": "Todas las bandejas",
     "allAccounts": "Todas las cuentas",
     "allAccountsDesc": "{{count}} cuentas combinadas",
+    "allAccountsFiltered": "{{count}} de {{total}} cuentas",
+    "filterAccounts": "Filtrar cuentas",
     "snoozed": "Pospuestos",
     "scheduled": "Programados",
     "mcpConnected": "MCP conectado",

@@ -79,6 +79,9 @@ let tray: Tray | null = null
 // accessible from both the new-email callback and the imap:status IPC handler)
 const lastSyncTimestamps: Map<string, number> = new Map();
 
+// Track excluded account IDs for "All Accounts" filtering
+let excludedAccountIds: Set<string> = new Set();
+
 // Helper: send sync status to renderer (guards destroyed window)
 function sendSyncStatus(accountId: string, status: 'connecting' | 'connected' | 'error', timestamp: number | null) {
   if (win && !win.isDestroyed()) {
@@ -619,6 +622,17 @@ function registerIpcHandlers() {
       const folderType = folderId.slice(6); // e.g., 'inbox', 'sent', 'drafts', 'archive', 'trash'
       const VALID_FOLDER_TYPES = new Set(['inbox', 'sent', 'drafts', 'archive', 'trash', 'junk']);
       if (!VALID_FOLDER_TYPES.has(folderType)) return [];
+      // Build account exclusion clause if any accounts are excluded
+      const excluded = [...excludedAccountIds];
+      const excludeClause = excluded.length > 0
+        ? ` AND e.account_id NOT IN (${excluded.map(() => '?').join(',')})`
+        : '';
+      const excludeClause3 = excluded.length > 0
+        ? ` AND e3.account_id NOT IN (${excluded.map(() => '?').join(',')})`
+        : '';
+      const params = excluded.length > 0
+        ? [folderType, folderType, ...excluded, ...excluded, folderType, ...excluded]
+        : [folderType, folderType, folderType];
       return db.prepare(
         `SELECT e.id, e.thread_id, e.account_id, e.subject, e.from_name, e.from_email, e.to_email,
                 e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
@@ -629,16 +643,16 @@ function registerIpcHandlers() {
                    AND (e2.is_snoozed = 0 OR e2.is_snoozed IS NULL)) AS thread_count
          FROM emails e
          INNER JOIN folders f ON e.folder_id = f.id
-         WHERE f.type = ? AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)
+         WHERE f.type = ? AND (e.is_snoozed = 0 OR e.is_snoozed IS NULL)${excludeClause}
            AND e.id = (
              SELECT e3.id FROM emails e3
              INNER JOIN folders f3 ON e3.folder_id = f3.id
              WHERE e3.thread_id = e.thread_id AND f3.type = ?
-               AND (e3.is_snoozed = 0 OR e3.is_snoozed IS NULL)
+               AND (e3.is_snoozed = 0 OR e3.is_snoozed IS NULL)${excludeClause3}
              ORDER BY e3.date DESC LIMIT 1
            )
          ORDER BY e.date DESC LIMIT 50`
-      ).all(folderType, folderType, folderType);
+      ).all(...params);
     }
     // Virtual folder: unified inbox (all accounts) — thread-deduped
     if (folderId === '__unified') {
@@ -1202,6 +1216,12 @@ function registerIpcHandlers() {
     if (imapEngine.isReconnecting(accountId)) return { status: 'connecting', lastSync };
 
     return { status: 'error', lastSync };
+  });
+
+  // Set excluded account IDs for "All Accounts" filtering
+  ipcMain.handle('accounts:set-excluded', (_event, ids: string[]) => {
+    if (!Array.isArray(ids)) return;
+    excludedAccountIds = new Set(ids.filter(id => typeof id === 'string').slice(0, 50));
   });
 
   const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key', 'mcp_auth_token']);

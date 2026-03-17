@@ -104,6 +104,7 @@ interface EmailState {
     savedSearches: SavedSearch[]
     draggedEmailIds: string[]
     contextAccountId: string | null
+    excludedAccountIds: Set<string>
 
     setAccounts: (accounts: Account[]) => void
     addAccount: (account: Account) => void
@@ -129,6 +130,7 @@ interface EmailState {
     setSavedSearches: (searches: SavedSearch[]) => void
     setDraggedEmailIds: (ids: string[]) => void
     setContextAccountId: (id: string | null) => void
+    toggleExcludedAccount: (accountId: string) => void
 }
 
 export const useEmailStore = create<EmailState>()((set) => ({
@@ -148,6 +150,9 @@ export const useEmailStore = create<EmailState>()((set) => ({
     savedSearches: [],
     draggedEmailIds: [],
     contextAccountId: null,
+    excludedAccountIds: new Set<string>(
+        (() => { try { return JSON.parse(localStorage.getItem('excludedAccountIds') || '[]'); } catch { return []; } })()
+    ),
 
     setAccounts: (accounts) => set({ accounts }),
     addAccount: (account) => set((state) => ({ accounts: [...state.accounts, account] })),
@@ -208,4 +213,11 @@ export const useEmailStore = create<EmailState>()((set) => ({
     setSavedSearches: (savedSearches) => set({ savedSearches }),
     setDraggedEmailIds: (draggedEmailIds) => set({ draggedEmailIds }),
     setContextAccountId: (contextAccountId) => set({ contextAccountId }),
+    toggleExcludedAccount: (accountId) => set((state) => {
+        const next = new Set(state.excludedAccountIds);
+        if (next.has(accountId)) next.delete(accountId);
+        else next.add(accountId);
+        localStorage.setItem('excludedAccountIds', JSON.stringify([...next]));
+        return { excludedAccountIds: next };
+    }),
 }))

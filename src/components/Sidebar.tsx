@@ -24,6 +24,8 @@ import {
   Search,
   Download,
   Upload,
+  ChevronRight,
+  Check,
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useTranslation } from 'react-i18next';
@@ -68,7 +70,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const savedSearches = useEmailStore(s => s.savedSearches);
   const setSavedSearches = useEmailStore(s => s.setSavedSearches);
   const { sidebarCollapsed, toggleSidebar } = useThemeStore();
+  const excludedAccountIds = useEmailStore(s => s.excludedAccountIds);
+  const toggleExcludedAccount = useEmailStore(s => s.toggleExcludedAccount);
   const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [showAccountFilter, setShowAccountFilter] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [mcpCount, setMcpCount] = useState(0);
   const [snoozedCount, setSnoozedCount] = useState(0);
@@ -80,6 +85,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
   const isAllAccounts = selectedAccountId === '__all';
   const activeAccount = isAllAccounts ? null : (accounts.find(a => a.id === selectedAccountId) ?? accounts[0]);
+  const isPartialAll = isAllAccounts && excludedAccountIds.size > 0 && excludedAccountIds.size < accounts.length;
+  const includedAccounts = accounts.filter(a => !excludedAccountIds.has(a.id));
 
   const doPurgeTrash = useCallback(async () => {
     if (!selectedAccountId) return;
@@ -144,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       if (updated) setFolders(updated);
     }
     setColorPickerFolderId(null);
-  }, [selectedAccountId, setFolders]);
+  }, [selectedAccountId, setFolders, setColorPickerFolderId]);
 
   const handleRenameFolder = useCallback(async (folderId: string) => {
     if (!renameValue.trim()) { setRenamingFolderId(null); return; }
@@ -156,7 +163,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     }
     setRenamingFolderId(null);
     setRenameValue('');
-  }, [renameValue, refreshFolders, onToast]);
+  }, [renameValue, refreshFolders, onToast, setRenamingFolderId, setRenameValue]);
 
   const handleReorderFolder = useCallback(async (folderId: string, direction: 'up' | 'down') => {
     const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:reorder', folderId, direction);
@@ -213,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     }
     setCreatingSubfolder(null);
     setNewFolderName('');
-  }, [newFolderName, selectedAccountId, refreshFolders, onToast]);
+  }, [newFolderName, selectedAccountId, refreshFolders, onToast, setCreatingSubfolder, setNewFolderName]);
 
   const handleMarkAllRead = useCallback(async (folderId: string) => {
     const result = await ipcInvoke<{ success: boolean }>('emails:mark-all-read', folderId);
@@ -250,7 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
       if (Array.isArray(refreshed)) setEmails(refreshed);
     }
-  }, [draggedEmailIds, setDraggedEmailIds, selectedFolderId, setEmails, onToast, t]);
+  }, [draggedEmailIds, setDraggedEmailIds, selectedFolderId, setEmails, onToast, t, setDragOverFolderId]);
 
   const handleCreateTopLevelFolder = useCallback(async () => {
     if (!newFolderName.trim() || !selectedAccountId) { setCreatingSubfolder(null); return; }
@@ -262,7 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     }
     setCreatingSubfolder(null);
     setNewFolderName('');
-  }, [newFolderName, selectedAccountId, refreshFolders, onToast]);
+  }, [newFolderName, selectedAccountId, refreshFolders, onToast, setCreatingSubfolder, setNewFolderName]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -340,6 +347,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     });
     return () => { cancelled = true; setAllAccountFolders({}); };
   }, [selectedAccountId, accounts]);
+
+  // Sync excluded accounts to main process for query filtering
+  useEffect(() => {
+    ipcInvoke('accounts:set-excluded', [...excludedAccountIds]);
+  }, [excludedAccountIds]);
 
   // Load tags and saved searches when account changes
   useEffect(() => {
@@ -481,12 +493,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               }
             </div>
             <div className={styles['account-info']}>
-              <span className={styles['account-name']}>
+              <span className={`${styles['account-name']} ${isPartialAll ? styles['account-name-partial'] : ''}`}>
                 {isAllAccounts ? t('sidebar.allAccounts') : (activeAccount?.display_name ?? t('sidebar.personal'))}
+                {isPartialAll ? '*' : ''}
               </span>
               <span className={styles['account-email']}>
                 {isAllAccounts
-                  ? t('sidebar.allAccountsDesc', { count: accounts.length })
+                  ? (isPartialAll
+                      ? t('sidebar.allAccountsFiltered', { count: includedAccounts.length, total: accounts.length })
+                      : t('sidebar.allAccountsDesc', { count: accounts.length }))
                   : (activeAccount?.email ?? t('sidebar.noAccount'))
                 }
               </span>
@@ -511,19 +526,57 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
         {showAccountPicker && accounts.length > 1 && !sidebarCollapsed && (
           <div className={styles['account-picker']}>
-            <button
-              className={`${styles['account-picker-item']} ${selectedAccountId === '__all' ? styles['active'] : ''}`}
-              onClick={() => {
-                selectAccount('__all');
-                setShowAccountPicker(false);
-              }}
-            >
-              <div className={styles['avatar-icon-sm']}><Layers size={16} /></div>
-              <div className={styles['account-info']}>
-                <span className={styles['account-name']}>{t('sidebar.allAccounts')}</span>
-                <span className={styles['account-email']}>{t('sidebar.allAccountsDesc', { count: accounts.length })}</span>
+            <div className={styles['account-picker-all-row']}>
+              <button
+                className={`${styles['account-picker-item']} ${selectedAccountId === '__all' ? styles['active'] : ''}`}
+                onClick={() => {
+                  selectAccount('__all');
+                  setShowAccountPicker(false);
+                }}
+                style={{ flex: 1 }}
+              >
+                <div className={styles['avatar-icon-sm']}><Layers size={16} /></div>
+                <div className={styles['account-info']}>
+                  <span className={styles['account-name']}>
+                    {t('sidebar.allAccounts')}{isPartialAll ? '*' : ''}
+                  </span>
+                  <span className={styles['account-email']}>
+                    {isPartialAll
+                      ? t('sidebar.allAccountsFiltered', { count: includedAccounts.length, total: accounts.length })
+                      : t('sidebar.allAccountsDesc', { count: accounts.length })}
+                  </span>
+                </div>
+              </button>
+              <button
+                className={`${styles['filter-toggle']} ${showAccountFilter ? styles['filter-toggle-open'] : ''}`}
+                onClick={(e) => { e.stopPropagation(); setShowAccountFilter(!showAccountFilter); }}
+                aria-label={t('sidebar.filterAccounts')}
+                title={t('sidebar.filterAccounts')}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            {showAccountFilter && (
+              <div className={styles['account-filter-list']}>
+                {accounts.map(acc => {
+                  const isIncluded = !excludedAccountIds.has(acc.id);
+                  const AccFilterIcon = getProviderIcon(acc.provider);
+                  return (
+                    <button
+                      key={`filter-${acc.id}`}
+                      className={styles['account-filter-item']}
+                      onClick={(e) => { e.stopPropagation(); toggleExcludedAccount(acc.id); }}
+                    >
+                      <div className={`${styles['filter-checkbox']} ${isIncluded ? styles['filter-checked'] : ''}`}>
+                        {isIncluded && <Check size={10} />}
+                      </div>
+                      <AccFilterIcon size={14} />
+                      <span className={styles['filter-label']}>{acc.display_name ?? acc.email}</span>
+                    </button>
+                  );
+                })}
               </div>
-            </button>
+            )}
             {accounts.map(acc => {
               const AccIcon = getProviderIcon(acc.provider);
               return (
@@ -565,7 +618,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
       <nav className={styles['sidebar-nav']}>
         {/* All Accounts mode: show each account's folders grouped with separators */}
-        {isAllAccounts && accounts.map((acc) => {
+        {isAllAccounts && includedAccounts.map((acc) => {
           const accFolders = allAccountFolders[acc.id] ?? [];
           return (
             <React.Fragment key={acc.id}>

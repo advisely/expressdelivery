@@ -12,6 +12,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'accounts:remove',
   'accounts:test',
   'accounts:update',
+  'accounts:set-excluded',
   'emails:list',
   'emails:read',
   'emails:thread',
