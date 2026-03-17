@@ -45,6 +45,7 @@
     "connectionError": "Verbindungsfehler",
     "connected": "Verbunden",
     "notSynced": "Nicht synchronisiert",
+    "partialSync": "Einige Konten offline",
     "noAiAgents": "Keine KI-Agenten",
     "lastCheck": "Letzte Prüfung: {{time}}",
     "folderHasChildren": "Ordner \"{{name}}\" enthält {{count}} Unterordner — alle löschen?",

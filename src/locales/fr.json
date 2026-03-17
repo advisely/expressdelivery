@@ -45,6 +45,7 @@
     "connectionError": "Erreur de connexion",
     "connected": "Connecté",
     "notSynced": "Non synchronisé",
+    "partialSync": "Certains comptes hors ligne",
     "noAiAgents": "Aucun agent IA",
     "lastCheck": "Dernière vérification : {{time}}",
     "folderHasChildren": "Le dossier \"{{name}}\" contient {{count}} sous-dossier(s) — tout supprimer ?",

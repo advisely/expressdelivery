@@ -76,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [scheduledCount, setScheduledCount] = useState(0);
   const [unifiedUnreadCount, setUnifiedUnreadCount] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
-  const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected'>('none');
+  const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected' | 'partial'>('none');
   const [lastCheckLabel, setLastCheckLabel] = useState('');
 
   const isAllAccounts = selectedAccountId === '__all';
@@ -364,8 +364,49 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   useEffect(() => {
     let cancelled = false;
 
+    function aggregateStatuses(statuses: Array<{ status: string; lastSync: number | null }>) {
+      if (statuses.length === 0) return { status: 'none' as const, lastSync: null };
+      const connected = statuses.filter(s => s.status === 'connected').length;
+      const connecting = statuses.filter(s => s.status === 'connecting').length;
+      const errored = statuses.filter(s => s.status === 'error').length;
+      const latestSync = statuses.reduce<number | null>((max, s) => {
+        if (!s.lastSync) return max;
+        return max === null ? s.lastSync : Math.max(max, s.lastSync);
+      }, null);
+
+      let status: 'none' | 'error' | 'connecting' | 'connected' | 'partial';
+      if (connecting > 0) status = 'connecting';
+      else if (connected === statuses.length) status = 'connected';
+      else if (connected > 0 && errored > 0) status = 'partial';
+      else if (errored === statuses.length) status = 'error';
+      else if (connected > 0) status = 'connected';
+      else status = 'none';
+
+      return { status, lastSync: latestSync };
+    }
+
     function pollStatus() {
-      if (!selectedAccountId || selectedAccountId === '__all' || cancelled) return;
+      if (!selectedAccountId || cancelled) return;
+
+      if (selectedAccountId === '__all') {
+        // Poll all accounts and aggregate
+        if (accounts.length === 0) {
+          setImapStatus('none');
+          setLastSyncTime(null);
+          return;
+        }
+        Promise.all(
+          accounts.map(acc => ipcInvoke<{ status: string; lastSync: number | null }>('imap:status', acc.id))
+        ).then(results => {
+          if (cancelled) return;
+          const valid = results.filter((r): r is { status: string; lastSync: number | null } => r != null);
+          const agg = aggregateStatuses(valid);
+          setImapStatus(agg.status);
+          setLastSyncTime(agg.lastSync);
+        });
+        return;
+      }
+
       ipcInvoke<{ status: string; lastSync: number | null }>('imap:status', selectedAccountId).then(result => {
         if (result && !cancelled) {
           setImapStatus(result.status as 'none' | 'error' | 'connecting' | 'connected');
@@ -381,9 +422,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     // Also listen for push events for immediate updates
     const cleanupSync = ipcOn('sync:status', (...args: unknown[]) => {
       const data = args[0] as { accountId?: string; status?: string; timestamp?: number } | undefined;
-      if (data && !cancelled && data.accountId === selectedAccountId) {
-        if (data.status) setImapStatus(data.status as 'none' | 'error' | 'connecting' | 'connected');
-        if (data.timestamp) setLastSyncTime(data.timestamp);
+      if (data && !cancelled) {
+        if (selectedAccountId === '__all') {
+          // Any account status change triggers a re-poll in all-accounts mode
+          pollStatus();
+        } else if (data.accountId === selectedAccountId) {
+          if (data.status) setImapStatus(data.status as 'none' | 'error' | 'connecting' | 'connected');
+          if (data.timestamp) setLastSyncTime(data.timestamp);
+        }
       }
     });
 
@@ -394,7 +440,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       setImapStatus('none');
       setLastSyncTime(null);
     };
-  }, [selectedAccountId]);
+  }, [selectedAccountId, accounts]);
 
   // Update "last check" label every 5 seconds (matches poll interval)
   useEffect(() => {
@@ -511,15 +557,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       </div>
 
       <nav className={styles['sidebar-nav']}>
-        {/* All Accounts mode: show context account folders or merged virtual folders */}
-        {isAllAccounts && contextAccountId && contextFolders.length > 0 && !sidebarCollapsed && (
-          <div className={styles['context-account-label']}>
-            <span className={styles['context-account-text']}>
-              {contextAccount?.display_name ?? contextAccount?.email ?? ''}
-            </span>
-          </div>
-        )}
-        {isAllAccounts && !contextAccountId && (
+        {/* All Accounts mode: always show merged virtual folders */}
+        {isAllAccounts && (
           <>
             {DEFAULT_NAV.map((item) => {
               const typeKey = item.labelKey.split('.')[1]; // e.g., 'inbox', 'sent'
@@ -538,9 +577,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             })}
           </>
         )}
+        {/* Context account folders shown below the merged folders when an email is selected */}
         {isAllAccounts && contextAccountId && contextFolders.length > 0 && (
           <>
-            {contextFolders.map((folder) => {
+            {!sidebarCollapsed && (
+              <div className={styles['context-account-label']}>
+                <span className={styles['context-account-text']}>
+                  {contextAccount?.display_name ?? contextAccount?.email ?? ''}
+                </span>
+              </div>
+            )}
+            {contextFolders.filter(f => !SYSTEM_FOLDER_TYPES.has(f.type ?? '')).map((folder) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               return (
                 <button
@@ -876,7 +923,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       <div className={styles['sidebar-footer']}>
         {!sidebarCollapsed && (
           <>
-            <div className={styles['sync-status']} aria-label={`IMAP: ${imapStatus}, Last sync: ${lastCheckLabel || 'never'}`}>
+            <div className={styles['sync-status']} aria-label={`IMAP: ${imapStatus}, Last sync: ${lastCheckLabel || 'never'}${imapStatus === 'partial' ? ' (some accounts offline)' : ''}`}>
               <div className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`} />
               <span className={styles['sync-label']}>
                 {accounts.length === 0
@@ -885,11 +932,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                     ? t('sidebar.connecting')
                     : imapStatus === 'error'
                       ? t('sidebar.connectionError')
-                      : lastCheckLabel
-                        ? t('sidebar.lastCheck', { time: lastCheckLabel })
-                        : imapStatus === 'connected'
-                          ? t('sidebar.connected')
-                          : t('sidebar.notSynced')}
+                      : imapStatus === 'partial'
+                        ? t('sidebar.partialSync')
+                        : lastCheckLabel
+                          ? t('sidebar.lastCheck', { time: lastCheckLabel })
+                          : imapStatus === 'connected'
+                            ? t('sidebar.connected')
+                            : t('sidebar.notSynced')}
               </span>
             </div>
             <div className={styles['mcp-status']} aria-label={`${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''} connected`}>
@@ -904,7 +953,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
           <div className={styles['collapsed-status']}>
             <div
               className={`${styles['sync-dot']} ${styles[`sync-${imapStatus}`]}`}
-              title={imapStatus === 'connected' ? t('sidebar.lastCheck', { time: lastCheckLabel }) : imapStatus}
+              title={imapStatus === 'connected' ? t('sidebar.lastCheck', { time: lastCheckLabel }) : imapStatus === 'partial' ? t('sidebar.partialSync') : imapStatus}
             />
             <div
               className={`${styles['mcp-dot']} ${mcpCount > 0 ? styles['connected'] : ''}`}

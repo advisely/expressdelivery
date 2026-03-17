@@ -412,6 +412,10 @@
   background: rgb(var(--color-success));
 }
 
+.sync-partial {
+  background: #a855f7;
+}
+
 @keyframes sync-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }

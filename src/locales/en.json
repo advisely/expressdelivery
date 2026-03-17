@@ -45,6 +45,7 @@
     "connectionError": "Connection error",
     "connected": "Connected",
     "notSynced": "Not synced",
+    "partialSync": "Some accounts offline",
     "noAiAgents": "No AI agents",
     "lastCheck": "Last check: {{time}}",
     "folderHasChildren": "Folder \"{{name}}\" has {{count}} subfolder(s) — delete all?",

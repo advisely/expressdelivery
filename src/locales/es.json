@@ -45,6 +45,7 @@
     "connectionError": "Error de conexión",
     "connected": "Conectado",
     "notSynced": "No sincronizado",
+    "partialSync": "Algunas cuentas sin conexión",
     "noAiAgents": "Sin agentes IA",
     "lastCheck": "Última verificación: {{time}}",
     "folderHasChildren": "La carpeta \"{{name}}\" tiene {{count}} subcarpeta(s) — ¿eliminar todo?",
