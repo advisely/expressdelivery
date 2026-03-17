@@ -36,9 +36,11 @@ const APPLY_STEPS: { phase: UpdateApplyPhase; label: string; icon: typeof Shield
     { phase: 'launching', label: 'Launching installer', icon: Rocket },
 ];
 
+type WebUpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error';
+
 export const UpdatePanel: FC = () => {
     const { t } = useTranslation();
-    const [activeTab, setActiveTab] = useState<'web' | 'file'>('file');
+    const [activeTab, setActiveTab] = useState<'web' | 'file'>('web');
     const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
     const [fileInfo, setFileInfo] = useState<UpdateFileInfo | null>(null);
     const [filePath, setFilePath] = useState<string | null>(null);
@@ -48,11 +50,60 @@ export const UpdatePanel: FC = () => {
     const [activePhase, setActivePhase] = useState<UpdateApplyPhase | null>(null);
     const cleanupRef = useRef<(() => void) | null>(null);
 
+    // Web update state
+    const [webState, setWebState] = useState<WebUpdateState>('idle');
+    const [webVersion, setWebVersion] = useState<string | null>(null);
+    const [webError, setWebError] = useState<string | null>(null);
+
     useEffect(() => {
         ipcInvoke<UpdateInfo>('update:getInfo').then(info => {
             if (info) setUpdateInfo(info);
         });
     }, []);
+
+    // Listen for web update push events from electron-updater
+    useEffect(() => {
+        const cleanupAvail = ipcOn('update:available', (...args: unknown[]) => {
+            const data = args[0] as { version?: string } | undefined;
+            if (data?.version) {
+                setWebVersion(data.version);
+                setWebState('available');
+            }
+        });
+        const cleanupDone = ipcOn('update:downloaded', () => {
+            setWebState('ready');
+        });
+        return () => { cleanupAvail?.(); cleanupDone?.(); };
+    }, []);
+
+    const handleWebCheck = async () => {
+        setWebState('checking');
+        setWebError(null);
+        const result = await ipcInvoke<{ available: boolean; version: string | null; error?: string }>('update:check');
+        if (!result || result.error) {
+            setWebState('error');
+            setWebError(result?.error || 'Update check failed');
+        } else if (result.available && result.version) {
+            setWebVersion(result.version);
+            setWebState('available');
+        } else {
+            setWebState('up-to-date');
+        }
+    };
+
+    const handleWebDownload = async () => {
+        setWebState('downloading');
+        const result = await ipcInvoke<{ success: boolean; error?: string }>('update:download');
+        if (result && !result.success) {
+            setWebState('error');
+            setWebError(result.error || 'Download failed');
+        }
+        // 'ready' state is set via the 'update:downloaded' event listener above
+    };
+
+    const handleWebInstall = async () => {
+        await ipcInvoke('update:install');
+    };
 
     // Listen for apply progress events
     useEffect(() => {
@@ -182,13 +233,97 @@ export const UpdatePanel: FC = () => {
                 {activeTab === 'web' && (
                     <div className={styles['tab-content']}>
                         <p className={styles['tab-desc']}>
-                            {t('updatePanel.webDesc')}
+                            {t('updatePanel.webDescActive')}
                         </p>
-                        <button type="button" disabled className={styles['disabled-btn']}>
-                            <Globe size={14} />
-                            {t('updatePanel.checkForUpdates')}
-                        </button>
-                        <span className={styles['coming-soon']}>{t('updatePanel.comingSoon')}</span>
+
+                        {webState === 'idle' && (
+                            <button type="button" onClick={handleWebCheck} className={styles['choose-btn']}>
+                                <Globe size={14} />
+                                {t('updatePanel.checkForUpdates')}
+                            </button>
+                        )}
+
+                        {webState === 'checking' && (
+                            <div className={styles['validating-row']}>
+                                <Loader2 size={18} className={styles['spinner']} />
+                                <span>{t('updatePanel.checking')}</span>
+                            </div>
+                        )}
+
+                        {webState === 'up-to-date' && (
+                            <div className={styles['success-box']}>
+                                <CheckCircle size={16} />
+                                <span>{t('updatePanel.upToDate')}</span>
+                                <button type="button" onClick={() => setWebState('idle')} className={styles['try-again']}>
+                                    {t('updatePanel.checkAgain')}
+                                </button>
+                            </div>
+                        )}
+
+                        {webState === 'available' && webVersion && (
+                            <div className={styles['file-info-section']}>
+                                <div className={styles['file-info-card']}>
+                                    <div className={styles['file-info-header']}>
+                                        <Globe size={20} />
+                                        <div className={styles['file-info-details']}>
+                                            <span className={styles['file-name']}>v{webVersion} {t('updatePanel.availableLabel')}</span>
+                                            <div className={styles['valid-badge']}>
+                                                <Sparkles size={12} />
+                                                <span>{t('updatePanel.newVersionReady')}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className={styles['action-row']}>
+                                    <button type="button" onClick={handleWebDownload} className={styles['update-btn']}>
+                                        <RefreshCw size={14} />
+                                        {t('updatePanel.downloadUpdate')}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {webState === 'downloading' && (
+                            <div className={styles['validating-row']}>
+                                <Loader2 size={18} className={styles['spinner']} />
+                                <span>{t('updatePanel.downloadingUpdate')}</span>
+                            </div>
+                        )}
+
+                        {webState === 'ready' && (
+                            <div className={styles['file-info-section']}>
+                                <div className={styles['file-info-card']}>
+                                    <div className={styles['file-info-header']}>
+                                        <CheckCircle size={20} />
+                                        <div className={styles['file-info-details']}>
+                                            <span className={styles['file-name']}>{t('updatePanel.readyToInstall', { version: webVersion })}</span>
+                                            <div className={styles['valid-badge']}>
+                                                <CheckCircle size={12} />
+                                                <span>{t('updatePanel.downloadComplete')}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className={styles['action-row']}>
+                                    <button type="button" onClick={handleWebInstall} className={styles['update-btn']}>
+                                        <Power size={14} />
+                                        {t('updatePanel.restartAndUpdate')}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {webState === 'error' && webError && (
+                            <div className={styles['error-box']}>
+                                <XCircle size={16} />
+                                <div className={styles['error-content']}>
+                                    <span>{webError}</span>
+                                    <button type="button" onClick={() => setWebState('idle')} className={styles['try-again']}>
+                                        {t('updatePanel.tryAgain')}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

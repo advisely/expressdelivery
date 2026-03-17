@@ -123,8 +123,6 @@ export function buildAppMenu(win: BrowserWindow): Menu {
       submenu: [
         { label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', click: () => send('shortcuts-help') },
         { type: 'separator' },
-        { label: 'Check for Updates', click: () => send('check-updates') },
-        { type: 'separator' },
         { role: 'toggleDevTools' as const },
         { type: 'separator' },
         {

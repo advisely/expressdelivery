@@ -469,7 +469,6 @@ function App() {
 
         // Help
         case 'shortcuts-help': setShowShortcutHelp(true); break;
-        case 'check-updates': ipcInvoke('update:check'); break;
       }
     });
     return () => { cleanup?.(); };
