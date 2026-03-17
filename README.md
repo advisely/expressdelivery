@@ -193,5 +193,5 @@ scripts/           Build tooling (clean-build, generate-icons)
 ---
 
 <p align="center">
-  <sub>Built with care by the ExpressDelivery team.</sub>
+  <sub>Built with care by the ExpressDelivery team — <a href="mailto:yassine@boumiza.com">yassine@boumiza.com</a></sub>
 </p>
