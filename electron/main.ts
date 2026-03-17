@@ -2474,6 +2474,10 @@ app.whenReady().then(() => {
         }
       });
       checkForUpdatesOnline().catch(() => { /* silent */ });
+      // Re-check for updates every 4 hours
+      setInterval(() => {
+        checkForUpdatesOnline().catch(() => { /* silent */ });
+      }, 4 * 60 * 60 * 1000);
       // Clean stale update staging files from previous runs
       cleanStaging();
     } catch (err: unknown) {
