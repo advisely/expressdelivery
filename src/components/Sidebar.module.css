@@ -446,9 +446,9 @@
   min-width: 160px;
   padding: 4px;
   border-radius: 8px;
-  background: var(--surface-overlay);
+  background: rgb(var(--color-bg-elevated));
   border: 1px solid var(--glass-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   z-index: 1100;
   animation: folder-ctx-in 0.12s ease-out;
 }
@@ -514,17 +514,26 @@
 }
 
 .context-account-label {
-  padding: 4px 12px 2px;
+  padding: 8px 12px 2px;
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.context-account-label:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 4px;
 }
 
 .context-account-text {
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
+  text-transform: uppercase;
   color: rgb(var(--color-accent));
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
   opacity: 0.8;
   overflow: hidden;
   text-overflow: ellipsis;

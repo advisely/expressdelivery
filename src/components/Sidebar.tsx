@@ -67,7 +67,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const setTags = useEmailStore(s => s.setTags);
   const savedSearches = useEmailStore(s => s.savedSearches);
   const setSavedSearches = useEmailStore(s => s.setSavedSearches);
-  const contextAccountId = useEmailStore(s => s.contextAccountId);
   const { sidebarCollapsed, toggleSidebar } = useThemeStore();
   const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -81,7 +80,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
   const isAllAccounts = selectedAccountId === '__all';
   const activeAccount = isAllAccounts ? null : (accounts.find(a => a.id === selectedAccountId) ?? accounts[0]);
-  const contextAccount = contextAccountId ? accounts.find(a => a.id === contextAccountId) : null;
 
   const doPurgeTrash = useCallback(async () => {
     if (!selectedAccountId) return;
@@ -116,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [newFolderName, setNewFolderName] = useState('');
   const [colorPickerFolderId, setColorPickerFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
-  const [contextFolders, setContextFolders] = useState<Folder[]>([]);
+  const [allAccountFolders, setAllAccountFolders] = useState<Record<string, Folder[]>>({});
   const draggedEmailIds = useEmailStore(s => s.draggedEmailIds);
   const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
 
@@ -323,16 +321,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     return () => { cancelled = true; };
   }, [selectedAccountId]);
 
-  // Load context account folders when dynamic switching triggers
+  // Load all account folders when in All Accounts mode
   useEffect(() => {
-    if (selectedAccountId !== '__all' || !contextAccountId) return;
+    if (selectedAccountId !== '__all' || accounts.length === 0) return;
     let cancelled = false;
-    ipcInvoke<Folder[]>('folders:list', contextAccountId).then(result => {
-      if (Array.isArray(result) && !cancelled) setContextFolders(result);
-      else if (!cancelled) setContextFolders([]);
+    Promise.all(
+      accounts.map(acc =>
+        ipcInvoke<Folder[]>('folders:list', acc.id).then(result => ({
+          accountId: acc.id,
+          folders: Array.isArray(result) ? result : [],
+        }))
+      )
+    ).then(results => {
+      if (cancelled) return;
+      const map: Record<string, Folder[]> = {};
+      for (const r of results) map[r.accountId] = r.folders;
+      setAllAccountFolders(map);
     });
-    return () => { cancelled = true; };
-  }, [selectedAccountId, contextAccountId]);
+    return () => { cancelled = true; setAllAccountFolders({}); };
+  }, [selectedAccountId, accounts]);
 
   // Load tags and saved searches when account changes
   useEffect(() => {
@@ -557,53 +564,44 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       </div>
 
       <nav className={styles['sidebar-nav']}>
-        {/* All Accounts mode: always show merged virtual folders */}
-        {isAllAccounts && (
-          <>
-            {DEFAULT_NAV.map((item) => {
-              const typeKey = item.labelKey.split('.')[1]; // e.g., 'inbox', 'sent'
-              const folderId = `__all_${typeKey}`;
-              return (
-                <button
-                  key={folderId}
-                  className={`${styles['nav-item']} ${selectedFolderId === folderId ? styles['active'] : ''}`}
-                  onClick={() => selectFolder(folderId)}
-                  title={sidebarCollapsed ? t(item.labelKey) : undefined}
-                >
-                  <item.icon size={18} className={styles['nav-icon']} />
-                  {!sidebarCollapsed && <span className={styles['nav-label']}>{t(item.labelKey)}</span>}
-                </button>
-              );
-            })}
-          </>
-        )}
-        {/* Context account folders shown below the merged folders when an email is selected */}
-        {isAllAccounts && contextAccountId && contextFolders.length > 0 && (
-          <>
-            {!sidebarCollapsed && (
-              <div className={styles['context-account-label']}>
-                <span className={styles['context-account-text']}>
-                  {contextAccount?.display_name ?? contextAccount?.email ?? ''}
-                </span>
-              </div>
-            )}
-            {contextFolders.filter(f => !SYSTEM_FOLDER_TYPES.has(f.type ?? '')).map((folder) => {
-              const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
-              return (
-                <button
-                  key={folder.id}
-                  className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
-                  onClick={() => selectFolder(folder.id)}
-                  title={sidebarCollapsed ? folder.name : undefined}
-                  style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
-                >
-                  <Icon size={18} className={styles['nav-icon']} />
-                  {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
-                </button>
-              );
-            })}
-          </>
-        )}
+        {/* All Accounts mode: show each account's folders grouped with separators */}
+        {isAllAccounts && accounts.map((acc) => {
+          const accFolders = allAccountFolders[acc.id] ?? [];
+          return (
+            <React.Fragment key={acc.id}>
+              {!sidebarCollapsed && (
+                <div className={styles['context-account-label']}>
+                  <span className={styles['context-account-text']}>
+                    {acc.display_name ?? acc.email}
+                  </span>
+                </div>
+              )}
+              {accFolders.length > 0
+                ? accFolders.map((folder) => {
+                    const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
+                    return (
+                      <button
+                        key={folder.id}
+                        className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
+                        onClick={() => selectFolder(folder.id)}
+                        title={sidebarCollapsed ? folder.name : undefined}
+                        style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                      >
+                        <Icon size={18} className={styles['nav-icon']} />
+                        {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
+                      </button>
+                    );
+                  })
+                : DEFAULT_NAV.map((item) => (
+                    <button key={`${acc.id}-${item.labelKey}`} className={styles['nav-item']} title={sidebarCollapsed ? t(item.labelKey) : undefined}>
+                      <item.icon size={18} className={styles['nav-icon']} />
+                      {!sidebarCollapsed && <span className={styles['nav-label']}>{t(item.labelKey)}</span>}
+                    </button>
+                  ))
+              }
+            </React.Fragment>
+          );
+        })}
         {!isAllAccounts && folders.length > 0
           ? folders.map((folder, folderIdx) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
