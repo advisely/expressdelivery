@@ -26,6 +26,8 @@ import {
   Upload,
   ChevronRight,
   Check,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useTranslation } from 'react-i18next';
@@ -82,6 +84,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [imapStatus, setImapStatus] = useState<'none' | 'error' | 'connecting' | 'connected' | 'partial'>('none');
   const [lastCheckLabel, setLastCheckLabel] = useState('');
+  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
+  const [updateReady, setUpdateReady] = useState(false);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updateDownloading, setUpdateDownloading] = useState(false);
 
   const isAllAccounts = selectedAccountId === '__all';
   const activeAccount = isAllAccounts ? null : (accounts.find(a => a.id === selectedAccountId) ?? accounts[0]);
@@ -377,6 +383,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       if (data && !cancelled) setMcpCount(data.connectedAgents);
     });
     return () => { cancelled = true; cleanup?.(); };
+  }, []);
+
+  // Auto-update notifications from electron-updater
+  useEffect(() => {
+    const cleanupAvail = ipcOn('update:available', (...args: unknown[]) => {
+      const data = args[0] as { version?: string } | undefined;
+      if (data?.version) { setUpdateAvailable(data.version); setUpdateDismissed(false); }
+    });
+    const cleanupDone = ipcOn('update:downloaded', () => {
+      setUpdateReady(true);
+      setUpdateDownloading(false);
+    });
+    return () => { cleanupAvail?.(); cleanupDone?.(); };
   }, []);
 
   // IMAP connection status — poll every 5 seconds + listen for push events
@@ -1011,6 +1030,60 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               title={mcpCount > 0 ? `${mcpCount} AI agent${mcpCount !== 1 ? 's' : ''}` : t('sidebar.noAiAgents')}
             />
           </div>
+        )}
+        {updateAvailable && !updateDismissed && !sidebarCollapsed && (
+          <div className={styles['update-bar']}>
+            {updateReady ? (
+              <>
+                <button
+                  className={styles['update-bar-btn']}
+                  onClick={() => ipcInvoke('update:install')}
+                >
+                  <RefreshCw size={14} />
+                  <span>{t('sidebar.restartUpdate', { version: updateAvailable })}</span>
+                </button>
+                <button
+                  className={styles['update-bar-dismiss']}
+                  onClick={() => setUpdateDismissed(true)}
+                  aria-label={t('update.dismiss')}
+                >
+                  <X size={12} />
+                </button>
+              </>
+            ) : updateDownloading ? (
+              <div className={styles['update-bar-progress']}>
+                <RefreshCw size={14} className={styles['update-bar-spin']} />
+                <span>{t('sidebar.downloading')}</span>
+              </div>
+            ) : (
+              <>
+                <button
+                  className={styles['update-bar-btn']}
+                  onClick={() => { setUpdateDownloading(true); ipcInvoke('update:download'); }}
+                >
+                  <Download size={14} />
+                  <span>{t('sidebar.updateAvailable', { version: updateAvailable })}</span>
+                </button>
+                <button
+                  className={styles['update-bar-dismiss']}
+                  onClick={() => setUpdateDismissed(true)}
+                  aria-label={t('update.dismiss')}
+                >
+                  <X size={12} />
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {updateAvailable && !updateDismissed && sidebarCollapsed && (
+          <div
+            className={styles['update-dot']}
+            title={updateReady ? t('sidebar.restartUpdate', { version: updateAvailable }) : t('sidebar.updateAvailable', { version: updateAvailable })}
+            onClick={() => {
+              if (updateReady) ipcInvoke('update:install');
+              else { setUpdateDownloading(true); ipcInvoke('update:download'); }
+            }}
+          />
         )}
         <button className={styles['nav-item']} onClick={onSettings} title={sidebarCollapsed ? t('sidebar.settings') : undefined}>
           <Settings size={18} className={styles['nav-icon']} />

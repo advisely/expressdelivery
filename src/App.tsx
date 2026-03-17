@@ -7,7 +7,6 @@ import { ReadingPane } from './components/ReadingPane';
 const ComposeModal = lazy(() => import('./components/ComposeModal').then(m => ({ default: m.ComposeModal })));
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
 import { OnboardingScreen } from './components/OnboardingScreen';
-import { UpdateBanner } from './components/UpdateBanner';
 import { useEmailStore } from './stores/emailStore';
 import type { Account, EmailFull, EmailSummary, Folder } from './stores/emailStore';
 import { useThemeStore } from './stores/themeStore';
@@ -514,7 +513,6 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="app-container">
-        <UpdateBanner />
         <Sidebar
           onCompose={() => setComposeState({ to: '', subject: '', body: '' })}
           onSettings={() => setIsSettingsOpen(true)}

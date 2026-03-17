@@ -56,9 +56,6 @@ vi.mock('./components/OnboardingScreen', () => ({
     ),
 }));
 
-vi.mock('./components/UpdateBanner', () => ({
-    UpdateBanner: () => <div data-testid="update-banner" />,
-}));
 
 import App from './App';
 import { useEmailStore } from './stores/emailStore';
@@ -122,7 +119,6 @@ describe('App', () => {
         expect(screen.getByTestId('sidebar')).toBeInTheDocument();
         expect(screen.getByTestId('threadlist')).toBeInTheDocument();
         expect(screen.getByTestId('readingpane')).toBeInTheDocument();
-        expect(screen.getByTestId('update-banner')).toBeInTheDocument();
     });
 
     it('opens ComposeModal when compose button is clicked', async () => {

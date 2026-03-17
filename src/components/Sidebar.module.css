@@ -392,6 +392,85 @@
   margin-bottom: 4px;
 }
 
+/* Update bar in sidebar footer */
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(var(--color-accent), 0.12);
+  border: 1px solid rgba(var(--color-accent), 0.25);
+}
+
+.update-bar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: rgb(var(--color-accent));
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.update-bar-btn:hover {
+  text-decoration: underline;
+}
+
+.update-bar-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-bar-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.update-bar-dismiss:hover {
+  background: rgba(var(--color-accent), 0.15);
+  color: rgb(var(--color-accent));
+}
+
+.update-bar-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: rgb(var(--color-accent));
+  font-weight: 500;
+}
+
+.update-bar-spin {
+  animation: sync-pulse 1.5s ease-in-out infinite;
+}
+
+.update-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgb(var(--color-accent));
+  margin: 0 auto 4px;
+  cursor: pointer;
+  animation: sync-pulse 2s ease-in-out infinite;
+}
+
 /* Trash folder row — houses the folder button + purge button side by side */
 .nav-item-row {
   display: flex;
