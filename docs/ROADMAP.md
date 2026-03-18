@@ -2,7 +2,7 @@
 
 Feature comparison against Mailspring and Mozilla Thunderbird (reference email clients) and implementation status.
 
-Last updated: 2026-02-28
+Last updated: 2026-03-18
 
 ---
 
@@ -163,7 +163,7 @@ Last updated: 2026-02-28
 
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Unit tests | Yes | Yes | **Done** | 26 files, 609 tests, ~76% coverage |
+| Unit tests | Yes | Yes | **Done** | 27 files, 648 tests, ~76% coverage |
 | Integration tests | Yes | No | **Planned** | IMAP client not tested (SMTP unit-tested) |
 | E2E tests | Yes | No | **Planned** | No Playwright/Spectron |
 | Coverage thresholds | Unknown | Yes | **Done** | @vitest/coverage-v8, 70% line threshold, `npm run test:coverage` |
