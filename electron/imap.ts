@@ -4,6 +4,7 @@ import { getDatabase } from './db.js';
 import { decryptData } from './crypto.js';
 import { logDebug } from './logger.js';
 import { applyRulesToEmail } from './ruleEngine.js';
+import { parseAuthResults, getSenderVerification } from './authResults.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
 
@@ -295,8 +296,9 @@ export class ImapEngine {
         try {
             const insertStmt = db.prepare(
                 `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
-                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe,
+                 auth_spf, auth_dkim, auth_dmarc, sender_verified)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
             );
             const insertAttStmt = db.prepare(
                 `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
@@ -334,6 +336,7 @@ export class ImapEngine {
                 let bodyText = '';
                 let bodyHtml: string | null = null;
                 let listUnsubscribe: string | null = null;
+                let authResultsHeader: string | null = null;
                 if (message.source && message.source.length > 0) {
                     try {
                         const parsed = await simpleParser(message.source, {
@@ -346,6 +349,11 @@ export class ImapEngine {
                         const listUnsubVal = parsed.headers?.get('list-unsubscribe');
                         if (typeof listUnsubVal === 'string' && listUnsubVal.trim()) {
                             listUnsubscribe = listUnsubVal.slice(0, 500);
+                        }
+                        // Extract Authentication-Results header for SPF/DKIM/DMARC
+                        const authVal = parsed.headers?.get('authentication-results');
+                        if (typeof authVal === 'string' && authVal.trim()) {
+                            authResultsHeader = authVal.slice(0, 2000);
                         }
                     } catch (parseErr) {
                         logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
@@ -362,6 +370,10 @@ export class ImapEngine {
                     if (parent?.thread_id) threadId = parent.thread_id;
                 }
 
+                // Parse authentication results
+                const authResults = parseAuthResults(authResultsHeader);
+                const senderVerified = getSenderVerification(authResults);
+
                 const result = insertStmt.run(
                     emailId, accountId, folder.id,
                     threadId, messageId,
@@ -374,6 +386,10 @@ export class ImapEngine {
                     bodyText,
                     bodyHtml,
                     listUnsubscribe,
+                    authResults.spf,
+                    authResults.dkim,
+                    authResults.dmarc,
+                    senderVerified,
                 );
 
                 if (result.changes > 0) {
@@ -393,6 +409,15 @@ export class ImapEngine {
 
                     // Apply mail rules to newly inserted email
                     applyRulesToEmail(emailId, accountId);
+
+                    // Auto-spam classification: score the email and update spam_score
+                    try {
+                        const { classifyEmail } = await import('./spamFilter.js');
+                        const spamScore = classifyEmail(accountId, `${env.subject ?? ''} ${bodyText}`);
+                        if (spamScore !== null) {
+                            db.prepare('UPDATE emails SET spam_score = ? WHERE id = ?').run(spamScore, emailId);
+                        }
+                    } catch { /* spam classifier not trained yet — skip */ }
                 } else if (bodyText || bodyHtml) {
                     // Row already exists but may have empty body from a previous sync
                     // that didn't fetch source. Backfill the body content.

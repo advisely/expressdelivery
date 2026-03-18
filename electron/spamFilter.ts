@@ -131,3 +131,47 @@ export function classifySpam(accountId: string, emailId: string): number {
 
     return Math.round(score * 1000) / 1000; // round to 3 decimal places
 }
+
+/**
+ * Classify raw text for spam probability (used during IMAP sync before email
+ * is fully committed). Returns null if not enough training data.
+ */
+export function classifyEmail(accountId: string, text: string): number | null {
+    const db = getDatabase();
+
+    const stats = db.prepare(
+        'SELECT total_spam, total_ham FROM spam_stats WHERE account_id = ?'
+    ).get(accountId) as { total_spam: number; total_ham: number } | undefined;
+
+    if (!stats || (stats.total_spam + stats.total_ham) < 10) return null;
+
+    const tokens = tokenize(text);
+    if (tokens.length === 0) return null;
+
+    const cappedTokens = tokens.slice(0, 999);
+    const placeholders = cappedTokens.map(() => '?').join(',');
+    const rows = db.prepare(
+        `SELECT token, spam_count, ham_count FROM spam_tokens
+         WHERE account_id = ? AND token IN (${placeholders})`
+    ).all(accountId, ...cappedTokens) as Array<{ token: string; spam_count: number; ham_count: number }>;
+
+    const tokenMap = new Map(rows.map(r => [r.token, r]));
+
+    let logSpam = Math.log(stats.total_spam / (stats.total_spam + stats.total_ham));
+    let logHam  = Math.log(stats.total_ham  / (stats.total_spam + stats.total_ham));
+
+    for (const token of cappedTokens) {
+        const counts  = tokenMap.get(token);
+        const spamProb = ((counts?.spam_count ?? 0) + 1) / (stats.total_spam + 2);
+        const hamProb  = ((counts?.ham_count  ?? 0) + 1) / (stats.total_ham  + 2);
+        logSpam += Math.log(spamProb);
+        logHam  += Math.log(hamProb);
+    }
+
+    const maxLog = Math.max(logSpam, logHam);
+    const score  =
+        Math.exp(logSpam - maxLog) /
+        (Math.exp(logSpam - maxLog) + Math.exp(logHam - maxLog));
+
+    return Math.round(score * 1000) / 1000;
+}

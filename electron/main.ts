@@ -55,6 +55,7 @@ import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
 import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging } from './updater.js'
+import { rateLimit, cleanBuckets } from './rateLimiter.js'
 import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
@@ -784,7 +785,8 @@ function registerIpcHandlers() {
       `SELECT id, account_id, folder_id, thread_id, subject,
               from_name, from_email, to_email, date, snippet,
               body_text, body_html, is_read, is_flagged, has_attachments,
-              ai_category, ai_priority, ai_labels
+              ai_category, ai_priority, ai_labels,
+              auth_spf, auth_dkim, auth_dmarc, sender_verified, spam_score
        FROM emails WHERE id = ?`
     ).get(emailId) as Record<string, unknown> | undefined;
     if (!email) return null;
@@ -870,6 +872,7 @@ function registerIpcHandlers() {
     cc?: string | string[]; bcc?: string | string[];
     attachments?: Array<{ filename: string; content: string; contentType: string }>;
   }) => {
+    if (!rateLimit('email:send', 5, 1)) throw new Error('Rate limited — too many emails sent. Please wait.');
     const stripCRLF = (s: string) => s.replace(/[\r\n\0]/g, '');
     const sanitizeList = (list: string | string[] | undefined) => {
       if (!list) return undefined;
@@ -2324,6 +2327,7 @@ function registerIpcHandlers() {
 
   // Phase 7 Batch 5: Spam — Bayesian classifier training and classification
   ipcMain.handle('spam:train', (_e, accountId: string, emailId: string, isSpam: boolean) => {
+    if (!rateLimit('spam:train', 20, 5)) throw new Error('Rate limited');
     if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
     if (!emailId   || typeof emailId   !== 'string') throw new Error('Invalid email ID');
     if (typeof isSpam !== 'boolean') throw new Error('isSpam must be a boolean');
@@ -2337,6 +2341,45 @@ function registerIpcHandlers() {
     const score = classifySpam(accountId, emailId);
     return { score };
   });
+
+  // --- Sender whitelist/blacklist ---
+  ipcMain.handle('sender-list:add', (_e, accountId: string, pattern: string, listType: 'whitelist' | 'blacklist') => {
+    if (!rateLimit('sender-list:add', 30, 5)) throw new Error('Rate limited');
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    if (!pattern || typeof pattern !== 'string') throw new Error('Invalid pattern');
+    if (listType !== 'whitelist' && listType !== 'blacklist') throw new Error('Invalid list type');
+    const safe = pattern.toLowerCase().trim().slice(0, 255);
+    if (!safe) throw new Error('Empty pattern');
+    db.prepare('INSERT OR IGNORE INTO sender_list (account_id, pattern, list_type) VALUES (?, ?, ?)').run(accountId, safe, listType);
+    return { success: true };
+  });
+
+  ipcMain.handle('sender-list:remove', (_e, id: number, accountId: string) => {
+    if (typeof id !== 'number' || !accountId) throw new Error('Invalid params');
+    db.prepare('DELETE FROM sender_list WHERE id = ? AND account_id = ?').run(id, accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('sender-list:list', (_e, accountId: string) => {
+    if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
+    return db.prepare('SELECT id, pattern, list_type, created_at FROM sender_list WHERE account_id = ? ORDER BY list_type, pattern').all(accountId);
+  });
+
+  ipcMain.handle('sender-list:check', (_e, accountId: string, email: string) => {
+    if (!accountId || !email) return { status: 'none' };
+    const emailLower = email.toLowerCase();
+    const domain = emailLower.split('@')[1] ?? '';
+    const rows = db.prepare('SELECT pattern, list_type FROM sender_list WHERE account_id = ?').all(accountId) as Array<{ pattern: string; list_type: string }>;
+    for (const row of rows) {
+      if (emailLower === row.pattern || domain === row.pattern || (row.pattern.startsWith('@') && domain === row.pattern.slice(1))) {
+        return { status: row.list_type };
+      }
+    }
+    return { status: 'none' };
+  });
+
+  // Clean rate limiter buckets every 5 minutes
+  setInterval(cleanBuckets, 5 * 60 * 1000);
 
 }
 

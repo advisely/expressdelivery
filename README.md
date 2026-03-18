@@ -66,17 +66,23 @@ ExpressDelivery integrates the **Model Context Protocol (MCP)** — the open sta
 
 **AI Compose** — Generate reply drafts with 5 tone presets via OpenRouter LLMs.
 
-### Security
+### Security & Protection
 
 | | |
 |---|---|
-| **Sandboxed rendering** | Email HTML rendered in sandboxed iframe with CSP + DOMPurify |
-| **Encrypted credentials** | Passwords stored via OS keychain (Electron safeStorage) |
-| **MCP auth** | Bearer token with timing-safe comparison, bound to 127.0.0.1 |
-| **CRLF injection protection** | All SMTP recipients/subjects sanitized |
+| **SPF/DKIM/DMARC verification** | Authentication-Results parsed on sync; sender verification badge (green/red shield) |
+| **Bayesian spam filter** | Per-account classifier with auto-scoring during IMAP sync |
+| **Phishing detection** | 7-rule URL heuristic engine + display name spoofing detection |
+| **Invoice fraud detection** | Urgency language + payment request pattern matching |
+| **Sender whitelist/blacklist** | Per-account email and domain pattern lists |
+| **Sandboxed rendering** | Email HTML in sandboxed iframe with CSP + DOMPurify |
+| **Encrypted credentials** | OS keychain (Electron safeStorage) for passwords and API keys |
+| **IPC rate limiting** | Token bucket algorithm on sensitive handlers (send, train, lists) |
 | **Cross-account isolation** | Ownership enforced on every IPC and MCP handler |
 | **Remote image blocking** | Blocked by default with privacy banner |
-| **Context isolation** | Preload sandbox, scoped IPC with channel allowlist |
+| **Context isolation** | Preload sandbox, scoped IPC with 160+ channel allowlist |
+
+See [SECURITY.md](SECURITY.md) for the full security posture.
 
 ### Personalization
 

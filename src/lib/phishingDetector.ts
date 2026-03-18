@@ -115,6 +115,119 @@ function analyzeUrl(url: string): { score: number; reasons: string[] } {
     return { score, reasons };
 }
 
+// ── Display-name spoofing detection ─────────────────────────────────────────
+
+export interface SpoofResult {
+    isSpoofed: boolean;
+    reason: string | null;
+}
+
+/**
+ * Detect display-name spoofing: the from_name looks like a trusted brand
+ * but the from_email domain doesn't match the brand's official domain.
+ * Also detects when display name contains an email address that differs
+ * from the actual sending address.
+ */
+export function detectDisplayNameSpoofing(fromName: string, fromEmail: string): SpoofResult {
+    if (!fromName || !fromEmail) return { isSpoofed: false, reason: null };
+
+    const nameLower = fromName.toLowerCase().replace(/\s+/g, '');
+    const emailLower = fromEmail.toLowerCase();
+    const emailDomain = emailLower.split('@')[1] ?? '';
+
+    // Check 1: Display name contains a known brand but email domain doesn't match
+    for (const [brand, officialDomain] of BRAND_DOMAINS) {
+        if (nameLower.includes(brand) && emailDomain !== officialDomain && !emailDomain.endsWith('.' + officialDomain)) {
+            return {
+                isSpoofed: true,
+                reason: `Display name contains "${brand}" but email is from ${emailDomain}`,
+            };
+        }
+    }
+
+    // Check 2: Display name contains an email address different from actual sender
+    const embeddedEmail = fromName.match(/[\w.+-]+@[\w.-]+\.\w{2,}/);
+    if (embeddedEmail) {
+        const embedded = embeddedEmail[0].toLowerCase();
+        if (embedded !== emailLower) {
+            return {
+                isSpoofed: true,
+                reason: `Display name shows "${embedded}" but actual sender is ${emailLower}`,
+            };
+        }
+    }
+
+    // Check 3: Display name mimics a domain (e.g., "support.paypal.com" as display name)
+    if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(fromName.trim()) && fromName.trim().toLowerCase() !== emailDomain) {
+        return {
+            isSpoofed: true,
+            reason: `Display name looks like a domain (${fromName.trim()}) but sender is ${emailLower}`,
+        };
+    }
+
+    return { isSpoofed: false, reason: null };
+}
+
+// ── Invoice/payment fraud detection ─────────────────────────────────────────
+
+export interface FraudResult {
+    isSuspicious: boolean;
+    score: number;
+    reasons: string[];
+}
+
+const URGENCY_PATTERNS = [
+    /\bimmediate(?:ly)?\s+(?:action|payment|response)\b/i,
+    /\byour\s+account\s+(?:has been|will be|is)\s+(?:suspended|locked|closed|terminated)\b/i,
+    /\bverify\s+your\s+(?:identity|account|payment)\b/i,
+    /\b(?:wire|transfer|send)\s+(?:\$|USD|EUR|GBP)\s*[\d,]+/i,
+    /\bupdate(?:d)?\s+(?:bank|payment|billing)\s+(?:details|information|info)\b/i,
+    /\bfailure\s+to\s+(?:respond|comply|verify)\b/i,
+    /\b(?:act|respond)\s+(?:now|immediately|within\s+\d+\s+hours?)\b/i,
+];
+
+const PAYMENT_PATTERNS = [
+    /\binvoice\s*#?\s*\d+/i,
+    /\bpurchase\s+order\b/i,
+    /\bpayment\s+(?:of|due|overdue|pending)\b/i,
+    /\bwire\s+transfer\b/i,
+    /\bbitcoin|cryptocurrency|crypto\s+wallet\b/i,
+    /\bgift\s+card/i,
+];
+
+/**
+ * Detect invoice/payment fraud patterns in email text.
+ * Scores urgency language + payment requests.
+ */
+export function detectFraud(text: string | null, subject: string | null): FraudResult {
+    if (!text && !subject) return { isSuspicious: false, score: 0, reasons: [] };
+
+    const combined = `${subject ?? ''} ${text ?? ''}`;
+    let score = 0;
+    const reasons: string[] = [];
+
+    for (const pattern of URGENCY_PATTERNS) {
+        if (pattern.test(combined)) {
+            score += 15;
+            reasons.push(`Urgency language: ${pattern.source.slice(0, 50)}`);
+        }
+    }
+
+    for (const pattern of PAYMENT_PATTERNS) {
+        if (pattern.test(combined)) {
+            score += 10;
+            reasons.push(`Payment reference detected`);
+            break; // only count once
+        }
+    }
+
+    return {
+        isSuspicious: score >= 25,
+        score: Math.min(score, 100),
+        reasons: [...new Set(reasons)],
+    };
+}
+
 /**
  * Analyse all URLs found in the email HTML and return the worst-case
  * phishing assessment.

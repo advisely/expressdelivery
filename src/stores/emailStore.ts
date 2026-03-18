@@ -36,6 +36,11 @@ export interface EmailFull extends EmailSummary {
     body_text: string | null
     body_html: string | null
     bodyFetchStatus?: 'ok' | 'fetched' | 'imap_disconnected' | 'no_parts' | 'timeout'
+    auth_spf?: string | null
+    auth_dkim?: string | null
+    auth_dmarc?: string | null
+    sender_verified?: string | null
+    spam_score?: number | null
 }
 
 export interface Account {

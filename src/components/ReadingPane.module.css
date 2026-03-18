@@ -121,6 +121,18 @@
   font-size: 13px;
 }
 
+.verified-badge {
+  color: rgb(var(--color-success));
+  display: inline-flex;
+  align-items: center;
+}
+
+.unverified-badge {
+  color: rgb(var(--color-danger));
+  display: inline-flex;
+  align-items: center;
+}
+
 .to-row {
   font-size: 12px;
   color: var(--text-secondary);

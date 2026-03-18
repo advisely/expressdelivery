@@ -127,6 +127,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   // Phase 7: Spam
   'spam:train',
   'spam:classify',
+  // Phase 11: Sender whitelist/blacklist
+  'sender-list:add',
+  'sender-list:remove',
+  'sender-list:list',
+  'sender-list:check',
   // Phase 7: Folder colors
   'folders:set-color',
   'folders:reorder',

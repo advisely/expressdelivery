@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, Code, Mail, Sparkles } from 'lucide-react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, ShieldCheck, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, Code, Mail, Sparkles } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
@@ -739,6 +739,12 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                         <div className={styles['sender-row']}>
                             <span className={styles['sender-name']}>{selectedEmail.from_name}</span>
                             <span className={styles['sender-email']}>&lt;{selectedEmail.from_email}&gt;</span>
+                            {selectedEmail.sender_verified === 'verified' && (
+                                <span className={styles['verified-badge']} title="SPF + DKIM + DMARC pass"><ShieldCheck size={14} /></span>
+                            )}
+                            {selectedEmail.sender_verified === 'unverified' && (
+                                <span className={styles['unverified-badge']} title="Authentication failed"><ShieldAlert size={14} /></span>
+                            )}
                         </div>
                         <div className={styles['to-row']}>
                             <span className={styles['to-label']}>to {selectedEmail.to_email}</span>

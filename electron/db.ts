@@ -126,7 +126,7 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 14;
+const CURRENT_SCHEMA_VERSION = 15;
 
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
@@ -507,6 +507,29 @@ function runMigrations(db: DatabaseType) {
                 CREATE INDEX IF NOT EXISTS idx_intent_log_status ON intent_log(status, created_at);
             `);
             version = 14;
+        }
+
+        // Migration 15: Email auth results (SPF/DKIM/DMARC), sender whitelist/blacklist
+        if (version < 15) {
+            const emailCols15 = db.prepare("SELECT name FROM pragma_table_info('emails')").all() as { name: string }[];
+            const emailColNames15 = new Set(emailCols15.map(c => c.name));
+            if (!emailColNames15.has('auth_spf')) db.exec("ALTER TABLE emails ADD COLUMN auth_spf TEXT DEFAULT 'none'");
+            if (!emailColNames15.has('auth_dkim')) db.exec("ALTER TABLE emails ADD COLUMN auth_dkim TEXT DEFAULT 'none'");
+            if (!emailColNames15.has('auth_dmarc')) db.exec("ALTER TABLE emails ADD COLUMN auth_dmarc TEXT DEFAULT 'none'");
+            if (!emailColNames15.has('sender_verified')) db.exec("ALTER TABLE emails ADD COLUMN sender_verified TEXT DEFAULT 'unknown'");
+
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS sender_list (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id TEXT NOT NULL,
+                    pattern TEXT NOT NULL,
+                    list_type TEXT NOT NULL CHECK(list_type IN ('whitelist', 'blacklist')),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(account_id, pattern, list_type)
+                );
+                CREATE INDEX IF NOT EXISTS idx_sender_list_account ON sender_list(account_id, list_type);
+            `);
+            version = 15;
         }
 
         db.prepare(
