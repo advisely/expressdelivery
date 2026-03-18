@@ -129,6 +129,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const [allAccountFolders, setAllAccountFolders] = useState<Record<string, Folder[]>>({});
   const [allUnreadCounts, setAllUnreadCounts] = useState<Record<string, number>>({});
+  const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('sidebar-collapsed-accounts');
+      return saved ? new Set(JSON.parse(saved) as string[]) : new Set();
+    } catch { return new Set(); }
+  });
   const draggedEmailIds = useEmailStore(s => s.draggedEmailIds);
   const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
 
@@ -277,6 +283,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     setCreatingSubfolder(null);
     setNewFolderName('');
   }, [newFolderName, selectedAccountId, refreshFolders, onToast, setCreatingSubfolder, setNewFolderName]);
+
+  const toggleAccountCollapse = useCallback((accountId: string) => {
+    setCollapsedAccounts(prev => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      try { localStorage.setItem('sidebar-collapsed-accounts', JSON.stringify([...next])); } catch { /* fire-and-forget localStorage */ }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -655,16 +671,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
         {/* All Accounts mode: show each account's folders grouped with separators */}
         {isAllAccounts && includedAccounts.map((acc) => {
           const accFolders = allAccountFolders[acc.id] ?? [];
+          const isCollapsed = collapsedAccounts.has(acc.id);
           return (
             <React.Fragment key={acc.id}>
               {!sidebarCollapsed && (
-                <div className={styles['context-account-label']}>
+                <button
+                  className={styles['context-account-label']}
+                  onClick={() => toggleAccountCollapse(acc.id)}
+                  aria-expanded={!isCollapsed}
+                  type="button"
+                >
+                  <ChevronRight
+                    size={11}
+                    className={`${styles['account-collapse-chevron']} ${!isCollapsed ? styles['account-collapse-open'] : ''}`}
+                  />
                   <span className={styles['context-account-text']}>
                     {acc.display_name ?? acc.email}
                   </span>
-                </div>
+                </button>
               )}
-              {accFolders.length > 0
+              {!isCollapsed && (accFolders.length > 0
                 ? accFolders.map((folder) => {
                     const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
                     const allCount = allUnreadCounts[folder.id] ?? 0;
@@ -692,11 +718,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                       {!sidebarCollapsed && <span className={styles['nav-label']}>{t(item.labelKey)}</span>}
                     </button>
                   ))
-              }
+              )}
             </React.Fragment>
           );
         })}
-        {!isAllAccounts && folders.length > 0
+        {!isAllAccounts && activeAccount && !sidebarCollapsed && (
+          <button
+            className={styles['context-account-label']}
+            onClick={() => toggleAccountCollapse(activeAccount.id)}
+            aria-expanded={!collapsedAccounts.has(activeAccount.id)}
+            type="button"
+          >
+            <ChevronRight
+              size={11}
+              className={`${styles['account-collapse-chevron']} ${!collapsedAccounts.has(activeAccount.id) ? styles['account-collapse-open'] : ''}`}
+            />
+            <span className={styles['context-account-text']}>
+              {activeAccount.display_name ?? activeAccount.email}
+            </span>
+          </button>
+        )}
+        {!isAllAccounts && (!activeAccount || !collapsedAccounts.has(activeAccount.id)) && (folders.length > 0
           ? folders.map((folder, folderIdx) => {
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               const count = unreadCounts[folder.id];
@@ -889,7 +931,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                 {!sidebarCollapsed && <span className={styles['nav-label']}>{t(item.labelKey)}</span>}
               </button>
             ))
-        }
+        )}
         {/* Inline new subfolder input */}
         {creatingSubfolder !== null && !sidebarCollapsed && (
           <form

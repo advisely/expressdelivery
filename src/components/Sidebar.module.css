@@ -683,12 +683,36 @@
   align-items: center;
   gap: 4px;
   border-top: 1px solid var(--glass-border);
+  width: 100%;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.context-account-label:hover {
+  background: var(--hover-bg);
 }
 
 .context-account-label:first-child {
   border-top: none;
   margin-top: 0;
   padding-top: 4px;
+}
+
+/* Chevron arrow for account folder collapse/expand */
+.account-collapse-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.account-collapse-open {
+  transform: rotate(90deg);
 }
 
 .context-account-text {
@@ -766,6 +790,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   .color-swatch {
+    transition: none;
+  }
+  .account-collapse-chevron {
+    transition: none;
+  }
+  .context-account-label {
     transition: none;
   }
 }
