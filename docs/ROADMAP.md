@@ -65,8 +65,8 @@ Last updated: 2026-03-18
 |---------|-----------|----------------|--------|-------|
 | Contact storage | Yes | Yes | **Done** | contacts table with auto-harvest on send, search, upsert IPC |
 | Contact autocomplete (To field) | Yes | Yes | **Done** | ARIA combobox, 200ms debounced search, keyboard nav, multi-recipient |
-| Contact profiles | Yes (Pro: enriched bios, social) | No | **Planned** | |
-| Company information | Yes (Pro) | No | **Deferred** | Not in scope for v1.0 |
+| Contact profiles | Yes (Pro: enriched bios, social) | Yes | **Done** | company, phone, title, notes (Phase 9) |
+| Company information | Yes (Pro) | No | **Skipped** | Requires paid API, privacy concerns, low impact |
 
 ### UI & Theming
 
@@ -81,9 +81,9 @@ Last updated: 2026-03-18
 | Onboarding wizard | No | Yes | **Done** | 4-step flow with provider presets, brand colors, 9 CSS animations |
 | System tray | Yes | Yes | **Done** | Show/hide toggle, context menu, custom icon |
 | Unread badge count | Yes | Yes | **Done** | `folders:unread-counts` IPC, badges in Sidebar, refresh on `email:new` |
-| Touch/gesture support | Yes | No | **Deferred** | Desktop-focused |
+| Touch/gesture support | Yes | No | **Skipped** | Desktop-focused app, low ROI |
 | Localization (i18n) | Yes (9+ languages) | Yes | **Done** | react-i18next + 4 locales (en/fr/es/de); all components wired to t() calls |
-| RTL layout support | Yes | No | **Deferred** | |
+| RTL layout support | Yes | No | **Skipped** | Defer until Arabic/Hebrew locale demand |
 | Keyboard shortcuts | Yes (advanced) | Yes | **Done** | mod+N compose, R reply, F forward, E archive, J/K navigate, Delete, Escape, Ctrl+A select all |
 | Notification badges (OS) | Yes | Yes | **Done** | Electron Notification API, fires on new email/reminder/scheduled failure, settings toggle |
 
@@ -103,10 +103,10 @@ Last updated: 2026-03-18
 | Snooze messages | Yes (Pro) | Yes | **Done** | Scheduler restores at snooze_until, ReadingPane Clock popover, Sidebar virtual folder |
 | Schedule send / send later | Yes (Pro) | Yes | **Done** | Split Send button with DateTimePicker, scheduler sends via SMTP (3 retries) |
 | Follow-up reminders | Yes (Pro) | Yes | **Done** | Bell popover in ReadingPane, scheduler triggers toast + OS notification |
-| Read receipts | Yes (Pro) | No | **Deferred** | Tracking pixel approach; privacy concerns |
-| Link tracking | Yes (Pro) | No | **Deferred** | Requires redirect proxy; privacy concerns |
+| Read receipts | Yes (Pro) | No | **Skipped** | Privacy-invasive, unreliable due to blocking |
+| Link tracking | Yes (Pro) | No | **Skipped** | Requires proxy infrastructure, privacy conflict |
 | Mail rules / filters | Yes | Yes | **Done** | Rule engine: from/subject/body/has_attachment x contains/equals/starts_with/ends_with, 6 actions, SettingsModal Rules tab |
-| Calendar integration (RSVP) | Yes | No | **Deferred** | |
+| Calendar integration (RSVP) | Yes | No | **Planned (Phase 14)** | iCal parsing, RSVP buttons |
 
 ### AI / MCP Integration (ExpressDelivery Differentiator)
 
@@ -137,8 +137,8 @@ Last updated: 2026-03-18
 | Scoped IPC API | Unknown | Yes | **Done** | Channel allowlist in preload |
 | MCP authentication | N/A | Yes | **Done** | Bearer token, CORS disabled, loopback only |
 | SMTP injection protection | Unknown | Yes | **Done** | CRLF stripping, object-form `from` |
-| At-rest DB encryption | Unknown | No | **Planned** | Evaluate SQLCipher |
-| PGP/S-MIME | No | No | **Deferred** | |
+| At-rest DB encryption | Unknown | No | **Skipped** | OS-level FDE sufficient for most users |
+| PGP/S-MIME | No | No | **Skipped** | Complex key management, niche audience |
 
 ### Analytics & Insights
 
@@ -192,7 +192,7 @@ Features Mozilla Thunderbird has that ExpressDelivery is missing, prioritized by
 |---------|------------|----------------|--------|----------|-------|
 | Spam/junk filtering (Bayesian) | Yes (ML-based) | Yes | **Done** | -- | Naive Bayes classifier, train/classify IPC, Report Spam button |
 | Scam/phishing detection | Yes | Yes | **Done** | -- | 7 heuristic rules, warning banner in ReadingPane |
-| PGP/S-MIME encryption | Yes (OpenPGP built-in) | No | **Deferred** | -- | Complex; deferred indefinitely |
+| PGP/S-MIME encryption | Yes (OpenPGP built-in) | No | **Skipped** | -- | Complex key management, niche audience |
 
 #### Quality of Life
 
@@ -223,10 +223,10 @@ Features Mozilla Thunderbird has that ExpressDelivery is missing, prioritized by
 
 | Feature | Thunderbird | ExpressDelivery | Status | Priority | Notes |
 |---------|------------|----------------|--------|----------|-------|
-| POP3 protocol | Yes | No | **Deferred** | -- | IMAP-only; POP3 is legacy |
-| CardDAV contact sync | Yes | No | **Deferred** | -- | Contacts are local-only |
-| CalDAV calendar sync | Yes | No | **Deferred** | -- | No calendar feature |
-| NNTP / RSS feeds | Yes | No | **Deferred** | -- | Out of scope |
+| POP3 protocol | Yes | No | **Skipped** | -- | Legacy protocol, <5% usage |
+| CardDAV contact sync | Yes | No | **Skipped** | -- | WebDAV/OAuth complexity, contacts are local-only |
+| CalDAV calendar sync | Yes | No | **Skipped** | -- | Depends on Calendar RSVP |
+| NNTP / RSS feeds | Yes | No | **Skipped** | -- | Architectural mismatch, separate product category |
 
 ---
 
@@ -302,14 +302,14 @@ Production-ready release.
 Ship-ready with full test coverage, i18n, CSS modules, CI/CD, and performance.
 
 - [x] Test coverage to ~68% (337 tests across 21 files: scheduler, ruleEngine, DateTimePicker, UpdateBanner, App, ThemeContext)
-- [ ] E2E tests with Playwright (deferred to post-v1.0)
+- [ ] E2E tests with Playwright (planned Phase 13)
 - [x] Migrate inline styles to CSS modules (10 components migrated to `.module.css` files)
 - [x] Performance optimization (React.memo on ThreadItem, useMemo/useCallback audit)
 - [x] i18n: wire t() calls into all component render output (all 12 components)
 - [x] Auto-update: GitHub Actions release.yml (tag-triggered, Windows + Linux builds, GitHub Releases publish)
 - [x] CI pipeline: GitHub Actions ci.yml (lint + test + tsc on push/PR, SHA-pinned actions, npm audit)
-- [ ] Code signing: provision CSC certificates (Windows + macOS) — requires purchase
-- [ ] SQLCipher at-rest DB encryption (@journeyapps/sqlcipher) — deferred unless compliance requires it
+- [ ] Code signing: provision certificates (planned Phase 13, SignPath.io free for OSS)
+- [x] ~~SQLCipher at-rest DB encryption~~ — Skipped: OS-level FDE sufficient
 - [x] Upgrade Electron to 40+ (upgraded from 30 to 40)
 - [x] Upgrade ESLint to flat config v10 (migrated from .eslintrc.cjs to eslint.config.js)
 - [x] Upgrade React to 19 (from 18)
@@ -463,6 +463,30 @@ Bug fixes, i18n completeness, CSS cleanup, contact profiles, and deferred featur
 - [x] SQLite parallel flake fixed (unique temp dirs per test file)
 - [x] 617+ tests across 27 files, all passing
 
+### Phase 12.5: Frameless Window Redesign (v1.12.5) -- COMPLETE
+Removed native Windows title bar, custom TitleBar component, SettingsModal two-level navigation redesign, roadmap consolidation.
+
+- [x] **Frameless window** (`frame: false` in BrowserWindow, custom TitleBar component with minimize/maximize/close)
+- [x] **Menu bar removal** (deleted `electron/menu.ts`, all actions reassigned to keyboard shortcuts + Settings UI)
+- [x] **SettingsModal redesign** (horizontal category tabs: General/Email/AI & Agents/Data/System, vertical sub-tabs per category)
+- [x] **Import/Export tab** (absorbs File menu import/export actions into Settings > Data > Import/Export)
+- [x] **About tab** (app version, Electron version, description in Settings > System > About)
+- [x] **Keyboard shortcuts expansion** (Ctrl+P print, Ctrl+F search, Ctrl+0 reset zoom, Ctrl+\ sidebar, Ctrl+/ shortcuts, F11 fullscreen, Ctrl+Shift+I devtools)
+- [x] **Reset zoom button** (RotateCcw icon in ReadingPane, visible when zoom != 100%)
+- [x] **Roadmap consolidation** (merged deferred features report, added Phase 13/14, marked 11 features as Skipped)
+
+### Phase 13: Quality & Distribution (planned)
+Ship-ready quality and code signing for public distribution.
+
+- [ ] **Code signing** — SignPath.io (free for open-source), Windows + macOS certificates, configured in GitHub Actions CI
+- [ ] **E2E tests** — Playwright + Electron adapter, mock IMAP server, test critical paths (add account, send email, search, reply/forward)
+- [ ] **Integration tests** — Multi-component IPC flow tests, expand existing Vitest infrastructure
+
+### Phase 14: Calendar RSVP (planned)
+Calendar invite support — the highest-impact missing feature vs Thunderbird.
+
+- [ ] **Calendar RSVP** — Parse `text/calendar` MIME parts in IMAP sync, event display card in ReadingPane (time, location, attendees), Accept/Decline/Tentative RSVP buttons via reply email
+
 ---
 
 ## What ExpressDelivery Has That Mailspring & Thunderbird Don't
@@ -509,7 +533,7 @@ Bug fixes, i18n completeness, CSS cleanup, contact profiles, and deferred featur
 37. ~~**Agentic / MCP settings**~~ -- Done: 9th tab in Settings (toggle, port, token, endpoint, config block, tools list), persisted config, 6 IPC handlers
 
 ### Phase 10 (complete -- v1.8.0)
-45. ~~**Custom application menu bar**~~ -- Done: `electron/menu.ts` with `buildAppMenu()`, 6 menus (File/Edit/View/Message/Window/Help), `menu:action` IPC channel, renderer dispatch in App.tsx
+45. ~~**Custom application menu bar**~~ -- Done in v1.8.0, replaced in v1.12.5 with frameless window + custom TitleBar component
 46. ~~**Send countdown UX**~~ -- Done: fixed countdown timer (single-interval, no race), added dismiss X button, cancel reopens compose
 47. ~~**DevTools in production**~~ -- Done: enabled `devTools: true` for all builds (Help > Toggle Developer Tools)
 48. ~~**AI & Agentic README section**~~ -- Done: MCP tools table, architecture explanation, security notes

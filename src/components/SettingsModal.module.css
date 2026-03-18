@@ -18,7 +18,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 640px;
+    width: 720px;
     max-height: 80vh;
     border-radius: 12px;
     background: rgb(var(--color-bg-elevated));
@@ -65,13 +65,59 @@
 /* Body / Tabs Layout */
 .settings-body {
     display: flex;
+    flex-direction: column;
     flex: 1;
     overflow: hidden;
     min-height: 400px;
 }
 
+/* Horizontal category tabs */
+.category-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0;
+    overflow-x: auto;
+}
+
+.category-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: color 0.15s, background 0.15s;
+}
+
+.category-tab-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.category-tab-btn[data-state="active"] {
+    background: rgba(var(--color-accent), 0.12);
+    color: var(--accent-color);
+}
+
+/* Inner panel: vertical sub-tabs + content */
+.category-panel {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
 .settings-tabs {
-    width: 160px;
+    width: 140px;
     padding: 12px 8px;
     border-right: 1px solid var(--glass-border);
     display: flex;
@@ -1236,6 +1282,90 @@
     font-weight: 500;
 }
 
+/* Import / Export Tab */
+.import-export-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.import-export-btn {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--surface-overlay);
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    color: var(--text-primary);
+    transition: border-color 0.2s;
+}
+
+.import-export-btn:hover {
+    border-color: var(--accent-color);
+}
+
+.ie-btn-title {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text-primary);
+    display: block;
+}
+
+.ie-btn-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: block;
+    margin-top: 2px;
+}
+
+/* About Tab */
+.about-view {
+    text-align: center;
+    padding-top: 24px;
+}
+
+.about-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 24px;
+}
+
+.about-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.about-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 300px;
+    margin: 0 auto 16px;
+}
+
+.about-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.about-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 360px;
+    margin: 0 auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
     :global(.settings-overlay),
     :global(.settings-modal) {
@@ -1247,7 +1377,9 @@
     .notif-switch,
     .notif-switch-thumb,
     .rule-toggle,
-    .rule-toggle-dot {
+    .rule-toggle-dot,
+    .category-tab-btn,
+    .import-export-btn {
         transition: none;
     }
 }

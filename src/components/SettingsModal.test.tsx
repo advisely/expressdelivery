@@ -53,6 +53,10 @@ vi.mock('lucide-react', () => ({
     Loader2: () => <div data-testid="icon-Loader2">L2</div>,
     Package: () => <div data-testid="icon-Package">Pk</div>,
     Sparkles: () => <div data-testid="icon-Sparkles">Sp</div>,
+    Settings2: () => <div data-testid="icon-Settings2">S2</div>,
+    Database: () => <div data-testid="icon-Database">Db</div>,
+    ArrowUpDown: () => <div data-testid="icon-ArrowUpDown">AUD</div>,
+    Info: () => <div data-testid="icon-Info">In</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
@@ -393,19 +397,24 @@ describe('SettingsModal Integration Tests', () => {
         });
 
         renderSettings();
+        // First click the AI & Agents category tab, then the Agentic sub-tab
+        const aiCategory = screen.getByRole('tab', { name: /settings\.categoryAI/i });
+        await user.click(aiCategory);
         const tab = screen.getByRole('tab', { name: /mcp\.title/i });
         await user.click(tab);
         return user;
     }
 
-    it('renders Agentic tab trigger with correct role and label', () => {
+    it('renders Agentic tab trigger after clicking AI category', async () => {
+        const user = userEvent.setup();
         renderSettings();
 
-        // The tab trigger must be present in the tab list with the i18n key as its accessible name
+        // Switch to AI & Agents category to reveal the Agentic sub-tab
+        const aiCategory = screen.getByRole('tab', { name: /settings\.categoryAI/i });
+        await user.click(aiCategory);
+
         const agenticTab = screen.getByRole('tab', { name: /mcp\.title/i });
         expect(agenticTab).toBeInTheDocument();
-
-        // It must behave as an inactive tab on initial render (accounts tab is default)
         expect(agenticTab).toHaveAttribute('data-state', 'inactive');
     });
 

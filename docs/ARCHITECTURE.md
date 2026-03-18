@@ -1,7 +1,7 @@
 # ExpressDelivery — System Architecture
 
 Anti-loop reference and architecture guide for contributors and AI agents.
-Last updated: 2026-03-16 (v1.10.0).
+Last updated: 2026-03-18 (v1.12.5).
 
 ---
 
@@ -22,7 +22,7 @@ Last updated: 2026-03-16 (v1.10.0).
 
 ## 1. System Overview
 
-ExpressDelivery is an Electron 40 desktop email client built with React 19 and TypeScript 5.9 in strict mode. It speaks IMAP (via IMAPFlow) and SMTP (via Nodemailer), stores all state in a local SQLite database (better-sqlite3, WAL mode, FTS5 full-text search), and exposes an MCP (Model Context Protocol) server over SSE so that external AI agents can read, search, send, and categorize email. The UI is a three-pane React SPA rendered in the Chromium process; the main process (Node.js) owns all I/O and exposes approximately 84 typed IPC handlers through a sandboxed preload bridge. Security properties include bearer-token MCP auth, sandboxed iframes for HTML email, DOMPurify sanitization, safeStorage encryption for credentials, CRLF injection prevention, and a channel allowlist on the preload bridge.
+ExpressDelivery is an Electron 40 desktop email client built with React 19 and TypeScript 5.9 in strict mode. It speaks IMAP (via IMAPFlow) and SMTP (via Nodemailer), stores all state in a local SQLite database (better-sqlite3, WAL mode, FTS5 full-text search), and exposes an MCP (Model Context Protocol) server over SSE so that external AI agents can read, search, send, and categorize email. The UI is a three-pane React SPA rendered in the Chromium process; the main process (Node.js) owns all I/O and exposes approximately 107 typed IPC handlers through a sandboxed preload bridge. Security properties include bearer-token MCP auth, sandboxed iframes for HTML email, DOMPurify sanitization, safeStorage encryption for credentials, CRLF injection prevention, and a channel allowlist on the preload bridge.
 
 ---
 
@@ -31,7 +31,7 @@ ExpressDelivery is an Electron 40 desktop email client built with React 19 and T
 ```
 Electron Main Process (Node.js / ABI 143)
 |
-+-- electron/main.ts         ~84 IPC handlers, window, tray, menu, crash handler
++-- electron/main.ts         ~107 IPC handlers, window, tray, crash handler (frameless, no menu)
 +-- electron/db.ts           SQLite via better-sqlite3 (WAL, foreign keys, FTS5, 12 migrations)
 +-- electron/imap.ts         IMAPFlow client (connect, IDLE, sync, on-demand body, reconnect)
 +-- electron/smtp.ts         Nodemailer (TLS/STARTTLS, CC/BCC, attachments, CRLF-safe)
@@ -324,7 +324,7 @@ Electron requires CommonJS (`require()`) for preload scripts when `sandbox: true
 - `ALLOWED_INVOKE_CHANNELS` -- channels callable via `ipcRenderer.invoke()`
 - `ALLOWED_ON_CHANNELS` -- channels listenable via `ipcRenderer.on()`
 
-The `contextBridge.exposeInMainWorld` call wraps these arrays so any call with an unlisted channel is silently rejected. As of v1.10.0 there are approximately 100 invoke channels and 10 on-channels.
+The `contextBridge.exposeInMainWorld` call wraps these arrays so any call with an unlisted channel is silently rejected. As of v1.12.5 there are approximately 168 invoke channels and 12 on-channels.
 
 ### 6.3 BrowserWindow Security Configuration
 

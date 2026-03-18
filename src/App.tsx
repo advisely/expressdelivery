@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
+import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { ThreadList } from './components/ThreadList';
 import { ReadingPane } from './components/ReadingPane';
@@ -397,85 +398,21 @@ function App() {
     setPendingSend(null);
   }, [pendingSend]);
 
-  // Listen for menu:action events from the application menu bar
-  useEffect(() => {
-    const cleanup = ipcOn('menu:action', (...args: unknown[]) => {
-      const action = args[0] as string;
-      const store = useEmailStore.getState();
-      const theme = useThemeStore.getState();
-
-      switch (action) {
-        // File
-        case 'compose': setComposeState({ to: '', subject: '', body: '' }); break;
-        case 'settings': setIsSettingsOpen(true); break;
-        case 'print': ipcInvoke('print:email'); break;
-        case 'import-emails': ipcInvoke('import:eml'); break;
-        case 'export-emails': {
-          const folderId = store.selectedFolderId;
-          if (folderId) ipcInvoke('export:mbox', folderId);
-          break;
-        }
-        case 'import-contacts': ipcInvoke('contacts:import-vcard'); break;
-        case 'export-contacts': ipcInvoke('contacts:export-vcard'); break;
-
-        // Edit
-        case 'find': {
-          const el = document.querySelector('[data-search-input]') as HTMLInputElement;
-          el?.focus();
-          break;
-        }
-
-        // View
-        case 'layout-vertical': theme.setLayout('vertical'); break;
-        case 'layout-horizontal': theme.setLayout('horizontal'); break;
-        case 'density-compact': theme.setDensityMode('compact'); break;
-        case 'density-comfortable': theme.setDensityMode('comfortable'); break;
-        case 'density-relaxed': theme.setDensityMode('relaxed'); break;
-        case 'zoom-in': theme.setReadingPaneZoom(theme.readingPaneZoom + 10); break;
-        case 'zoom-out': theme.setReadingPaneZoom(theme.readingPaneZoom - 10); break;
-        case 'zoom-reset': theme.setReadingPaneZoom(100); break;
-        case 'toggle-sidebar': theme.toggleSidebar(); break;
-
-        // Message
-        case 'reply': {
-          const email = store.selectedEmail;
-          if (email) handleReply(email);
-          break;
-        }
-        case 'forward': {
-          const email = store.selectedEmail;
-          if (email) handleForward(email);
-          break;
-        }
-        case 'archive': handleArchiveSelected(); break;
-        case 'delete-email': handleDeleteSelected(); break;
-        case 'mark-read': {
-          const email = store.selectedEmail;
-          if (email) {
-            ipcInvoke(email.is_read ? 'emails:mark-unread' : 'emails:mark-read', email.id);
-          }
-          break;
-        }
-        case 'star': {
-          const email = store.selectedEmail;
-          if (email) {
-            ipcInvoke('emails:toggle-flag', email.id, !email.is_flagged);
-          }
-          break;
-        }
-        case 'next-email': handleNavigateEmail('next'); break;
-        case 'prev-email': handleNavigateEmail('prev'); break;
-
-        // Help
-        case 'shortcuts-help': setShowShortcutHelp(true); break;
-      }
-    });
-    return () => { cleanup?.(); };
-  }, [handleReply, handleForward, handleArchiveSelected, handleDeleteSelected, handleNavigateEmail]);
-
   const shortcuts = useMemo(() => ({
     'mod+n': () => setComposeState({ to: '', subject: '', body: '' }),
     'mod+,': () => setIsSettingsOpen(true),
+    'mod+p': () => ipcInvoke('print:email'),
+    'mod+f': () => {
+      const el = document.querySelector('[data-search-input]') as HTMLInputElement;
+      el?.focus();
+    },
+    'mod+=': () => { const t = useThemeStore.getState(); t.setReadingPaneZoom(t.readingPaneZoom + 10); },
+    'mod+-': () => { const t = useThemeStore.getState(); t.setReadingPaneZoom(t.readingPaneZoom - 10); },
+    'mod+0': () => useThemeStore.getState().setReadingPaneZoom(100),
+    'mod+\\': () => useThemeStore.getState().toggleSidebar(),
+    'mod+/': () => setShowShortcutHelp(true),
+    'mod+j': () => handleNavigateEmail('next'),
+    'mod+k': () => handleNavigateEmail('prev'),
     'r': () => {
       const email = useEmailStore.getState().selectedEmail;
       if (email) handleReply(email);
@@ -513,14 +450,17 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="app-container">
-        <Sidebar
-          onCompose={() => setComposeState({ to: '', subject: '', body: '' })}
-          onSettings={() => setIsSettingsOpen(true)}
-          onToast={showToast}
-        />
-        <div className="main-content">
-          <ThreadList onReply={handleReply} onForward={handleForward} />
-          <ReadingPane onReply={handleReply} onForward={handleForward} onToast={showToast} />
+        <TitleBar />
+        <div className="app-body">
+          <Sidebar
+            onCompose={() => setComposeState({ to: '', subject: '', body: '' })}
+            onSettings={() => setIsSettingsOpen(true)}
+            onToast={showToast}
+          />
+          <div className="main-content">
+            <ThreadList onReply={handleReply} onForward={handleForward} />
+            <ReadingPane onReply={handleReply} onForward={handleForward} onToast={showToast} />
+          </div>
         </div>
 
         <Suspense fallback={<div className={appStyles['suspense-spinner']} />}>
@@ -582,6 +522,7 @@ function App() {
                   <h3>{t('shortcuts.navigation')}</h3>
                   <div className={appStyles['shortcut-row']}><kbd>J</kbd> <span>{t('shortcuts.nextEmail')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>K</kbd> <span>{t('shortcuts.prevEmail')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Ctrl+F</kbd> <span>{t('shortcuts.search')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>Esc</kbd> <span>{t('shortcuts.deselect')}</span></div>
                 </div>
                 <div className={appStyles['shortcut-section']}>
@@ -590,11 +531,14 @@ function App() {
                   <div className={appStyles['shortcut-row']}><kbd>F</kbd> <span>{t('shortcuts.forward')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>E</kbd> <span>{t('shortcuts.archive')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>Del</kbd> <span>{t('shortcuts.delete')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Ctrl+P</kbd> <span>{t('shortcuts.print')}</span></div>
                 </div>
                 <div className={appStyles['shortcut-section']}>
                   <h3>{t('shortcuts.compose')}</h3>
                   <div className={appStyles['shortcut-row']}><kbd>Ctrl+N</kbd> <span>{t('shortcuts.newEmail')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>Ctrl+,</kbd> <span>{t('shortcuts.settings')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Ctrl+\</kbd> <span>{t('shortcuts.toggleSidebar')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>F11</kbd> <span>{t('shortcuts.fullscreen')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>?</kbd> <span>{t('shortcuts.help')}</span></div>
                 </div>
               </div>

@@ -157,6 +157,15 @@ const ALLOWED_INVOKE_CHANNELS = [
   'intent:parse',
   'llm:providers',
   'llm:set-preference',
+  // Phase 12.5: Window controls + app info (frameless window)
+  'window:minimize',
+  'window:maximize',
+  'window:close',
+  'window:is-maximized',
+  'window:toggle-fullscreen',
+  'window:toggle-devtools',
+  'app:get-version',
+  'app:get-electron-version',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [
@@ -174,8 +183,10 @@ const ALLOWED_ON_CHANNELS = [
   'update:fileOpened',
   'scheduled:sent',
   'scheduled:failed',
-  // Phase 10: Application menu
+  // Phase 10: Application menu (kept for backward compatibility)
   'menu:action',
+  // Phase 12.5: Window state changes (frameless window)
+  'window:maximized-change',
 ] as const
 
 type InvokeChannel = typeof ALLOWED_INVOKE_CHANNELS[number]

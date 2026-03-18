@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, ShieldCheck, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, Code, Mail, Sparkles } from 'lucide-react';
+import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, ShieldCheck, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, RotateCcw, Code, Mail, Sparkles } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
@@ -521,7 +521,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     return (
         <>
-        <div className={`${styles['reading-pane']} scrollable`}>
+        <div className={styles['reading-pane']}>
             <div className={`${styles['pane-header']} glass`}>
                 <div className={styles.actions}>
                     <button
@@ -686,6 +686,16 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                         <ZoomOut size={18} />
                     </button>
                     <span className={styles['zoom-label']}>{readingPaneZoom}%</span>
+                    {readingPaneZoom !== 100 && (
+                        <button
+                            className={styles['icon-btn']}
+                            onClick={() => setReadingPaneZoom(100)}
+                            title={t('readingPane.zoomReset')}
+                            aria-label={t('readingPane.zoomReset')}
+                        >
+                            <RotateCcw size={14} />
+                        </button>
+                    )}
                     <button
                         className={styles['icon-btn']}
                         onClick={() => setReadingPaneZoom(readingPaneZoom + 10)}
@@ -984,36 +994,34 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                     </div>
                 )}
 
-                {downloadableAttachments.length > 0 && (
-                    <div className={styles['attachments-section']}>
-                        <div className={styles['attachments-header']}>
-                            <Paperclip size={14} />
-                            <span>{downloadableAttachments.length} attachment{downloadableAttachments.length !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div className={styles['attachments-list']}>
-                            {downloadableAttachments.map(att => (
-                                <button
-                                    key={att.id}
-                                    className={styles['attachment-chip']}
-                                    onClick={() => handleDownloadAttachment(att)}
-                                    disabled={downloadingId === att.id}
-                                    title={`Download ${att.filename} (${formatFileSize(att.size)})`}
-                                    aria-label={`Download attachment ${att.filename}`}
-                                >
-                                    <FileText size={14} />
-                                    <span className={styles['attachment-name']}>{att.filename}</span>
-                                    <span className={styles['attachment-size']}>{formatFileSize(att.size)}</span>
-                                    {downloadingId === att.id ? (
-                                        <span className={styles['attachment-spinner']} />
-                                    ) : (
-                                        <Download size={14} />
+            </div>
+
+            {downloadableAttachments.length > 0 && (
+                <div className={styles['attachments-bar']}>
+                    <Paperclip size={14} className={styles['attachments-bar-icon']} />
+                    <div className={styles['attachments-list']}>
+                        {downloadableAttachments.map(att => (
+                            <button
+                                key={att.id}
+                                className={styles['attachment-chip']}
+                                onClick={() => handleDownloadAttachment(att)}
+                                disabled={downloadingId === att.id}
+                                title={`Download ${att.filename} (${formatFileSize(att.size)})`}
+                                aria-label={`Download attachment ${att.filename}`}
+                            >
+                                <FileText size={14} />
+                                <span className={styles['attachment-name']}>{att.filename}</span>
+                                <span className={styles['attachment-size']}>{formatFileSize(att.size)}</span>
+                                {downloadingId === att.id ? (
+                                    <span className={styles['attachment-spinner']} />
+                                ) : (
+                                    <Download size={14} />
                                     )}
                                 </button>
                             ))}
                         </div>
                     </div>
                 )}
-            </div>
         </div>
 
         <MessageSourceDialog

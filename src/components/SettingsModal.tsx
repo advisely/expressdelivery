@@ -6,7 +6,8 @@ import {
     X, Layout, Monitor, Moon, Sun, Droplets,
     Plus, Trash2, Mail, Eye, EyeOff, Server,
     CheckCircle2, XCircle, Loader, Key, Bell, Filter, GripVertical, Pencil, FileText, Tags as TagsIcon, Users,
-    Bot, Copy, RefreshCw, Wrench, Download
+    Bot, Copy, RefreshCw, Wrench, Download,
+    Settings2, Sparkles, Database, ArrowUpDown, Info, Upload
 } from 'lucide-react';
 import { UpdatePanel } from './UpdatePanel';
 import { useLayout, Layout as LayoutType } from './ThemeContext';
@@ -31,6 +32,14 @@ const LAYOUTS: { id: LayoutType; labelKey: string; icon: ElementType }[] = [
     { id: 'vertical', labelKey: 'settings.layoutVertical', icon: Layout },
     { id: 'horizontal', labelKey: 'settings.layoutHorizontal', icon: Monitor },
 ];
+
+const CATEGORY_TABS: Record<string, string> = {
+    general: 'accounts',
+    email: 'rules',
+    ai: 'ai-keys',
+    data: 'contacts',
+    system: 'update',
+};
 
 const providerLabel = (providerId: string) =>
     PROVIDER_PRESETS.find(p => p.id === providerId)?.label ?? providerId;
@@ -85,9 +94,17 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     // Undo send delay
     const [undoSendDelay, setUndoSendDelay] = useState(5);
 
-    // Controlled tab state for lazy loading — track which tabs have been visited
-    const [activeTab, setActiveTab] = useState('accounts');
+    // Two-level navigation: category (horizontal) + sub-tab (vertical)
+    const [activeCategory, setActiveCategory] = useState('general');
+    const [activeSubTab, setActiveSubTab] = useState('accounts');
     const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['accounts']));
+
+    // About tab state
+    const [appVersion, setAppVersion] = useState('');
+    const [electronVersion, setElectronVersion] = useState('');
+
+    // Backward-compat alias: lazy-load effects used activeTab
+    const activeTab = activeSubTab;
     const [rulesLoaded, setRulesLoaded] = useState(false);
     const [templatesLoaded, setTemplatesLoaded] = useState(false);
     const [tagsLoaded, setTagsLoaded] = useState(false);
@@ -181,6 +198,18 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             setShowMcpToken(false);
         }
     }, [activeTab, mcpToken]);
+
+    // Load About info when About sub-tab is first visited
+    useEffect(() => {
+        if (activeSubTab !== 'about' || appVersion) return;
+        Promise.all([
+            ipcInvoke<string>('app:get-version').catch(() => ''),
+            ipcInvoke<string>('app:get-electron-version').catch(() => ''),
+        ]).then(([v, ev]) => {
+            if (v) setAppVersion(v);
+            if (ev) setElectronVersion(ev);
+        });
+    }, [activeSubTab, appVersion]);
 
     // Load rules when Rules tab is first activated
     const rulesAccountId = accounts[0]?.id;
@@ -682,49 +711,66 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                         </Dialog.Close>
                     </div>
 
-                    <Tabs.Root className={styles['settings-body']} value={activeTab} onValueChange={(val) => { setActiveTab(val); setVisitedTabs(prev => { if (prev.has(val)) return prev; const next = new Set(prev); next.add(val); return next; }); }} orientation="vertical">
-                        <Tabs.List className={styles['settings-tabs']} aria-label="Settings sections">
-                            <Tabs.Trigger className={styles['tab-btn']} value="accounts">
-                                <Mail size={16} />
-                                <span>{t('settings.accounts')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="appearance">
-                                <Sun size={16} />
-                                <span>{t('settings.appearance')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="ai">
-                                <Key size={16} />
-                                <span>{t('settings.aiKeys')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="notifications">
-                                <Bell size={16} />
-                                <span>{t('settings.notifications')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="rules">
-                                <Filter size={16} />
-                                <span>{t('settings.rules')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="templates">
-                                <FileText size={16} />
-                                <span>{t('settings.templates')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="tags">
-                                <TagsIcon size={16} />
-                                <span>{t('tags.title')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="contacts">
-                                <Users size={16} />
-                                <span>{t('settings.contacts')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="agentic">
-                                <Bot size={16} />
-                                <span>{t('mcp.title')}</span>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger className={styles['tab-btn']} value="update">
-                                <Download size={16} />
-                                <span>{t('updatePanel.tabTitle')}</span>
-                            </Tabs.Trigger>
-                        </Tabs.List>
+                    <div className={styles['settings-body']}>
+                        {/* Horizontal category tabs */}
+                        <div className={styles['category-tabs']} role="tablist" aria-label={t('settings.title')}>
+                            {([
+                                { id: 'general', labelKey: 'settings.categoryGeneral', Icon: Settings2 },
+                                { id: 'email', labelKey: 'settings.categoryEmail', Icon: Mail },
+                                { id: 'ai', labelKey: 'settings.categoryAI', Icon: Sparkles },
+                                { id: 'data', labelKey: 'settings.categoryData', Icon: Database },
+                                { id: 'system', labelKey: 'settings.categorySystem', Icon: Wrench },
+                            ] as const).map(cat => (
+                                <button
+                                    key={cat.id}
+                                    role="tab"
+                                    aria-selected={activeCategory === cat.id}
+                                    data-state={activeCategory === cat.id ? 'active' : 'inactive'}
+                                    className={styles['category-tab-btn']}
+                                    onClick={() => {
+                                        setActiveCategory(cat.id);
+                                        const firstTab = CATEGORY_TABS[cat.id];
+                                        setActiveSubTab(firstTab);
+                                        setVisitedTabs(prev => {
+                                            if (prev.has(firstTab)) return prev;
+                                            const next = new Set(prev);
+                                            next.add(firstTab);
+                                            return next;
+                                        });
+                                    }}
+                                >
+                                    <cat.Icon size={14} />
+                                    <span>{t(cat.labelKey)}</span>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Vertical sub-tabs + content panel */}
+                        <Tabs.Root className={styles['category-panel']} value={activeSubTab} onValueChange={(val) => { setActiveSubTab(val); setVisitedTabs(prev => { if (prev.has(val)) return prev; const next = new Set(prev); next.add(val); return next; }); }} orientation="vertical">
+                            <Tabs.List className={styles['settings-tabs']} aria-label={t(`settings.category${activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)}` as 'settings.categoryGeneral')}>
+                                {activeCategory === 'general' && <>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="accounts"><Mail size={16} /><span>{t('settings.accounts')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="appearance"><Sun size={16} /><span>{t('settings.appearance')}</span></Tabs.Trigger>
+                                </>}
+                                {activeCategory === 'email' && <>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="rules"><Filter size={16} /><span>{t('settings.rules')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="templates"><FileText size={16} /><span>{t('settings.templates')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="notifications"><Bell size={16} /><span>{t('settings.notifications')}</span></Tabs.Trigger>
+                                </>}
+                                {activeCategory === 'ai' && <>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="ai-keys"><Key size={16} /><span>{t('settings.aiKeys')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="agentic"><Bot size={16} /><span>{t('mcp.title')}</span></Tabs.Trigger>
+                                </>}
+                                {activeCategory === 'data' && <>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="contacts"><Users size={16} /><span>{t('settings.contacts')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="tags"><TagsIcon size={16} /><span>{t('tags.title')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="import-export"><ArrowUpDown size={16} /><span>{t('settings.importExport')}</span></Tabs.Trigger>
+                                </>}
+                                {activeCategory === 'system' && <>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="update"><Download size={16} /><span>{t('updatePanel.tabTitle')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="about"><Info size={16} /><span>{t('settings.about')}</span></Tabs.Trigger>
+                                </>}
+                            </Tabs.List>
 
                         <Tabs.Content className={styles['settings-tab-panel']} value="accounts">
                             {!isAddingAccount && (
@@ -1068,8 +1114,8 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                             </div>}
                         </Tabs.Content>
 
-                        <Tabs.Content className={styles['settings-tab-panel']} value="ai">
-                            {isTabActive('ai') && <div className={styles['ai-keys-view']}>
+                        <Tabs.Content className={styles['settings-tab-panel']} value="ai-keys">
+                            {isTabActive('ai-keys') && <div className={styles['ai-keys-view']}>
                                 <h3 className={styles['section-title']}>{t('settings.openrouterKey')}</h3>
                                 <p className={styles['apikey-description']}>
                                     {t('settings.openrouterDesc')}
@@ -1673,7 +1719,72 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                         <Tabs.Content className={styles['settings-tab-panel']} value="update">
                             {isTabActive('update') && <UpdatePanel />}
                         </Tabs.Content>
+
+                        {/* Import / Export Tab */}
+                        <Tabs.Content className={styles['settings-tab-panel']} value="import-export">
+                            {isTabActive('import-export') && <div>
+                                <h3 className={styles['section-title']}>{t('settings.emailImportExport')}</h3>
+                                <div className={styles['import-export-grid']}>
+                                    <button className={styles['import-export-btn']} onClick={() => ipcInvoke('import:eml')}>
+                                        <Upload size={20} />
+                                        <div>
+                                            <span className={styles['ie-btn-title']}>{t('settings.importEmails')}</span>
+                                            <span className={styles['ie-btn-desc']}>{t('settings.importEmailsDesc')}</span>
+                                        </div>
+                                    </button>
+                                    <button className={styles['import-export-btn']} onClick={() => {
+                                        const folderId = useEmailStore.getState().selectedFolderId;
+                                        if (folderId) ipcInvoke('export:mbox', folderId);
+                                    }}>
+                                        <Download size={20} />
+                                        <div>
+                                            <span className={styles['ie-btn-title']}>{t('settings.exportEmails')}</span>
+                                            <span className={styles['ie-btn-desc']}>{t('settings.exportEmailsDesc')}</span>
+                                        </div>
+                                    </button>
+                                </div>
+                                <h3 className={styles['section-title']}>{t('settings.contactImportExport')}</h3>
+                                <div className={styles['import-export-grid']}>
+                                    <button className={styles['import-export-btn']} onClick={() => ipcInvoke('contacts:import-vcard')}>
+                                        <Upload size={20} />
+                                        <div>
+                                            <span className={styles['ie-btn-title']}>{t('settings.importContacts')}</span>
+                                            <span className={styles['ie-btn-desc']}>{t('settings.importContactsDesc')}</span>
+                                        </div>
+                                    </button>
+                                    <button className={styles['import-export-btn']} onClick={() => ipcInvoke('contacts:export-vcard')}>
+                                        <Download size={20} />
+                                        <div>
+                                            <span className={styles['ie-btn-title']}>{t('settings.exportContacts')}</span>
+                                            <span className={styles['ie-btn-desc']}>{t('settings.exportContactsDesc')}</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>}
+                        </Tabs.Content>
+
+                        {/* About Tab */}
+                        <Tabs.Content className={styles['settings-tab-panel']} value="about">
+                            {isTabActive('about') && <div className={styles['about-view']}>
+                                <div className={styles['about-logo']}>
+                                    <img src="/icon.png" alt="ExpressDelivery" width={48} height={48} />
+                                    <h2 className={styles['about-name']}>{t('app.name')}</h2>
+                                </div>
+                                <div className={styles['about-info']}>
+                                    <div className={styles['about-row']}>
+                                        <span>{t('settings.version')}</span>
+                                        <span>{appVersion}</span>
+                                    </div>
+                                    <div className={styles['about-row']}>
+                                        <span>{t('settings.electronVersion')}</span>
+                                        <span>{electronVersion}</span>
+                                    </div>
+                                </div>
+                                <p className={styles['about-desc']}>{t('settings.aboutDescription')}</p>
+                            </div>}
+                        </Tabs.Content>
                     </Tabs.Root>
+                    </div>
                 </Dialog.Content>
             </Dialog.Portal>
         </Dialog.Root>

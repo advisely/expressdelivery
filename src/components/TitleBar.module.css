@@ -1,0 +1,65 @@
+.title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 32px;
+    -webkit-app-region: drag;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--glass-border);
+    padding-left: 12px;
+    flex-shrink: 0;
+    user-select: none;
+    z-index: 100;
+}
+
+.title-bar__brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.title-bar__icon {
+    pointer-events: none;
+}
+
+.title-bar__label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+}
+
+.title-bar__controls {
+    display: flex;
+    -webkit-app-region: no-drag;
+}
+
+.title-bar__btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 32px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    -webkit-app-region: no-drag;
+}
+
+.title-bar__btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.title-bar__btn--close:hover {
+    background: #e81123;
+    color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .title-bar__btn {
+        transition: none;
+    }
+}

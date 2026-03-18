@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, screen, Notification } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, screen, Notification, globalShortcut } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -60,7 +60,7 @@ import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
-import { buildAppMenu } from './menu.js'
+// menu.ts removed — frameless window with custom TitleBar component (Phase 12.5)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -153,6 +153,7 @@ function createWindow() {
     minHeight: 600,
     center: true,
     show: false,
+    frame: false,
     backgroundColor: '#ffffff',
     icon: path.join(process.env.VITE_PUBLIC, 'icon.png'),
     webPreferences: {
@@ -175,6 +176,14 @@ function createWindow() {
       e.preventDefault();
       win?.hide();
     }
+  });
+
+  // Push maximize state changes to the renderer for TitleBar icon
+  win.on('maximize', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('window:maximized-change', true);
+  });
+  win.on('unmaximize', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('window:maximized-change', false);
   });
 
   // Use the app icon for the system tray; fall back to a transparent 1x1 buffer
@@ -253,6 +262,7 @@ app.on('before-quit', async () => {
     tray.destroy();
     tray = null;
   }
+  globalShortcut.unregisterAll();
   try { getMcpServer().stop(); } catch { /* best effort */ }
   try { await imapEngine.disconnectAll(); } catch { /* best effort */ }
   try { closeDatabase(); } catch { /* best effort */ }
@@ -2468,10 +2478,33 @@ app.whenReady().then(() => {
     logDebug(`[ERROR] Window creation failed: ${e.message}\n${e.stack}`);
   }
 
-  // Set custom application menu
-  if (win) {
-    Menu.setApplicationMenu(buildAppMenu(win));
-  }
+  // Frameless window — no native menu bar
+  Menu.setApplicationMenu(null);
+
+  // Window control IPC handlers for custom TitleBar
+  ipcMain.handle('window:minimize', () => { win?.minimize(); });
+  ipcMain.handle('window:maximize', () => {
+    if (win?.isMaximized()) win.unmaximize();
+    else win?.maximize();
+  });
+  ipcMain.handle('window:close', () => { win?.close(); });
+  ipcMain.handle('window:is-maximized', () => win?.isMaximized() ?? false);
+  ipcMain.handle('window:toggle-fullscreen', () => {
+    if (win) win.setFullScreen(!win.isFullScreen());
+  });
+  ipcMain.handle('window:toggle-devtools', () => {
+    win?.webContents.toggleDevTools();
+  });
+  ipcMain.handle('app:get-version', () => app.getVersion());
+  ipcMain.handle('app:get-electron-version', () => process.versions.electron);
+
+  // Global shortcuts for actions that should work regardless of focus
+  globalShortcut.register('F11', () => {
+    if (win) win.setFullScreen(!win.isFullScreen());
+  });
+  globalShortcut.register('CmdOrCtrl+Shift+I', () => {
+    win?.webContents.toggleDevTools();
+  });
   logDebug(`[PERF] Startup (UI ready): ${(performance.now() - startupStart).toFixed(1)}ms`);
 
   // Wire up email:new IPC event from IMAP sync

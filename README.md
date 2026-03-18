@@ -170,7 +170,7 @@ npm run dev
 
 ```
 electron/          Main process — DB, IMAP, SMTP, MCP server, updater
-src/               Renderer — React SPA (16 components, 2 stores)
+src/               Renderer — React SPA (17 components, 2 stores)
   components/      UI components + co-located CSS modules
   stores/          Zustand stores (theme + email)
   lib/             Utilities, IPC wrapper, keyboard shortcuts, i18n

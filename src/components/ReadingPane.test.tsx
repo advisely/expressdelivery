@@ -231,7 +231,6 @@ describe('ReadingPane', () => {
         await waitFor(() => {
             expect(screen.getByText('report.pdf')).toBeInTheDocument();
             expect(screen.getByText('photo.jpg')).toBeInTheDocument();
-            expect(screen.getByText('2 attachments')).toBeInTheDocument();
         });
     });
 
@@ -284,7 +283,6 @@ describe('ReadingPane', () => {
         renderReadingPane();
         await waitFor(() => {
             expect(screen.getByText('report.pdf')).toBeInTheDocument();
-            expect(screen.getByText('1 attachment')).toBeInTheDocument();
             expect(screen.queryByText('inline-image.png')).not.toBeInTheDocument();
         });
     });
