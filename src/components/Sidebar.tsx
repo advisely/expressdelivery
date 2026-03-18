@@ -211,8 +211,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       return;
     }
     if (countResult && countResult.count > 0) {
-      // Folder has emails — block deletion
-      onToast?.(t('sidebar.folderNotEmpty', { name: folderName, count: countResult.count }), undefined, 'warning');
+      // Folder has emails — confirm deletion (backend auto-forces recursive for trash subfolders)
+      onToast?.(t('sidebar.folderNotEmpty', { name: folderName, count: countResult.count }), undefined, 'warning', {
+        label: t('confirm.delete'),
+        action: () => doDelete(true),
+      });
       return;
     }
 
@@ -959,7 +962,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               className={styles['rename-input']}
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
-              onBlur={() => { setCreatingSubfolder(null); setNewFolderName(''); }}
+              onBlur={() => { setTimeout(() => { setCreatingSubfolder(null); setNewFolderName(''); }, 150); }}
               onKeyDown={(e) => { if (e.key === 'Escape') { setCreatingSubfolder(null); setNewFolderName(''); } }}
               placeholder={t('sidebar.newFolderName')}
               maxLength={100}

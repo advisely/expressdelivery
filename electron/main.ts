@@ -526,6 +526,13 @@ function registerIpcHandlers() {
     if (!folder) return { success: false, error: 'Folder not found' };
     if (PROTECTED_FOLDER_TYPES.has(folder.type)) return { success: false, error: 'Cannot delete system folder' };
 
+    // Folders inside the Trash hierarchy are always force-deletable (recursive)
+    const trashFolder = db.prepare(
+      "SELECT path FROM folders WHERE account_id = ? AND type = 'trash'"
+    ).get(folder.account_id) as { path: string } | undefined;
+    const isInsideTrash = trashFolder && folder.path.startsWith(trashFolder.path + '/');
+    if (isInsideTrash) recursive = true;
+
     if (recursive) {
       // Delete children depth-first (longest paths first), then parent
       const children = db.prepare(
