@@ -326,6 +326,11 @@
   font-weight: 500;
 }
 
+.nav-item-flex {
+  flex: 1;
+  min-width: 0;
+}
+
 .nav-badge {
   background: var(--accent-color);
   color: white;
@@ -333,6 +338,7 @@
   padding: 2px 6px;
   border-radius: 10px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 /* Small unread indicator dot for collapsed mode */

@@ -128,6 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [colorPickerFolderId, setColorPickerFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const [allAccountFolders, setAllAccountFolders] = useState<Record<string, Folder[]>>({});
+  const [allUnreadCounts, setAllUnreadCounts] = useState<Record<string, number>>({});
   const draggedEmailIds = useEmailStore(s => s.draggedEmailIds);
   const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
 
@@ -281,8 +282,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     if (!selectedAccountId) return;
     let cancelled = false;
     async function loadCounts() {
-      // In All Accounts mode, skip per-account unread counts (virtual folders don't have them)
-      if (selectedAccountId === '__all') return;
+      if (selectedAccountId === '__all') {
+        // In All Accounts mode, load unread counts for all included accounts and aggregate per folder ID
+        const allCounts: Record<string, number> = {};
+        await Promise.all(
+          includedAccounts.map(acc =>
+            ipcInvoke<Array<{ folder_id: string; count: number }>>('folders:unread-counts', acc.id).then(result => {
+              if (Array.isArray(result)) {
+                for (const row of result) {
+                  allCounts[row.folder_id] = (allCounts[row.folder_id] ?? 0) + row.count;
+                }
+              }
+            })
+          )
+        );
+        if (!cancelled) setAllUnreadCounts(allCounts);
+        return;
+      }
       const result = await ipcInvoke<Array<{ folder_id: string; count: number }>>('folders:unread-counts', selectedAccountId);
       if (result && !cancelled) {
         const counts: Record<string, number> = {};
@@ -304,7 +320,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     const unsubRead = api?.on('email:read', () => { loadCounts(); loadUnifiedCount(); });
 
     return () => { cancelled = true; unsubNew?.(); unsubRead?.(); };
-  }, [selectedAccountId]);
+  }, [selectedAccountId, includedAccounts]);
 
   // Unified inbox unread count (only relevant with 2+ accounts)
   useEffect(() => {
@@ -651,17 +667,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               {accFolders.length > 0
                 ? accFolders.map((folder) => {
                     const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
+                    const allCount = allUnreadCounts[folder.id] ?? 0;
+                    const showAllBadge = allCount > 0 && folder.type !== 'trash' && folder.type !== 'junk';
                     return (
-                      <button
-                        key={folder.id}
-                        className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
-                        onClick={() => selectFolder(folder.id)}
-                        title={sidebarCollapsed ? folder.name : undefined}
-                        style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
-                      >
-                        <Icon size={18} className={styles['nav-icon']} />
-                        {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
-                      </button>
+                      <div key={folder.id} className={styles['nav-item-row']}>
+                        <button
+                          className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
+                          onClick={() => selectFolder(folder.id)}
+                          title={sidebarCollapsed ? folder.name : undefined}
+                          style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                        >
+                          <Icon size={18} className={styles['nav-icon']} />
+                          {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
+                        </button>
+                        {!sidebarCollapsed && showAllBadge && (
+                          <span className={styles['nav-badge']}>{allCount > 99 ? '99+' : allCount}</span>
+                        )}
+                      </div>
                     );
                   })
                 : DEFAULT_NAV.map((item) => (
@@ -679,6 +701,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               const Icon = FOLDER_ICONS[folder.type ?? ''] ?? Inbox;
               const count = unreadCounts[folder.id];
               const isTrash = folder.type === 'trash';
+              const isJunk = folder.type === 'junk';
+              const showBadge = count != null && count > 0 && !isTrash && !isJunk;
               const isSystem = SYSTEM_FOLDER_TYPES.has(folder.type ?? '');
               const isRenaming = renamingFolderId === folder.id;
               // Calculate nesting depth from path: /Archive = 0, /Archive/2024 = 1
@@ -702,24 +726,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                       />
                     </form>
                   ) : (
-                    <button
-                      className={`${styles['nav-item']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${isTrash ? styles['nav-item-trash'] : ''} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
-                      onClick={() => selectFolder(folder.id)}
-                      title={sidebarCollapsed ? folder.name : undefined}
-                      style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
-                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverFolderId(folder.id); }}
-                      onDragLeave={() => setDragOverFolderId(null)}
-                      onDrop={(e) => handleFolderDrop(e, folder.id, folder.name)}
-                    >
-                      <Icon size={18} className={styles['nav-icon']} />
-                      {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
-                      {!sidebarCollapsed && count != null && count > 0 && (
+                    <>
+                      <button
+                        className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
+                        onClick={() => selectFolder(folder.id)}
+                        title={sidebarCollapsed ? folder.name : undefined}
+                        style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverFolderId(folder.id); }}
+                        onDragLeave={() => setDragOverFolderId(null)}
+                        onDrop={(e) => handleFolderDrop(e, folder.id, folder.name)}
+                      >
+                        <Icon size={18} className={styles['nav-icon']} />
+                        {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
+                        {sidebarCollapsed && showBadge && (
+                          <span className={styles['nav-badge-dot']} />
+                        )}
+                      </button>
+                      {!sidebarCollapsed && showBadge && (
                         <span className={styles['nav-badge']}>{count > 99 ? '99+' : count}</span>
                       )}
-                      {sidebarCollapsed && count != null && count > 0 && (
-                        <span className={styles['nav-badge-dot']} />
-                      )}
-                    </button>
+                    </>
                   )}
                   {colorPickerFolderId === folder.id && !sidebarCollapsed && (
                     <div className={styles['color-picker-grid']}>
