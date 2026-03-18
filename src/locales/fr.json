@@ -26,6 +26,7 @@
     "deleteFolder": "Supprimer le dossier",
     "deleteFolderConfirm": "Supprimer le dossier \"{{name}}\" ? Il doit être vide.",
     "createSubfolder": "Créer un sous-dossier",
+    "newFolder": "Nouveau dossier",
     "newFolderName": "Nom du nouveau dossier",
     "setColor": "Définir la couleur",
     "clearColor": "Effacer la couleur",

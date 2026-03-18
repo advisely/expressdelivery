@@ -26,6 +26,7 @@
     "deleteFolder": "Eliminar carpeta",
     "deleteFolderConfirm": "¿Eliminar la carpeta \"{{name}}\"? Debe estar vacía.",
     "createSubfolder": "Crear subcarpeta",
+    "newFolder": "Nueva carpeta",
     "newFolderName": "Nombre de la nueva carpeta",
     "setColor": "Establecer color",
     "clearColor": "Quitar color",

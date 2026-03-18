@@ -476,14 +476,19 @@ function registerIpcHandlers() {
       fullPath = `${safeParent}/${safeName}`;
     }
 
-    const ok = await imapEngine.createMailbox(accountId, fullPath);
+    // IMAP path: no leading / (matches IMAPFlow convention)
+    const imapPath = fullPath.replace(/^\//, '');
+    const ok = await imapEngine.createMailbox(accountId, imapPath);
     if (!ok) return { success: false, error: 'Failed to create folder on server' };
 
-    const folderId = `${accountId}_${fullPath}`;
+    // DB path: with leading / (matches IMAP sync format from listAndSyncFolders)
+    const dbPath = fullPath.startsWith('/') ? fullPath : `/${fullPath}`;
+    // Folder ID: accountId + IMAP path without leading / (matches IMAP sync ID format)
+    const folderId = `${accountId}_${imapPath}`;
     db.prepare(
       `INSERT OR IGNORE INTO folders (id, account_id, name, path, type, sort_order)
        VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM folders WHERE account_id = ?))`
-    ).run(folderId, accountId, safeName, fullPath, 'other', accountId);
+    ).run(folderId, accountId, safeName, dbPath, 'other', accountId);
     return { success: true, folderId };
   });
 
@@ -1051,6 +1056,20 @@ function registerIpcHandlers() {
 
     // Delete all trash emails from local DB
     db.prepare('DELETE FROM emails WHERE folder_id = ?').run(trashFolder.id);
+
+    // Also delete any subfolders inside the trash folder (e.g., folders moved to Trash/)
+    const trashSubfolders = db.prepare(
+      "SELECT id, path FROM folders WHERE account_id = ? AND path LIKE ? || '/%' ORDER BY length(path) DESC"
+    ).all(accountId, trashFolder.path) as Array<{ id: string; path: string }>;
+
+    for (const sub of trashSubfolders) {
+      // Delete emails in each subfolder
+      db.prepare('DELETE FROM emails WHERE folder_id = ?').run(sub.id);
+      // Delete subfolder on IMAP server (best-effort)
+      await imapEngine.deleteMailbox(accountId, sub.path.replace(/^\//, '')).catch(() => {});
+      db.prepare('DELETE FROM folders WHERE id = ?').run(sub.id);
+    }
+
     return { success: true };
   });
 

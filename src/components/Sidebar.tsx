@@ -723,20 +723,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
           );
         })}
         {!isAllAccounts && activeAccount && !sidebarCollapsed && (
-          <button
-            className={styles['context-account-label']}
-            onClick={() => toggleAccountCollapse(activeAccount.id)}
-            aria-expanded={!collapsedAccounts.has(activeAccount.id)}
-            type="button"
-          >
-            <ChevronRight
-              size={11}
-              className={`${styles['account-collapse-chevron']} ${!collapsedAccounts.has(activeAccount.id) ? styles['account-collapse-open'] : ''}`}
-            />
-            <span className={styles['context-account-text']}>
-              {activeAccount.display_name ?? activeAccount.email}
-            </span>
-          </button>
+          <div className={styles['account-label-row']}>
+            <button
+              className={styles['context-account-label']}
+              onClick={() => toggleAccountCollapse(activeAccount.id)}
+              aria-expanded={!collapsedAccounts.has(activeAccount.id)}
+              type="button"
+            >
+              <ChevronRight
+                size={11}
+                className={`${styles['account-collapse-chevron']} ${!collapsedAccounts.has(activeAccount.id) ? styles['account-collapse-open'] : ''}`}
+              />
+              <span className={styles['context-account-text']}>
+                {activeAccount.display_name ?? activeAccount.email}
+              </span>
+            </button>
+            <button
+              className={styles['new-folder-btn']}
+              onClick={() => { setCreatingSubfolder('__top'); setNewFolderName(''); }}
+              title={t('sidebar.newFolder')}
+              aria-label={t('sidebar.newFolder')}
+              type="button"
+            >
+              <FolderPlus size={13} />
+            </button>
+          </div>
         )}
         {!isAllAccounts && (!activeAccount || !collapsedAccounts.has(activeAccount.id)) && (folders.length > 0
           ? folders.map((folder, folderIdx) => {

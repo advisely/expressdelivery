@@ -26,6 +26,7 @@
     "deleteFolder": "Delete folder",
     "deleteFolderConfirm": "Delete folder \"{{name}}\"? It must be empty.",
     "createSubfolder": "Create subfolder",
+    "newFolder": "New folder",
     "newFolderName": "New folder name",
     "setColor": "Set color",
     "clearColor": "Clear color",

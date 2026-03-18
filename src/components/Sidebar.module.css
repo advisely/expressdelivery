@@ -715,6 +715,50 @@
   transform: rotate(90deg);
 }
 
+/* Row container: account label + new-folder button side by side */
+.account-label-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.account-label-row:first-child {
+  margin-top: 0;
+}
+
+.account-label-row .context-account-label {
+  flex: 1;
+  min-width: 0;
+  border-top: none;
+  margin-top: 0;
+}
+
+/* "+" new-folder button next to account label */
+.new-folder-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.account-label-row:hover .new-folder-btn {
+  opacity: 1;
+}
+
+.new-folder-btn:hover {
+  color: rgb(var(--color-accent));
+  background: var(--hover-bg);
+}
+
 .context-account-text {
   font-size: 10px;
   font-weight: 600;

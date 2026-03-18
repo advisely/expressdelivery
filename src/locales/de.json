@@ -26,6 +26,7 @@
     "deleteFolder": "Ordner löschen",
     "deleteFolderConfirm": "Ordner \"{{name}}\" löschen? Er muss leer sein.",
     "createSubfolder": "Unterordner erstellen",
+    "newFolder": "Neuer Ordner",
     "newFolderName": "Name des neuen Ordners",
     "setColor": "Farbe setzen",
     "clearColor": "Farbe entfernen",
