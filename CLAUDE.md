@@ -7,7 +7,7 @@ Electron desktop email client evolving into an agentic multi-channel communicati
 | Layer     | Technology                                                                                   |
 | --------- | -------------------------------------------------------------------------------------------- |
 | Frontend  | React 19, TypeScript 5.9 strict, Zustand (theme + email stores), Radix UI (Dialog, Tabs, Popover), TipTap (rich text), Lucide icons, Tailwind CSS v4, DOMPurify, react-i18next, CSS custom properties |
-| Backend   | Electron 40, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5, electron-updater    |
+| Backend   | Electron 41, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5, electron-updater    |
 | AI/MCP    | @modelcontextprotocol/sdk (multi-client SSE transport on port 3000), 8 tools (search, read, send, draft, summary, categorize, analytics, suggest_reply) |
 | Build     | Vite 7 + vite-plugin-electron, electron-builder (Windows NSIS, Linux AppImage/deb/rpm, macOS DMG, GitHub Releases publish) |
 | Testing   | Vitest 4 + jsdom, @testing-library/react, @vitest/coverage-v8                               |
@@ -123,6 +123,7 @@ npm run build:linux      # Clean build for Linux
 npm run build:all        # Clean build for Linux + Windows (correct order)
 npm run test             # vitest run
 npm run test:coverage    # vitest with @vitest/coverage-v8
+npm run test:e2e         # Playwright E2E (rebuilds better-sqlite3 for Electron ABI, restores after)
 npm run lint             # eslint (strict, 0 warnings)
 npm run make:update-package  # Package NSIS installer into .expressdelivery update file
 ```
@@ -131,13 +132,13 @@ npm run make:update-package  # Package NSIS installer into .expressdelivery upda
 
 **Use `scripts/clean-build.mjs`:** All `build:*` scripts use the clean build script which handles the full hydration sequence automatically: kill app, purge stale artifacts, delete old `better-sqlite3` build, rebuild native deps for Electron ABI, compile, package, verify binary, restore host binary for vitest.
 
-**Why this matters:** `better-sqlite3` is a NAN-based native module (ABI-specific, not NAPI). Node.js v24 uses ABI 137 but Electron 40 uses ABI 143. If the wrong ABI binary is packaged, the app crashes with `NODE_MODULE_VERSION` mismatch. The clean build script purges the old binary and `.forge-meta` before every rebuild to prevent stale cache issues.
+**Why this matters:** `better-sqlite3` is a NAN-based native module (ABI-specific, not NAPI). Node.js v24 uses ABI 137 but Electron 41 uses ABI 145. If the wrong ABI binary is packaged, the app crashes with `NODE_MODULE_VERSION` mismatch. The clean build script purges the old binary and `.forge-meta` before every rebuild to prevent stale cache issues.
 
 **Cross-platform build order:** Building Linux overwrites `better_sqlite3.node` with a Linux ELF binary. The clean build script handles this automatically -- when `--linux --win` are both specified, it rebuilds native deps between platforms.
 
 **Close the app before rebuilding:** electron-builder cannot overwrite `win-unpacked/` if the app is running (file locks). Check the system tray -- the app may be minimized there. The clean build script attempts `taskkill` automatically.
 
-**Manual rebuild (if needed):** `npx @electron/rebuild -v 40.6.0 -m . --only better-sqlite3 --force` then `npx electron-builder --win --dir`. Always delete `node_modules/better-sqlite3/build/` first to avoid stale `.forge-meta`.
+**Manual rebuild (if needed):** `npx @electron/rebuild -v 41.0.3 -m . --only better-sqlite3 --force` then `npx electron-builder --win --dir`. Always delete `node_modules/better-sqlite3/build/` first to avoid stale `.forge-meta`.
 
 **Restore host binary after manual builds:** `npm rebuild better-sqlite3` (restores ABI 137 for vitest). The clean build script does this automatically unless `--no-restore` is passed.
 
@@ -171,7 +172,7 @@ npm run make:update-package  # Package NSIS installer into .expressdelivery upda
 
 ### Quality Pipeline (MANDATORY)
 
-**8-step process:**
+**9-step process:**
 
 1. **Development** -- Implement the feature/fix
 2. **ESLint Auto-Fix** -- Run `npm run lint -- --fix` to auto-fix lint issues in modified files
@@ -183,9 +184,10 @@ npm run make:update-package  # Package NSIS installer into .expressdelivery upda
 5. **Pre-existing Scan** -- Fix pre-existing issues in touched files (boy scout rule)
 6. **`qa-engineer`** -- Test coverage validation, edge case identification
 7. **Build Verification** -- Run `npm run build:win` to catch TypeScript errors
-8. **`documentation-specialist`** -- Update CLAUDE.md, README, inline comments
+8. **E2E Console Health** -- Run `npm run test:e2e -- --grep "Console Health"` to catch runtime errors, deprecation warnings, and console errors across all app sections (requires build from step 7; requires C++ build tools locally — Visual Studio Build Tools on Windows, build-essential on Linux; always enforced in CI)
+9. **`documentation-specialist`** -- Update CLAUDE.md, README, inline comments
 
-**Key rules:** Fix all issues before proceeding. Never skip steps. ESLint must pass with zero warnings.
+**Key rules:** Fix all issues before proceeding. Never skip steps. ESLint must pass with zero warnings. E2E console health is mandatory in CI; locally it may be skipped if C++ build tools are unavailable (warned at step 8).
 
 ## Security Posture: A- (0 Critical, 1 High)
 

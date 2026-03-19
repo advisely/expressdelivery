@@ -22,14 +22,14 @@ Last updated: 2026-03-18 (v1.12.5).
 
 ## 1. System Overview
 
-ExpressDelivery is an Electron 40 desktop email client built with React 19 and TypeScript 5.9 in strict mode. It speaks IMAP (via IMAPFlow) and SMTP (via Nodemailer), stores all state in a local SQLite database (better-sqlite3, WAL mode, FTS5 full-text search), and exposes an MCP (Model Context Protocol) server over SSE so that external AI agents can read, search, send, and categorize email. The UI is a three-pane React SPA rendered in the Chromium process; the main process (Node.js) owns all I/O and exposes approximately 107 typed IPC handlers through a sandboxed preload bridge. Security properties include bearer-token MCP auth, sandboxed iframes for HTML email, DOMPurify sanitization, safeStorage encryption for credentials, CRLF injection prevention, and a channel allowlist on the preload bridge.
+ExpressDelivery is an Electron 41 desktop email client built with React 19 and TypeScript 5.9 in strict mode. It speaks IMAP (via IMAPFlow) and SMTP (via Nodemailer), stores all state in a local SQLite database (better-sqlite3, WAL mode, FTS5 full-text search), and exposes an MCP (Model Context Protocol) server over SSE so that external AI agents can read, search, send, and categorize email. The UI is a three-pane React SPA rendered in the Chromium process; the main process (Node.js) owns all I/O and exposes approximately 107 typed IPC handlers through a sandboxed preload bridge. Security properties include bearer-token MCP auth, sandboxed iframes for HTML email, DOMPurify sanitization, safeStorage encryption for credentials, CRLF injection prevention, and a channel allowlist on the preload bridge.
 
 ---
 
 ## 2. Process Architecture
 
 ```
-Electron Main Process (Node.js / ABI 143)
+Electron Main Process (Node.js / ABI 145)
 |
 +-- electron/main.ts         ~107 IPC handlers, window, tray, crash handler (frameless, no menu)
 +-- electron/db.ts           SQLite via better-sqlite3 (WAL, foreign keys, FTS5, 12 migrations)
@@ -425,7 +425,7 @@ All `build:*` npm scripts delegate to this script:
 2. Purge stale build artifacts (`dist/`, `dist-electron/`, `release/`).
 3. Delete `node_modules/better-sqlite3/build/` to force a clean native rebuild.
 4. Delete `.forge-meta` cache files.
-5. Run `@electron/rebuild -v 40.6.0 --only better-sqlite3 --force` for Electron ABI 143.
+5. Run `@electron/rebuild -v 41.0.3 --only better-sqlite3 --force` for Electron ABI 145.
 6. Run TypeScript compilation, Vite build, and electron-builder packaging.
 7. Verify the packaged binary exists.
 8. Run `npm rebuild better-sqlite3` to restore host ABI 137 for Vitest. (Skippable with `--no-restore`.)
@@ -437,13 +437,13 @@ When `--linux` and `--win` are both passed, it rebuilds native deps between plat
 | Runtime | ABI version |
 |---|---|
 | Node.js v24 | 137 |
-| Electron 40 | 143 |
+| Electron 41 | 145 |
 
 `better-sqlite3` is NAN-based (not NAPI), so it must be compiled for the specific ABI. For manual rebuilds:
 
 ```bash
 rm -rf node_modules/better-sqlite3/build/
-npx @electron/rebuild -v 40.6.0 -m . --only better-sqlite3 --force
+npx @electron/rebuild -v 41.0.3 -m . --only better-sqlite3 --force
 npx electron-builder --win --dir
 npm rebuild better-sqlite3   # restore for Vitest
 ```
@@ -467,7 +467,7 @@ This section documents recurring pitfalls. Read this before re-investigating any
 
 **Symptom:** App crashes with `NODE_MODULE_VERSION mismatch`.
 
-**Root Cause:** `better-sqlite3` is NAN-based. Node.js v24 uses ABI 137; Electron 40 uses ABI 143. Wrong binary = crash.
+**Root Cause:** `better-sqlite3` is NAN-based. Node.js v24 uses ABI 137; Electron 41 uses ABI 145. Wrong binary = crash.
 
 **Solution:** Use `scripts/clean-build.mjs` which purges the old binary, rebuilds for Electron ABI, packages, then restores host ABI for Vitest.
 

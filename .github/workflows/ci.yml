@@ -10,8 +10,12 @@ permissions:
   contents: read
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
+  quality-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       # actions/checkout@v4.2.2
@@ -32,8 +36,26 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
+      - name: Unit tests
         run: npm run test
 
       - name: TypeScript check
         run: npx tsc --noEmit
+
+      # Build for E2E (tsc + vite only, no electron-builder packaging)
+      - name: Build Electron app
+        run: |
+          npx tsc
+          npx vite build
+
+      - name: Install Playwright Electron
+        run: npx playwright install --with-deps chromium
+
+      # npm run test:e2e handles rebuild for Electron ABI + restore for host
+      - name: E2E console health (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:e2e -- --grep "Console Health"
+
+      - name: E2E console health (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:e2e -- --grep "Console Health"

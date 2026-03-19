@@ -161,7 +161,7 @@ npm run dev
 | Layer | Technology |
 |---|---|
 | **Frontend** | React 19, TypeScript 5.9 (strict), Zustand, Radix UI, TipTap, Tailwind CSS v4, Lucide |
-| **Backend** | Electron 40, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5 |
+| **Backend** | Electron 41, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5 |
 | **AI** | MCP SDK (multi-client SSE), OpenRouter, 8 tool handlers |
 | **Build** | Vite 7, electron-builder (NSIS, AppImage, deb, rpm, DMG) |
 | **Test** | Vitest 4, Testing Library, 648 tests across 27 files |

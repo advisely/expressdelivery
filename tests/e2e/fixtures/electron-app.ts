@@ -2,8 +2,12 @@
 import { test as base, type ElectronApplication, type Page } from '@playwright/test';
 import { _electron as electron } from 'playwright';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 type TestFixtures = {
   electronApp: ElectronApplication;
@@ -21,6 +25,16 @@ export const test = base.extend<TestFixtures>({
         ELECTRON_USER_DATA_DIR: userDataDir,
         NODE_ENV: 'test',
       },
+    });
+
+    // Capture process output for crash diagnostics
+    electronApp.process().stderr?.on('data', (data: Buffer) => {
+      const msg = data.toString().trim();
+      if (msg && !msg.includes('debugger')) console.error('[Electron stderr]', msg);
+    });
+    electronApp.process().stdout?.on('data', (data: Buffer) => {
+      const msg = data.toString().trim();
+      if (msg && msg.includes('Error')) console.error('[Electron stdout]', msg);
     });
 
     await use(electronApp);

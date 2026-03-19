@@ -7,7 +7,7 @@
   },
   "license": "MIT",
   "private": true,
-  "version": "1.12.5",
+  "version": "1.13.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,7 +22,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "pretest:e2e": "node scripts/e2e-rebuild.mjs",
     "test:e2e": "npx playwright test --config tests/playwright.config.ts",
+    "posttest:e2e": "node scripts/e2e-rebuild.mjs --restore",
     "make:update-package": "powershell -ExecutionPolicy Bypass -File scripts/build-expressdelivery.ps1"
   },
   "dependencies": {
@@ -38,7 +40,7 @@
     "@tiptap/pm": "^3.20.0",
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "dompurify": "^3.3.1",
     "electron-updater": "^6.8.3",
@@ -74,13 +76,14 @@
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.24",
-    "electron": "^40.6.0",
+    "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
     "eslint": "^10.0.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.3.0",
     "jsdom": "^28.1.0",
+    "node-gyp": "^12.2.0",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.5.6",
     "sharp": "^0.34.5",
@@ -91,5 +94,8 @@
     "vite-plugin-electron-renderer": "^0.14.6",
     "vitest": "^4.0.18"
   },
-  "main": "dist-electron/main.js"
+  "main": "dist-electron/main.js",
+  "overrides": {
+    "node-gyp": "^12.2.0"
+  }
 }

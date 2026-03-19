@@ -29,11 +29,26 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build, package, and publish to GitHub Releases
+      - name: Build Electron app
         run: |
           npx tsc
           npx vite build
-          npx electron-builder --win --publish always
+
+      # E2E console health gate — must pass before packaging
+      # pretest:e2e rebuilds better-sqlite3 for Electron ABI
+      - name: Install Playwright Electron
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E console health
+        run: npm run test:e2e -- --grep "Console Health"
+
+      # Rebuild better-sqlite3 for Electron ABI (posttest:e2e restores host,
+      # but electron-builder needs Electron ABI)
+      - name: Rebuild native deps for packaging
+        run: npx @electron/rebuild -m . --only better-sqlite3 --force
+
+      - name: Package and publish to GitHub Releases
+        run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -73,10 +88,23 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build, package, and publish to GitHub Releases
+      - name: Build Electron app
         run: |
           npx tsc
           npx vite build
-          npx electron-builder --linux --publish always
+
+      # E2E console health gate — must pass before packaging
+      - name: Install Playwright Electron
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E console health
+        run: xvfb-run --auto-servernum npm run test:e2e -- --grep "Console Health"
+
+      # Rebuild better-sqlite3 for Electron ABI (posttest:e2e restores host)
+      - name: Rebuild native deps for packaging
+        run: npx @electron/rebuild -m . --only better-sqlite3 --force
+
+      - name: Package and publish to GitHub Releases
+        run: npx electron-builder --linux --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

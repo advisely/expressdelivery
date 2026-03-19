@@ -2,7 +2,7 @@
 
 Measurable performance budgets, latency targets, and profiling guidelines for the ExpressDelivery Electron email client. All targets assume a modern machine (8GB RAM, SSD, broadband connection).
 
-**Application Profile:** Electron 40, React 19, SQLite (WAL + FTS5), IMAPFlow, Express 5 MCP server
+**Application Profile:** Electron 41, React 19, SQLite (WAL + FTS5), IMAPFlow, Express 5 MCP server
 **Target Workload:** Daily-driver email client handling 1,000-50,000 emails per account
 
 ---

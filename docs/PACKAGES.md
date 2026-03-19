@@ -38,7 +38,7 @@ Last updated: 2026-03-18
 
 | Package | Version | Status | Purpose |
 |---------|---------|--------|---------|
-| `electron` | ^40.6.0 | Current | Desktop runtime (Chromium 132 / Node 22) |
+| `electron` | ^41.0.3 | Current | Desktop runtime (Chromium 146 / Node 24) |
 | `electron-builder` | ^26.8.1 | Current | App packaging (NSIS, AppImage, DMG) |
 | `typescript` | ^5.9.3 | Current | TypeScript compiler (strict mode) |
 | `vite` | ^7.3.1 | Current | Build tool + dev server |
@@ -105,7 +105,7 @@ These external APIs are accessed directly without dedicated npm packages:
 
 ## Build Notes
 
-- **better-sqlite3** is NAN-based (ABI-specific). Node.js v24 = ABI 137, Electron 40 = ABI 143. Use `scripts/clean-build.mjs` which purges stale `.forge-meta` and rebuilds for the correct ABI.
+- **better-sqlite3** is NAN-based (ABI-specific). Node.js v24 = ABI 137, Electron 41 = ABI 145. Use `scripts/clean-build.mjs` which purges stale `.forge-meta` and rebuilds for the correct ABI.
 - All `build:*` npm scripts use the clean build hydration script.
 - After packaging, `npm rebuild better-sqlite3` restores the host binary for vitest.
 - **grammy** is pure TypeScript with no native modules -- no ABI concerns.
