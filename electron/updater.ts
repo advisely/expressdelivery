@@ -173,7 +173,12 @@ export function initAutoUpdater() {
   });
 
   autoUpdater.on('update-available', (info) => {
-    logDebug(`[UPDATER] Update available: ${info.version}`);
+    const current = app.getVersion();
+    if (compareVersions(info.version, current) <= 0) {
+      logDebug(`[UPDATER] Ignoring update ${info.version} (current: ${current}, not newer)`);
+      return;
+    }
+    logDebug(`[UPDATER] Update available: ${info.version} (current: ${current})`);
     callback?.('update:available', { version: info.version, releaseNotes: info.releaseNotes });
   });
 
