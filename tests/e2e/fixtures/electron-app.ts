@@ -18,8 +18,14 @@ export const test = base.extend<TestFixtures>({
   electronApp: async ({}, use) => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-e2e-'));
 
+    const appArgs = [path.join(__dirname, '../../../dist-electron/main.js')];
+    // CI Linux runners need --no-sandbox for Chromium to launch
+    if (process.env.CI) {
+      appArgs.unshift('--no-sandbox', '--disable-gpu');
+    }
+
     const electronApp = await electron.launch({
-      args: [path.join(__dirname, '../../../dist-electron/main.js')],
+      args: appArgs,
       env: {
         ...process.env,
         ELECTRON_USER_DATA_DIR: userDataDir,
