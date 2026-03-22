@@ -1,5 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ImapFlow } from 'imapflow';
 import { withImapTimeout } from './imap.js';
+
+// === Mocks for AccountSyncController tests ===
+// vi.mock() calls are hoisted to the top of the file by Vitest.
+// The withImapTimeout tests do not use these mocks and are unaffected.
+
+const { mockLogDebug } = vi.hoisted(() => ({
+    mockLogDebug: vi.fn(),
+}));
+
+vi.mock('./logger.js', () => ({
+    logDebug: mockLogDebug,
+}));
+
+const { mockDbPrepare } = vi.hoisted(() => ({
+    mockDbPrepare: vi.fn(() => ({
+        all: vi.fn().mockReturnValue([]),
+        get: vi.fn().mockReturnValue(null),
+        run: vi.fn().mockReturnValue({ changes: 0 }),
+    })),
+}));
+
+vi.mock('./db.js', () => ({
+    getDatabase: vi.fn(() => ({ prepare: mockDbPrepare })),
+}));
+
+import { AccountSyncController } from './imap.js';
 
 describe('withImapTimeout', () => {
     beforeEach(() => { vi.useFakeTimers(); });
@@ -80,3 +107,48 @@ describe('withImapTimeout', () => {
         await expect(Promise.race([promise, Promise.resolve('fallback')])).resolves.toBeDefined();
     });
 });
+
+describe('AccountSyncController', () => {
+    let ctrl: AccountSyncController;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.clearAllMocks();
+        ctrl = new AccountSyncController('acc-1');
+    });
+
+    afterEach(() => {
+        ctrl.stop();
+        vi.useRealTimers();
+    });
+
+    describe('lifecycle', () => {
+        it('starts in disconnected status with null client', () => {
+            expect(ctrl.status).toBe('disconnected');
+            expect(ctrl.client).toBeNull();
+        });
+
+        it('stop clears all timers and sets status to disconnected', () => {
+            ctrl.status = 'connected';
+            ctrl.heartbeatTimer = setInterval(() => {}, 1000);
+            ctrl.inboxSyncTimer = setInterval(() => {}, 1000);
+            ctrl.folderSyncTimer = setInterval(() => {}, 1000);
+            ctrl.reconnectTimer = setTimeout(() => {}, 1000);
+            ctrl.stop();
+            expect(ctrl.status).toBe('disconnected');
+            expect(ctrl.client).toBeNull();
+            expect(ctrl.heartbeatTimer).toBeNull();
+            expect(ctrl.inboxSyncTimer).toBeNull();
+            expect(ctrl.folderSyncTimer).toBeNull();
+            expect(ctrl.reconnectTimer).toBeNull();
+        });
+
+        it('stop is idempotent — calling twice does not throw', () => {
+            ctrl.stop();
+            expect(() => ctrl.stop()).not.toThrow();
+        });
+    });
+});
+
+// Suppress unused import warning — ImapFlow type is used in Task 4 forceDisconnect tests
+void (null as unknown as ImapFlow);

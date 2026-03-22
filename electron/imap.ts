@@ -106,6 +106,74 @@ function extractAttachments(structure: BodyStructureNode): AttachmentMeta[] {
     return attachments;
 }
 
+export interface SyncSettings {
+    inboxIntervalSec: number;
+    folderIntervalSec: number;
+    reconnectMaxMinutes: number;
+}
+
+export class AccountSyncController {
+    readonly accountId: string;
+    client: ImapFlow | null = null;
+    inboxSyncTimer: ReturnType<typeof setInterval> | null = null;
+    folderSyncTimer: ReturnType<typeof setInterval> | null = null;
+    syncing = false;
+    lastSuccessfulSync: number | null = null;
+    consecutiveFailures = 0;
+    heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    lastSeenUid: Map<string, number> = new Map();
+    reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    reconnectAttempts = 0;
+    status: 'disconnected' | 'connecting' | 'connected' | 'syncing' | 'error' = 'disconnected';
+    private pendingIntervalUpdate: SyncSettings | null = null;
+    private settings: SyncSettings = { inboxIntervalSec: 15, folderIntervalSec: 60, reconnectMaxMinutes: 5 };
+    private statusCallback: ((accountId: string, status: string, timestamp: number | null) => void) | null = null;
+    private newEmailCallback: ((accountId: string, folderId: string, count: number) => void) | null = null;
+
+    constructor(accountId: string, settings?: Partial<SyncSettings>) {
+        this.accountId = accountId;
+        if (settings) {
+            this.settings = { ...this.settings, ...settings };
+        }
+    }
+
+    setStatusCallback(cb: (accountId: string, status: string, timestamp: number | null) => void): void {
+        this.statusCallback = cb;
+    }
+
+    setNewEmailCallback(cb: (accountId: string, folderId: string, count: number) => void): void {
+        this.newEmailCallback = cb;
+    }
+
+    emitStatus(): void {
+        this.statusCallback?.(this.accountId, this.status, this.lastSuccessfulSync);
+    }
+
+    stop(): void {
+        if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+        if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
+        if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
+        if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        try { this.client?.close(); } catch { /* force close */ }
+        this.client = null;
+        this.status = 'disconnected';
+        this.syncing = false;
+    }
+
+    /** Queue a sync-interval change to take effect after the current sync cycle. */
+    queueIntervalUpdate(settings: SyncSettings): void {
+        this.pendingIntervalUpdate = settings;
+    }
+
+    /** Apply any queued interval update and return true if intervals were changed. */
+    applyPendingIntervalUpdate(): boolean {
+        if (!this.pendingIntervalUpdate) return false;
+        this.settings = this.pendingIntervalUpdate;
+        this.pendingIntervalUpdate = null;
+        return true;
+    }
+}
+
 export class ImapEngine {
     private clients: Map<string, ImapFlow> = new Map();
     private existsHandlers: Map<string, () => void> = new Map();
