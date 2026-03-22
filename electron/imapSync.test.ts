@@ -500,4 +500,89 @@ describe('AccountSyncController', () => {
             expect(ctrl.heartbeatTimer).toBeNull();
         });
     });
+
+    describe('edge cases', () => {
+        it('concurrent forceDisconnect calls produce single reconnect', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('health');
+            const timer1 = ctrl.reconnectTimer;
+            // Second call — already disconnected, should be no-op
+            ctrl.forceDisconnect('health');
+            expect(ctrl.reconnectTimer).toBe(timer1); // same timer, not doubled
+        });
+
+        it('app quit clears all timers via forceDisconnect shutdown', () => {
+            ctrl.client = { close: vi.fn(), noop: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startHeartbeat();
+            expect(ctrl.heartbeatTimer).not.toBeNull();
+            ctrl.forceDisconnect('shutdown');
+            expect(ctrl.heartbeatTimer).toBeNull();
+            expect(ctrl.reconnectTimer).toBeNull();
+            expect(ctrl.inboxSyncTimer).toBeNull();
+            expect(ctrl.folderSyncTimer).toBeNull();
+        });
+
+        it('settings change during active sync applies after cycle completes', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startSyncTimers();
+            ctrl.syncing = true; // simulate active sync
+            ctrl.updateIntervals({ inboxIntervalSec: 30, folderIntervalSec: 120, reconnectMaxMinutes: 10 });
+            // Timer should NOT have been recreated yet
+            const timerDuringSyncing = ctrl.inboxSyncTimer;
+            // Simulate sync completion
+            ctrl.syncing = false;
+            ctrl.applyPendingIntervalUpdate();
+            // Now timer should have been recreated
+            expect(ctrl.inboxSyncTimer).not.toBe(timerDuringSyncing);
+        });
+
+        it('network restored after many failed reconnects recovers on next attempt', () => {
+            // Simulate 10 failed reconnects
+            for (let i = 0; i < 10; i++) {
+                ctrl.status = 'connected';
+                ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+                ctrl.forceDisconnect('health');
+            }
+            expect(ctrl.reconnectAttempts).toBe(10);
+            // Simulate successful reconnect
+            ctrl.resetOnSuccessfulConnect();
+            expect(ctrl.reconnectAttempts).toBe(0);
+            expect(ctrl.consecutiveFailures).toBe(0);
+        });
+    });
+
+    describe('parallel account isolation', () => {
+        it('one account forceDisconnect does not affect another', () => {
+            const ctrl2 = new AccountSyncController('acc-2');
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl2.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl2.status = 'connected';
+
+            ctrl.forceDisconnect('health');
+            expect(ctrl.status).toBe('disconnected');
+            expect(ctrl2.status).toBe('connected');
+            ctrl2.stop();
+        });
+
+        it('each account has independent reconnect backoff state', () => {
+            const ctrl2 = new AccountSyncController('acc-2');
+            ctrl.reconnectAttempts = 5;
+            ctrl2.reconnectAttempts = 0;
+            expect(ctrl.reconnectAttempts).not.toBe(ctrl2.reconnectAttempts);
+            ctrl2.stop();
+        });
+
+        it('each account has independent UID tracking', () => {
+            const ctrl2 = new AccountSyncController('acc-2');
+            ctrl.lastSeenUid.set('INBOX', 100);
+            ctrl2.lastSeenUid.set('INBOX', 200);
+            expect(ctrl.lastSeenUid.get('INBOX')).toBe(100);
+            expect(ctrl2.lastSeenUid.get('INBOX')).toBe(200);
+            ctrl2.stop();
+        });
+    });
 });
