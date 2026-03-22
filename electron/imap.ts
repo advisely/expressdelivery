@@ -194,6 +194,21 @@ export class AccountSyncController {
         this.lastSuccessfulSync = Date.now();
     }
 
+    startHeartbeat(): void {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(async () => {
+            if (!this.client || this.status === 'disconnected') return;
+            try {
+                await withImapTimeout(() => this.client!.noop(), 5_000, 'heartbeat');
+                this.lastSuccessfulSync = Date.now();
+                this.consecutiveFailures = 0;
+            } catch {
+                logDebug(`[IMAP:${this.accountId}] heartbeat timeout`);
+                this.forceDisconnect('health');
+            }
+        }, 120_000);
+    }
+
     /** Queue a sync-interval change to take effect after the current sync cycle. */
     queueIntervalUpdate(settings: SyncSettings): void {
         this.pendingIntervalUpdate = settings;
