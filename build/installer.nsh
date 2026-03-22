@@ -1,20 +1,21 @@
 ; Custom NSIS include for ExpressDelivery installer
-; Auto-kills running instances before installation so the user
-; is never blocked by the "ExpressDelivery is running" dialog.
+; Replaces electron-builder's default app-running check with a force-kill
+; so the installer never blocks with "app is running" dialogs.
 
-; customCheckAppRunning runs BEFORE electron-builder's process check.
-; This ensures the process is killed before the check, avoiding the
-; "application is running" blocking dialog.
+!include "nsProcess.nsh"
+
 !macro customCheckAppRunning
-  ; Force-kill any running ExpressDelivery.exe process (silent, no error if not running)
+  ; Use nsProcess to kill (same API electron-builder uses for detection)
+  ${nsProcess::KillProcess} "ExpressDelivery.exe" $R0
+  ; Also taskkill as belt-and-suspenders (catches child processes)
   nsExec::ExecToStack 'taskkill /F /IM "ExpressDelivery.exe"'
   Pop $0
-  ; Wait for process to fully exit and release file locks
-  Sleep 3000
+  ; Wait for process + file locks + OS mutex to fully release
+  Sleep 5000
 !macroend
 
 !macro customInit
-  ; Second kill in case process restarted between check and init
+  ; Final kill in case something respawned between check and init
   nsExec::ExecToStack 'taskkill /F /IM "ExpressDelivery.exe"'
   Pop $0
   Sleep 1000
