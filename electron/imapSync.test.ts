@@ -148,7 +148,82 @@ describe('AccountSyncController', () => {
             expect(() => ctrl.stop()).not.toThrow();
         });
     });
-});
 
-// Suppress unused import warning — ImapFlow type is used in Task 4 forceDisconnect tests
-void (null as unknown as ImapFlow);
+    describe('forceDisconnect', () => {
+        it('closes client immediately', () => {
+            const mockClose = vi.fn();
+            ctrl.client = { close: mockClose } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('health');
+            expect(mockClose).toHaveBeenCalled();
+        });
+
+        it('sets client to null and status to disconnected', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('health');
+            expect(ctrl.client).toBeNull();
+            expect(ctrl.status).toBe('disconnected');
+        });
+
+        it('resets syncing flag to false', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'syncing';
+            ctrl.syncing = true;
+            ctrl.forceDisconnect('health');
+            expect(ctrl.syncing).toBe(false);
+        });
+
+        it('clears all timers', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.heartbeatTimer = setInterval(() => {}, 1000);
+            ctrl.inboxSyncTimer = setInterval(() => {}, 1000);
+            ctrl.folderSyncTimer = setInterval(() => {}, 1000);
+            ctrl.reconnectTimer = setTimeout(() => {}, 1000);
+            // Use 'user' reason so no new reconnectTimer is scheduled after clearing
+            ctrl.forceDisconnect('user');
+            expect(ctrl.heartbeatTimer).toBeNull();
+            expect(ctrl.inboxSyncTimer).toBeNull();
+            expect(ctrl.folderSyncTimer).toBeNull();
+            expect(ctrl.reconnectTimer).toBeNull();
+        });
+
+        it('is idempotent — no-op if already disconnected', () => {
+            const mockClose = vi.fn();
+            ctrl.status = 'disconnected';
+            ctrl.forceDisconnect('health');
+            expect(mockClose).not.toHaveBeenCalled();
+        });
+
+        it('schedules reconnect when reason is health', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('health');
+            expect(ctrl.reconnectTimer).not.toBeNull();
+        });
+
+        it('does NOT schedule reconnect when reason is user', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('user');
+            expect(ctrl.reconnectTimer).toBeNull();
+        });
+
+        it('does NOT schedule reconnect when reason is shutdown', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('shutdown');
+            expect(ctrl.reconnectTimer).toBeNull();
+        });
+
+        it('logs reason in disconnect message', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('health');
+            expect(mockLogDebug).toHaveBeenCalledWith(
+                expect.stringContaining('Force disconnected (reason: health)')
+            );
+        });
+    });
+});

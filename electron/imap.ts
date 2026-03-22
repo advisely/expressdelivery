@@ -160,6 +160,40 @@ export class AccountSyncController {
         this.syncing = false;
     }
 
+    forceDisconnect(reason: 'health' | 'user' | 'shutdown' = 'health'): void {
+        if (this.status === 'disconnected') return;
+        try { this.client?.close(); } catch { /* force close */ }
+        this.client = null;
+        this.status = 'disconnected';
+        this.syncing = false;
+        if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+        if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
+        if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
+        if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        logDebug(`[IMAP:${this.accountId}] Force disconnected (reason: ${reason})`);
+        if (reason === 'health') {
+            this.scheduleReconnect();
+        }
+    }
+
+    scheduleReconnect(): void {
+        const baseDelay = 1000 * Math.pow(2, this.reconnectAttempts);
+        const maxDelay = this.settings.reconnectMaxMinutes * 60 * 1000;
+        const capped = Math.min(baseDelay, maxDelay);
+        const jitter = capped * (0.8 + Math.random() * 0.4); // ±20%
+        this.reconnectAttempts++;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            // Reconnect logic will be wired in Task 9
+        }, jitter);
+    }
+
+    resetOnSuccessfulConnect(): void {
+        this.reconnectAttempts = 0;
+        this.consecutiveFailures = 0;
+        this.lastSuccessfulSync = Date.now();
+    }
+
     /** Queue a sync-interval change to take effect after the current sync cycle. */
     queueIntervalUpdate(settings: SyncSettings): void {
         this.pendingIntervalUpdate = settings;
