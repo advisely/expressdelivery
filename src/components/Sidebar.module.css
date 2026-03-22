@@ -581,6 +581,15 @@
   background: #a855f7;
 }
 
+.sync-stale {
+  background-color: rgb(var(--warning-rgb, 245 158 11));
+}
+
+.sync-syncing {
+  background-color: rgb(var(--accent-rgb));
+  animation: sync-pulse 1.5s ease-in-out infinite;
+}
+
 @keyframes sync-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -588,6 +597,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sync-connecting {
+    animation: none;
+  }
+  .sync-syncing {
     animation: none;
   }
   .sidebar {

@@ -60,7 +60,9 @@
     "trashEmptied": "Papelera vaciada",
     "deleteAll": "Eliminar todo",
     "moveUp": "Subir",
-    "moveDown": "Bajar"
+    "moveDown": "Bajar",
+    "stale": "Desactualizado",
+    "syncing": "Sincronizando..."
   },
   "tags": {
     "title": "Etiquetas",
@@ -326,7 +328,14 @@
     "contactImportExport": "Importar y exportar contactos",
     "version": "Versión",
     "electronVersion": "Electron",
-    "aboutDescription": "Cliente de correo con IA e integración MCP."
+    "aboutDescription": "Cliente de correo con IA e integración MCP.",
+    "sync": "Sincronización",
+    "syncTitle": "Configuración de sincronización",
+    "syncDesc": "Controla con qué frecuencia se buscan nuevos correos y se reconecta tras fallos.",
+    "inboxSyncInterval": "Intervalo de verificación de bandeja de entrada",
+    "folderSyncInterval": "Intervalo de otras carpetas",
+    "reconnectMaxInterval": "Tiempo máximo de reconexión",
+    "default": "predeterminado"
   },
   "onboarding": {
     "welcome": "Bienvenido a ExpressDelivery",
