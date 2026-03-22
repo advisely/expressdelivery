@@ -226,4 +226,129 @@ describe('AccountSyncController', () => {
             );
         });
     });
+
+    describe('reconnect', () => {
+        it('schedules reconnect with ~1s initial delay', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.forceDisconnect('health');
+            expect(ctrl.reconnectTimer).not.toBeNull();
+            expect(ctrl.reconnectAttempts).toBe(1);
+        });
+
+        it('increments reconnectAttempts on each schedule', () => {
+            ctrl.reconnectAttempts = 0;
+            ctrl.status = 'connected'; ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.forceDisconnect('health');
+            expect(ctrl.reconnectAttempts).toBe(1);
+            // Simulate second failure
+            ctrl.status = 'connected'; ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.forceDisconnect('health');
+            expect(ctrl.reconnectAttempts).toBe(2);
+        });
+
+        it('caps delay at configured max (default 5 minutes)', () => {
+            ctrl.reconnectAttempts = 20; // 2^20 * 1000ms >> 5min
+            ctrl.scheduleReconnect();
+            expect(ctrl.reconnectTimer).not.toBeNull();
+            expect(ctrl.reconnectAttempts).toBe(21);
+        });
+
+        it('jitter stays within ±20% bounds', () => {
+            const spy = vi.spyOn(globalThis, 'setTimeout');
+            const delays: number[] = [];
+            for (let i = 0; i < 50; i++) {
+                ctrl.reconnectAttempts = 3; // base = 8000ms
+                ctrl.reconnectTimer = null;
+                ctrl.scheduleReconnect();
+                const lastCall = spy.mock.calls[spy.mock.calls.length - 1];
+                delays.push(lastCall[1] as number);
+            }
+            const base = 8000;
+            for (const d of delays) {
+                expect(d).toBeGreaterThanOrEqual(base * 0.8);
+                expect(d).toBeLessThanOrEqual(base * 1.2);
+            }
+            spy.mockRestore();
+        });
+
+        it('resets retry counter on successful connect', () => {
+            ctrl.reconnectAttempts = 5;
+            ctrl.consecutiveFailures = 3;
+            ctrl.resetOnSuccessfulConnect();
+            expect(ctrl.reconnectAttempts).toBe(0);
+            expect(ctrl.consecutiveFailures).toBe(0);
+            expect(ctrl.lastSuccessfulSync).not.toBeNull();
+        });
+
+        it('never gives up — retries indefinitely after many failures', () => {
+            for (let i = 0; i < 20; i++) {
+                ctrl.status = 'connected';
+                ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+                ctrl.forceDisconnect('health');
+            }
+            expect(ctrl.reconnectAttempts).toBe(20);
+            expect(ctrl.reconnectTimer).not.toBeNull();
+        });
+
+        it('emits status via callback', () => {
+            const statusCb = vi.fn();
+            ctrl.setStatusCallback(statusCb);
+            ctrl.status = 'connecting';
+            ctrl.emitStatus();
+            expect(statusCb).toHaveBeenCalledWith('acc-1', 'connecting', null);
+        });
+    });
+
+    describe('heartbeat', () => {
+        it('sends NOOP every 2 minutes', async () => {
+            const mockNoop = vi.fn().mockResolvedValue(undefined);
+            ctrl.client = { noop: mockNoop, close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startHeartbeat();
+            expect(mockNoop).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(mockNoop).toHaveBeenCalledTimes(1);
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(mockNoop).toHaveBeenCalledTimes(2);
+        });
+
+        it('updates lastSuccessfulSync on successful NOOP', async () => {
+            const mockNoop = vi.fn().mockResolvedValue(undefined);
+            ctrl.client = { noop: mockNoop, close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startHeartbeat();
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(ctrl.lastSuccessfulSync).not.toBeNull();
+        });
+
+        it('calls forceDisconnect on NOOP timeout (5s)', async () => {
+            const neverResolves = new Promise(() => {});
+            const mockNoop = vi.fn().mockReturnValue(neverResolves);
+            ctrl.client = { noop: mockNoop, close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startHeartbeat();
+            // Advance past heartbeat interval (120s) + NOOP timeout (5s)
+            await vi.advanceTimersByTimeAsync(125_001);
+            expect(ctrl.status).toBe('disconnected');
+        });
+
+        it('does not send NOOP when client is null', async () => {
+            const mockNoop = vi.fn();
+            ctrl.client = null;
+            ctrl.status = 'disconnected';
+            ctrl.startHeartbeat();
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(mockNoop).not.toHaveBeenCalled();
+        });
+
+        it('heartbeat timer is cleared on forceDisconnect', () => {
+            ctrl.client = { noop: vi.fn(), close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startHeartbeat();
+            expect(ctrl.heartbeatTimer).not.toBeNull();
+            ctrl.forceDisconnect('user');
+            expect(ctrl.heartbeatTimer).toBeNull();
+        });
+    });
 });
