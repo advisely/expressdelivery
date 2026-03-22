@@ -94,6 +94,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     // Undo send delay
     const [undoSendDelay, setUndoSendDelay] = useState(5);
 
+    // Sync interval settings
+    const [syncInboxInterval, setSyncInboxInterval] = useState('15');
+    const [syncFolderInterval, setSyncFolderInterval] = useState('60');
+    const [reconnectMaxInterval, setReconnectMaxInterval] = useState('5');
+
     // Two-level navigation: category (horizontal) + sub-tab (vertical)
     const [activeCategory, setActiveCategory] = useState('general');
     const [activeSubTab, setActiveSubTab] = useState('accounts');
@@ -170,12 +175,18 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             ipcInvoke<string | null>('settings:get', 'notifications_enabled').catch(() => null),
             ipcInvoke<string | null>('settings:get', 'undo_send_delay').catch(() => null),
             ipcInvoke<string | null>('settings:get', 'sound_enabled').catch(() => null),
-        ]).then(([key, notifVal, undoVal, soundVal]) => {
+            ipcInvoke<string | null>('settings:get', 'sync_interval_inbox').catch(() => null),
+            ipcInvoke<string | null>('settings:get', 'sync_interval_folders').catch(() => null),
+            ipcInvoke<string | null>('settings:get', 'reconnect_max_interval').catch(() => null),
+        ]).then(([key, notifVal, undoVal, soundVal, syncInbox, syncFolders, reconnectMax]) => {
             if (cancelled) return;
             if (key) setApiKey(key);
             setNotificationsEnabled(notifVal !== 'false');
             if (undoVal != null) setUndoSendDelay(Number(undoVal) || 5);
             if (soundVal === 'true') setSoundEnabled(true);
+            if (syncInbox) setSyncInboxInterval(syncInbox);
+            if (syncFolders) setSyncFolderInterval(syncFolders);
+            if (reconnectMax) setReconnectMaxInterval(reconnectMax);
         }).catch(() => {
             if (!cancelled) setApiKeyStatus('error');
         });
@@ -756,6 +767,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     <Tabs.Trigger className={styles['tab-btn']} value="rules"><Filter size={16} /><span>{t('settings.rules')}</span></Tabs.Trigger>
                                     <Tabs.Trigger className={styles['tab-btn']} value="templates"><FileText size={16} /><span>{t('settings.templates')}</span></Tabs.Trigger>
                                     <Tabs.Trigger className={styles['tab-btn']} value="notifications"><Bell size={16} /><span>{t('settings.notifications')}</span></Tabs.Trigger>
+                                    <Tabs.Trigger className={styles['tab-btn']} value="sync"><RefreshCw size={16} /><span>{t('settings.sync')}</span></Tabs.Trigger>
                                 </>}
                                 {activeCategory === 'ai' && <>
                                     <Tabs.Trigger className={styles['tab-btn']} value="ai-keys"><Key size={16} /><span>{t('settings.aiKeys')}</span></Tabs.Trigger>
@@ -1218,6 +1230,70 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     >
                                         <span className={styles['notif-switch-thumb']} />
                                     </button>
+                                </div>
+                            </div>}
+                        </Tabs.Content>
+
+                        <Tabs.Content className={styles['settings-tab-panel']} value="sync">
+                            {isTabActive('sync') && <div className={styles['notif-settings-view']}>
+                                <h3 className={styles['section-title']}>{t('settings.syncTitle')}</h3>
+                                <p className={styles['notif-description']}>{t('settings.syncDesc')}</p>
+
+                                <div className={styles['sync-row']}>
+                                    <label className={styles['form-label']}>{t('settings.inboxSyncInterval')}</label>
+                                    <select
+                                        className={styles['lang-select']}
+                                        value={syncInboxInterval}
+                                        onChange={async (e) => {
+                                            setSyncInboxInterval(e.target.value);
+                                            await ipcInvoke('settings:set', 'sync_interval_inbox', e.target.value);
+                                            await ipcInvoke('imap:apply-sync-settings');
+                                        }}
+                                    >
+                                        <option value="10">10s</option>
+                                        <option value="15">15s ({t('settings.default')})</option>
+                                        <option value="30">30s</option>
+                                        <option value="60">1 min</option>
+                                        <option value="120">2 min</option>
+                                    </select>
+                                </div>
+
+                                <div className={styles['sync-row']}>
+                                    <label className={styles['form-label']}>{t('settings.folderSyncInterval')}</label>
+                                    <select
+                                        className={styles['lang-select']}
+                                        value={syncFolderInterval}
+                                        onChange={async (e) => {
+                                            setSyncFolderInterval(e.target.value);
+                                            await ipcInvoke('settings:set', 'sync_interval_folders', e.target.value);
+                                            await ipcInvoke('imap:apply-sync-settings');
+                                        }}
+                                    >
+                                        <option value="30">30s</option>
+                                        <option value="60">1 min ({t('settings.default')})</option>
+                                        <option value="120">2 min</option>
+                                        <option value="180">3 min</option>
+                                        <option value="300">5 min</option>
+                                    </select>
+                                </div>
+
+                                <div className={styles['sync-row']}>
+                                    <label className={styles['form-label']}>{t('settings.reconnectMaxInterval')}</label>
+                                    <select
+                                        className={styles['lang-select']}
+                                        value={reconnectMaxInterval}
+                                        onChange={async (e) => {
+                                            setReconnectMaxInterval(e.target.value);
+                                            await ipcInvoke('settings:set', 'reconnect_max_interval', e.target.value);
+                                            await ipcInvoke('imap:apply-sync-settings');
+                                        }}
+                                    >
+                                        <option value="1">1 min</option>
+                                        <option value="5">5 min ({t('settings.default')})</option>
+                                        <option value="10">10 min</option>
+                                        <option value="15">15 min</option>
+                                        <option value="30">30 min</option>
+                                    </select>
                                 </div>
                             </div>}
                         </Tabs.Content>

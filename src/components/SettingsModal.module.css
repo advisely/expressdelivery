@@ -621,6 +621,11 @@
     padding: 4px 0;
 }
 
+/* Sync Tab */
+.sync-row {
+    margin-bottom: 16px;
+}
+
 .notif-toggle-row {
     display: flex;
     align-items: center;
