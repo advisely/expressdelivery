@@ -130,7 +130,9 @@ export class AccountSyncController {
     private pendingIntervalUpdate: SyncSettings | null = null;
     private settings: SyncSettings = { inboxIntervalSec: 15, folderIntervalSec: 60, reconnectMaxMinutes: 5 };
     private statusCallback: ((accountId: string, status: string, timestamp: number | null) => void) | null = null;
-    private newEmailCallback: ((accountId: string, folderId: string, count: number) => void) | null = null;
+    /* newEmailCallback is stored here for future use by controller-driven sync.
+       Currently, ImapEngine.syncNewEmails() calls the engine-level callback directly. */
+    newEmailCb: ((accountId: string, folderId: string, count: number) => void) | null = null;
 
     constructor(accountId: string, settings?: Partial<SyncSettings>) {
         this.accountId = accountId;
@@ -144,7 +146,7 @@ export class AccountSyncController {
     }
 
     setNewEmailCallback(cb: (accountId: string, folderId: string, count: number) => void): void {
-        this.newEmailCallback = cb;
+        this.newEmailCb = cb;
     }
 
     emitStatus(): void {
@@ -293,7 +295,8 @@ export class AccountSyncController {
                 "SELECT path, type FROM folders WHERE account_id = ? ORDER BY CASE WHEN type = 'inbox' THEN 0 ELSE 1 END"
             ).all(this.accountId) as Array<{ path: string; type: string }>;
             for (const f of allFolders) {
-                if (this.status === 'disconnected') break;
+                // Status can change to 'disconnected' during async operations (forceDisconnect)
+                if ((this.status as string) === 'disconnected') break;
                 const mailbox = f.path.replace(/^\//, '');
                 try {
                     await withImapTimeout(

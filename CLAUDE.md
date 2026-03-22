@@ -38,7 +38,7 @@ release/           # Built app artifacts
 | `electron/db.ts`           | SQLite init, schema, 12 migrations (accounts, folders, emails, drafts, contacts, attachments, settings, snoozed_emails, scheduled_sends, reminders, mail_rules, FTS5) |
 | `electron/mcpServer.ts`    | MCP multi-client SSE server (Map-based dispatch, connection callback, timing-safe auth, lazy init via getMcpServer()) |
 | `electron/mcpTools.ts`     | 8 MCP tool handlers + buildToolRegistry() Map factory |
-| `electron/imap.ts`         | IMAP client (connect, IDLE, sync envelope+bodyStructure at startup, on-demand body fetch, folders, attachments, Content-ID, reconnect, applyRulesToEmail) |
+| `electron/imap.ts`         | IMAP engine with per-account `AccountSyncController` (connect, heartbeat NOOP, timeout-protected sync, infinite reconnect with backoff, `withImapTimeout` wrapper, on-demand body fetch, folders, attachments, Content-ID, applyRulesToEmail) |
 | `electron/smtp.ts`         | SMTP sender via Nodemailer (host/port from DB, CC/BCC, attachments, CRLF-safe) |
 | `electron/crypto.ts`       | OS keychain encryption (safeStorage)            |
 | `electron/logger.ts`       | Shared debug logger (writes to `app.getPath('logs')`) |
@@ -210,10 +210,11 @@ npm run make:update-package  # Package NSIS installer into .expressdelivery upda
 **Remaining limitation:**
 - Decrypted passwords in V8 heap (inherent to JS; mitigated with short-lived scope)
 
-## Test Coverage: ~80% (31 files, 723 tests)
+## Test Coverage: ~80% (32 files, 779 tests)
 
 **Tested:** crypto, db, db.phase6 (folder CRUD, mark-read/unread, mark-all-read, extractUid), mcpServer, mcpTools (all 8 handlers), imapSanitize, themeStore, emailStore, SettingsModal, ComposeModal (TipTap + signatures + account selection), ReadingPane (CID + remote image blocking + thread collapse/expand + AI reply), ThreadList (88 tests: rendering, multi-select, bulk actions, context menu, search, empty states, unified inbox badge), useKeyboardShortcuts, formatFileSize, smtp, ContactAutocomplete, scheduler, ruleEngine, App, ThemeContext, DateTimePicker, UpdateBanner, OnboardingScreen, spamFilter (18 tests: tokenize, train, classify), phishingDetector (16 tests: URL analysis, brand spoofing, suspicious TLDs), openRouterClient (37 tests: API calls, validation, prompt injection, error handling), ConfirmDialog (29 tests: confirm + prompt modes, validation, danger variant, keyboard, i18n), updater (25 tests: CWE-22 path traversal, CWE-78 injection, version comparison, thumbprint normalization), emailImport (21 tests: XSS sanitization, RFC 2822 parsing, MIME multipart), authResults (17 tests: SPF/DKIM/DMARC parsing, sender verification), rateLimiter (12 tests: token bucket exhaustion, refill, isolation)
-**Untested critical paths:** IMAP client (P1 -- integration complexity, deferred to E2E)
+**Tested:** imapSync (56 tests: withImapTimeout, AccountSyncController lifecycle/forceDisconnect/reconnect/heartbeat/sync-cycle/updateIntervals, parallel isolation, edge cases)
+**Untested critical paths:** IMAP protocol integration (IMAPFlow client calls — deferred to E2E)
 
 ## Feature Status Summary
 
@@ -281,7 +282,8 @@ All critical, high, and medium issues from the 2026-02-22 initial audit through 
 - [x] ~~Remove unused CSS utility classes~~ -- removed in Phase 9
 - [x] ~~isLoading/setLoading wired to folder load operations in Phase 7 (loading skeletons)~~
 - [ ] Virtual folders __snoozed/__scheduled: basic query support only; advanced filtering pending
-- [ ] IMAP client untested (P1 -- integration complexity, deferred to E2E)
+- [x] ~~IMAP sync reliability~~ — per-account controllers with timeout protection, NOOP heartbeat, infinite reconnect (v1.15.3)
+- [ ] IMAP protocol integration untested (IMAPFlow client calls — deferred to E2E)
 - [x] ~~window.prompt for Insert Link~~ -- replaced with ConfirmDialog (Radix Dialog) in Phase 9
 - [x] ~~accounts[0] used for compose signature~~ -- fixed in Phase 8: sendingAccount useMemo with initialAccountId
 - [x] ~~SettingsModal strings hardcoded~~ -- all i18n-ified in Phase 9 (~50 new keys)
