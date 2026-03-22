@@ -300,6 +300,109 @@ describe('AccountSyncController', () => {
         });
     });
 
+    describe('sync cycle', () => {
+        it('skips sync when syncing flag is true', async () => {
+            ctrl.syncing = true;
+            const result = await ctrl.runInboxSync();
+            expect(result).toBe(false);
+        });
+
+        it('skips sync when status is disconnected', async () => {
+            ctrl.status = 'disconnected';
+            const result = await ctrl.runInboxSync();
+            expect(result).toBe(false);
+        });
+
+        it('resets syncing flag in finally block even if sync throws', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            // Mock the internal syncNewEmails to throw
+            ctrl.syncFolder = vi.fn().mockRejectedValue(new Error('fail'));
+            mockDbPrepare.mockReturnValueOnce({
+                get: vi.fn().mockReturnValue({ path: '/INBOX' }),
+                all: vi.fn(), run: vi.fn(),
+            });
+            await ctrl.runInboxSync();
+            expect(ctrl.syncing).toBe(false);
+        });
+
+        it('updates lastSuccessfulSync on successful sync', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.syncFolder = vi.fn().mockResolvedValue(0);
+            mockDbPrepare.mockReturnValueOnce({
+                get: vi.fn().mockReturnValue({ path: '/INBOX' }),
+                all: vi.fn(), run: vi.fn(),
+            });
+            await ctrl.runInboxSync();
+            expect(ctrl.lastSuccessfulSync).not.toBeNull();
+        });
+
+        it('increments consecutiveFailures on failed sync', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.syncFolder = vi.fn().mockRejectedValue(new Error('timeout'));
+            mockDbPrepare.mockReturnValueOnce({
+                get: vi.fn().mockReturnValue({ path: '/INBOX' }),
+                all: vi.fn(), run: vi.fn(),
+            });
+            await ctrl.runInboxSync();
+            expect(ctrl.consecutiveFailures).toBe(1);
+        });
+
+        it('resets consecutiveFailures on successful sync', async () => {
+            ctrl.consecutiveFailures = 3;
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.syncFolder = vi.fn().mockResolvedValue(0);
+            mockDbPrepare.mockReturnValueOnce({
+                get: vi.fn().mockReturnValue({ path: '/INBOX' }),
+                all: vi.fn(), run: vi.fn(),
+            });
+            await ctrl.runInboxSync();
+            expect(ctrl.consecutiveFailures).toBe(0);
+        });
+
+        it('calls forceDisconnect when sync times out', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.syncFolder = vi.fn().mockRejectedValue(new Error('IMAP timeout: syncNewEmails (60000ms)'));
+            mockDbPrepare.mockReturnValueOnce({
+                get: vi.fn().mockReturnValue({ path: '/INBOX' }),
+                all: vi.fn(), run: vi.fn(),
+            });
+            const spy = vi.spyOn(ctrl, 'forceDisconnect');
+            await ctrl.runInboxSync();
+            expect(spy).toHaveBeenCalledWith('health');
+            spy.mockRestore();
+        });
+    });
+
+    describe('sync timers', () => {
+        it('inbox timer fires at default interval', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            const spy = vi.spyOn(ctrl, 'runInboxSync').mockResolvedValue(true);
+            ctrl.startSyncTimers();
+            expect(spy).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(spy).toHaveBeenCalledTimes(1);
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(spy).toHaveBeenCalledTimes(2);
+            spy.mockRestore();
+        });
+
+        it('folder timer fires at default interval', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            const spy = vi.spyOn(ctrl, 'runFullSync').mockResolvedValue();
+            ctrl.startSyncTimers();
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(spy).toHaveBeenCalledTimes(1);
+            spy.mockRestore();
+        });
+    });
+
     describe('heartbeat', () => {
         it('sends NOOP every 2 minutes', async () => {
             const mockNoop = vi.fn().mockResolvedValue(undefined);

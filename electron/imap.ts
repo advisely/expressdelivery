@@ -221,6 +221,91 @@ export class AccountSyncController {
         this.pendingIntervalUpdate = null;
         return true;
     }
+
+    /** Sync a single folder — wraps the operation with a 60s timeout.
+     *  Can be overridden in tests. */
+    async syncFolder(_mailbox: string): Promise<number> {
+        // This will be wired to the actual syncNewEmails logic in Task 9.
+        // For now, it's a no-op stub that can be mocked.
+        return 0;
+    }
+
+    async runInboxSync(): Promise<boolean> {
+        if (this.syncing || this.status === 'disconnected' || !this.client) return false;
+        this.syncing = true;
+        try {
+            const db = getDatabase();
+            const inboxFolder = db.prepare(
+                "SELECT path FROM folders WHERE account_id = ? AND type = 'inbox'"
+            ).get(this.accountId) as { path: string } | undefined;
+            if (!inboxFolder) return false;
+            const mailbox = inboxFolder.path.replace(/^\//, '');
+            await withImapTimeout(
+                () => this.syncFolder(mailbox),
+                60_000,
+                `syncNewEmails(${mailbox})`
+            );
+            this.lastSuccessfulSync = Date.now();
+            this.consecutiveFailures = 0;
+            this.emitStatus();
+            return true;
+        } catch (err) {
+            this.consecutiveFailures++;
+            const msg = err instanceof Error ? err.message : String(err);
+            logDebug(`[IMAP:${this.accountId}] Inbox sync failed: ${msg}`);
+            if (msg.startsWith('IMAP timeout:')) {
+                this.forceDisconnect('health');
+            }
+            return false;
+        } finally {
+            this.syncing = false;
+            this.applyPendingIntervalUpdate();
+        }
+    }
+
+    async runFullSync(): Promise<void> {
+        if (this.syncing || this.status === 'disconnected' || !this.client) return;
+        this.syncing = true;
+        try {
+            const db = getDatabase();
+            const allFolders = db.prepare(
+                "SELECT path, type FROM folders WHERE account_id = ? ORDER BY CASE WHEN type = 'inbox' THEN 0 ELSE 1 END"
+            ).all(this.accountId) as Array<{ path: string; type: string }>;
+            for (const f of allFolders) {
+                if (this.status === 'disconnected') break;
+                const mailbox = f.path.replace(/^\//, '');
+                try {
+                    await withImapTimeout(
+                        () => this.syncFolder(mailbox),
+                        60_000,
+                        `syncNewEmails(${mailbox})`
+                    );
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    logDebug(`[IMAP:${this.accountId}] Folder sync error ${f.path}: ${msg}`);
+                    if (msg.startsWith('IMAP timeout:')) {
+                        this.forceDisconnect('health');
+                        return;
+                    }
+                }
+            }
+            this.lastSuccessfulSync = Date.now();
+            this.consecutiveFailures = 0;
+        } catch (err) {
+            this.consecutiveFailures++;
+            logDebug(`[IMAP:${this.accountId}] Full sync failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            this.syncing = false;
+            this.applyPendingIntervalUpdate();
+        }
+    }
+
+    startSyncTimers(): void {
+        if (this.inboxSyncTimer) clearInterval(this.inboxSyncTimer);
+        if (this.folderSyncTimer) clearInterval(this.folderSyncTimer);
+        this.inboxSyncTimer = setInterval(() => { this.runInboxSync(); }, this.settings.inboxIntervalSec * 1000);
+        this.folderSyncTimer = setInterval(() => { this.runFullSync(); }, this.settings.folderIntervalSec * 1000);
+    }
 }
 
 export class ImapEngine {
