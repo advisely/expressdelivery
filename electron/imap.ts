@@ -306,7 +306,11 @@ export class ImapEngine {
         const lastUid = this.lastSeenUid.get(syncKey) ?? 0;
         const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
 
-        const lock = await client.getMailboxLock(mailbox);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             const insertStmt = db.prepare(
                 `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
@@ -468,7 +472,11 @@ export class ImapEngine {
         if (!client) throw new Error('Account not connected');
 
         const db = getDatabase();
-        const mailboxes = await client.list();
+        const mailboxes = await withImapTimeout(
+            () => client.list(),
+            15_000,
+            'client.list()'
+        );
         const folders: Array<{ id: string; name: string; path: string; type: string }> = [];
 
         const insertStmt = db.prepare(
@@ -494,7 +502,11 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) throw new Error('Account not connected');
 
-        const lock = await client.getMailboxLock(sourceMailbox);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(sourceMailbox),
+            10_000,
+            `getMailboxLock(${sourceMailbox})`
+        );
         try {
             await client.messageMove(String(emailUid), destMailbox, { uid: true });
             return true;
@@ -517,7 +529,11 @@ export class ImapEngine {
         if (!sentFolder) return false;
 
         const mailbox = sentFolder.path.replace(/^\//, '');
-        const lock = await client.getMailboxLock(mailbox);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             await client.append(mailbox, rawMessage, ['\\Seen']);
             return true;
@@ -539,7 +555,11 @@ export class ImapEngine {
         if (!client) throw new Error('Account not connected');
 
         const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-        const lock = await client.getMailboxLock(mailbox);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             const { content } = await client.download(String(emailUid), partNumber, { uid: true });
             const chunks: Buffer[] = [];
@@ -564,10 +584,11 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) return false;
 
-        const lock = await Promise.race([
-            client.getMailboxLock(mailbox),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
-        ]);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             await client.messageFlagsAdd(String(emailUid), ['\\Seen'], { uid: true });
             return true;
@@ -582,10 +603,11 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) return false;
 
-        const lock = await Promise.race([
-            client.getMailboxLock(mailbox),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
-        ]);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             await client.messageFlagsRemove(String(emailUid), ['\\Seen'], { uid: true });
             return true;
@@ -600,7 +622,11 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) return false;
 
-        const lock = await client.getMailboxLock(mailbox);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             await client.messageFlagsAdd(String(emailUid), ['\\Deleted'], { uid: true });
             await client.messageDelete(String(emailUid), { uid: true });
@@ -621,10 +647,11 @@ export class ImapEngine {
         const client = this.clients.get(accountId);
         if (!client) return null;
 
-        const lock = await Promise.race([
-            client.getMailboxLock(mailbox),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
-        ]);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             // Use range format "uid:uid" and fetch full source — some IMAP servers
             // (e.g. privateemail.com) reject single-UID FETCH but accept ranges.
@@ -685,10 +712,11 @@ export class ImapEngine {
             mailboxPath = inboxRow?.path?.replace(/^\//, '') || 'INBOX';
         }
 
-        const lock = await Promise.race([
-            client.getMailboxLock(mailboxPath),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
-        ]);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailboxPath),
+            10_000,
+            `getMailboxLock(${mailboxPath})`
+        );
         try {
             let raw = '';
             for await (const msg of client.fetch(String(uid), { source: true, uid: true })) {
@@ -769,10 +797,11 @@ export class ImapEngine {
     async markAllRead(accountId: string, mailbox: string): Promise<boolean> {
         const client = this.clients.get(accountId);
         if (!client) return false;
-        const lock = await Promise.race([
-            client.getMailboxLock(mailbox),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Lock timeout')), 8_000)),
-        ]);
+        const lock = await withImapTimeout(
+            () => client.getMailboxLock(mailbox),
+            10_000,
+            `getMailboxLock(${mailbox})`
+        );
         try {
             await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: true });
             return true;
