@@ -8,6 +8,20 @@ import { parseAuthResults, getSenderVerification } from './authResults.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
 
+export async function withImapTimeout<T>(
+    operation: () => Promise<T>,
+    timeoutMs: number,
+    label: string
+): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    return Promise.race([
+        operation().finally(() => clearTimeout(timer)),
+        new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`IMAP timeout: ${label} (${timeoutMs}ms)`)), timeoutMs);
+        }),
+    ]);
+}
+
 interface AttachmentMeta {
     partNumber: string;
     filename: string;
