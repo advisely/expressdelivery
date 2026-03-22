@@ -60,7 +60,9 @@
     "trashEmptied": "Papierkorb geleert",
     "deleteAll": "Alle löschen",
     "moveUp": "Nach oben",
-    "moveDown": "Nach unten"
+    "moveDown": "Nach unten",
+    "stale": "Veraltet",
+    "syncing": "Synchronisiere..."
   },
   "tags": {
     "title": "Schlagwörter",
@@ -326,7 +328,14 @@
     "contactImportExport": "Kontakt-Import & -Export",
     "version": "Version",
     "electronVersion": "Electron",
-    "aboutDescription": "KI-gestützter E-Mail-Client mit MCP-Integration."
+    "aboutDescription": "KI-gestützter E-Mail-Client mit MCP-Integration.",
+    "sync": "Synchronisierung",
+    "syncTitle": "E-Mail-Synchronisierungseinstellungen",
+    "syncDesc": "Steuern Sie, wie oft nach neuen E-Mails gesucht und nach Verbindungsfehlern wiederverbunden wird.",
+    "inboxSyncInterval": "Posteingang-Prüfintervall",
+    "folderSyncInterval": "Andere Ordner Prüfintervall",
+    "reconnectMaxInterval": "Max. Wiederverbindungswartezeit",
+    "default": "Standard"
   },
   "onboarding": {
     "welcome": "Willkommen bei ExpressDelivery",

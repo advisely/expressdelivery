@@ -93,6 +93,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'print:email-pdf',
   // IMAP connection status
   'imap:status',
+  'imap:apply-sync-settings',
   // Email body repair
   'emails:refetch-body',
   'emails:repair-bodies',

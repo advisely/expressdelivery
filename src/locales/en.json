@@ -60,7 +60,9 @@
     "trashEmptied": "Trash emptied",
     "deleteAll": "Delete all",
     "moveUp": "Move up",
-    "moveDown": "Move down"
+    "moveDown": "Move down",
+    "stale": "Stale",
+    "syncing": "Syncing..."
   },
   "tags": {
     "title": "Tags",
@@ -326,7 +328,14 @@
     "contactImportExport": "Contact Import & Export",
     "version": "Version",
     "electronVersion": "Electron",
-    "aboutDescription": "AI-powered email client with MCP integration."
+    "aboutDescription": "AI-powered email client with MCP integration.",
+    "sync": "Sync",
+    "syncTitle": "Email Sync Settings",
+    "syncDesc": "Control how often ExpressDelivery checks for new emails and reconnects after connection failures.",
+    "inboxSyncInterval": "Inbox check interval",
+    "folderSyncInterval": "Other folders check interval",
+    "reconnectMaxInterval": "Max reconnect wait time",
+    "default": "default"
   },
   "onboarding": {
     "welcome": "Welcome to ExpressDelivery",
