@@ -2199,9 +2199,9 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('update:install', () => {
+  ipcMain.handle('update:install', async () => {
     try {
-      installUpdateOnline();
+      await installUpdateOnline();
       return { success: true };
     } catch (err) {
       logDebug(`[update:install] error: ${err instanceof Error ? err.message : String(err)}`);

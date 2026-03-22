@@ -217,8 +217,22 @@ export function downloadUpdateOnline() {
   return autoUpdater.downloadUpdate();
 }
 
-export function installUpdateOnline() {
-  autoUpdater.quitAndInstall();
+export async function installUpdateOnline(): Promise<void> {
+  // Close the database and release file locks before the installer runs.
+  // autoUpdater.quitAndInstall() fires before-quit → app.quit() which triggers
+  // async cleanup, but the NSIS installer may launch before those promises settle.
+  // Doing synchronous DB close here prevents better-sqlite3 file lock conflicts.
+  try {
+    const { closeDatabase } = await import('./db.js');
+    closeDatabase();
+    logDebug('[UPDATER] Database closed before web update install');
+  } catch { /* best effort — before-quit will also try */ }
+
+  // Brief delay to let tray/IMAP cleanup settle from before-quit handler
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // isSilent=false (show installer if needed), isForceRunAfter=true (relaunch after install)
+  autoUpdater.quitAndInstall(false, true);
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────
