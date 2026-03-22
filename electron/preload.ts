@@ -17,6 +17,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'emails:read',
   'emails:thread',
   'emails:search',
+  'emails:search-global',
   'emails:delete',
   'emails:purge-trash',
   'emails:toggle-flag',
@@ -72,6 +73,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'update:apply',
   'update:getInfo',
   'update:cleanStaging',
+  'update:postUpdateInfo',
+  'update:clearPostUpdate',
   // Reply templates
   'templates:list',
   'templates:create',

@@ -194,19 +194,33 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         return () => { cleanup?.(); };
     }, [selectedFolderId, setEmails]);
 
+    const [isSearching, setIsSearching] = useState(false);
+
     const handleSearch = useCallback((query: string) => {
         setSearchQuery(query);
         if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-        searchTimerRef.current = setTimeout(async () => {
-            if (query.trim().length > 1) {
-                const response = await ipcInvoke<{ results: EmailSummary[]; error?: string }>('emails:search', query);
-                if (response && Array.isArray(response.results)) setEmails(response.results);
-            } else if (selectedFolderId) {
-                const result = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
-                if (Array.isArray(result)) setEmails(result);
+        if (query.trim().length === 0) {
+            // Immediately restore folder contents when search is cleared
+            setIsSearching(false);
+            if (selectedFolderId) {
+                ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
+                    .then(result => { if (Array.isArray(result)) setEmails(result); });
             }
-        }, 300);
-    }, [selectedFolderId, setEmails, setSearchQuery]);
+            return;
+        }
+        setIsSearching(true);
+        searchTimerRef.current = setTimeout(async () => {
+            if (query.trim().length >= 1) {
+                const response = await ipcInvoke<{ results: EmailSummary[]; error?: string }>(
+                    'emails:search', query, selectedAccountId ?? undefined
+                );
+                if (response && Array.isArray(response.results)) {
+                    setEmails(response.results);
+                }
+            }
+            setIsSearching(false);
+        }, 200);
+    }, [selectedFolderId, selectedAccountId, setEmails, setSearchQuery]);
 
     const dynamicFolderSwitch = useThemeStore(s => s.dynamicFolderSwitch);
 
@@ -476,7 +490,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                     </div>
                 ) : (
                     <div className={styles['search-bar']}>
-                        <Search size={16} className={styles['search-icon']} />
+                        <Search size={16} className={`${styles['search-icon']} ${isSearching ? styles['search-spinning'] : ''}`} />
                         <input
                             type="text"
                             placeholder={t('threadList.search')}
@@ -485,6 +499,17 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                             value={searchQuery}
                             onChange={(e) => handleSearch(e.target.value)}
                         />
+                        {searchQuery.length > 0 && (
+                            <button
+                                type="button"
+                                className={styles['search-clear-btn']}
+                                onClick={() => handleSearch('')}
+                                title={t('threadList.clearSearch', 'Clear search')}
+                                aria-label={t('threadList.clearSearch', 'Clear search')}
+                            >
+                                &times;
+                            </button>
+                        )}
                         {searchQuery.trim().length > 1 && (
                             <button
                                 type="button"

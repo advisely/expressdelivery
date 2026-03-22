@@ -1260,9 +1260,10 @@ describe('ThreadList', () => {
     // 18. Search
     // -----------------------------------------------------------------------
     describe('Search', () => {
-        it('calls emails:search IPC after 300ms debounce when query is > 1 char', async () => {
+        it('calls emails:search IPC after 200ms debounce with account filter', async () => {
             vi.useFakeTimers({ shouldAdvanceTime: true });
             setupStoreWithEmails([]);
+            useEmailStore.setState({ selectedAccountId: 'acct-1' });
             mockIpcInvoke.mockResolvedValue({ results: [] });
 
             renderThreadList();
@@ -1274,17 +1275,18 @@ describe('ThreadList', () => {
             expect(callsBefore.length).toBe(0);
 
             await act(async () => {
-                vi.advanceTimersByTime(300);
+                vi.advanceTimersByTime(200);
             });
 
             await waitFor(() =>
-                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:search', 'he')
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:search', 'he', 'acct-1')
             );
         });
 
-        it('falls back to emails:list when query is cleared (< 2 chars)', async () => {
+        it('falls back to emails:list when query is cleared', async () => {
             vi.useFakeTimers({ shouldAdvanceTime: true });
             setupStoreWithEmails([]);
+            useEmailStore.setState({ selectedAccountId: 'acct-1' });
             mockIpcInvoke.mockResolvedValue({ results: [] });
 
             renderThreadList();
@@ -1292,14 +1294,13 @@ describe('ThreadList', () => {
 
             // Type a search query then advance timer
             fireEvent.change(input, { target: { value: 'hello' } });
-            await act(async () => { vi.advanceTimersByTime(300); });
+            await act(async () => { vi.advanceTimersByTime(200); });
             await waitFor(() =>
-                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:search', 'hello')
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:search', 'hello', 'acct-1')
             );
 
-            // Clear the query (single char — falls back to list)
-            fireEvent.change(input, { target: { value: 'h' } });
-            await act(async () => { vi.advanceTimersByTime(300); });
+            // Clear the query — immediately falls back to folder list
+            fireEvent.change(input, { target: { value: '' } });
             await waitFor(() =>
                 expect(mockIpcInvoke).toHaveBeenCalledWith('emails:list', 'folder-inbox')
             );
@@ -1315,17 +1316,20 @@ describe('ThreadList', () => {
             expect(useEmailStore.getState().searchQuery).toBe('test query');
         });
 
-        it('does not call emails:search when query is exactly 1 character', async () => {
+        it('calls emails:search even for single character queries', async () => {
             vi.useFakeTimers({ shouldAdvanceTime: true });
             setupStoreWithEmails([]);
+            useEmailStore.setState({ selectedAccountId: 'acct-1' });
             mockIpcInvoke.mockResolvedValue({ results: [] });
 
             renderThreadList();
             fireEvent.change(screen.getByPlaceholderText('threadList.search'), { target: { value: 'a' } });
 
-            await act(async () => { vi.advanceTimersByTime(300); });
+            await act(async () => { vi.advanceTimersByTime(200); });
 
-            expect(mockIpcInvoke).not.toHaveBeenCalledWith('emails:search', 'a');
+            await waitFor(() =>
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:search', 'a', 'acct-1')
+            );
         });
     });
 

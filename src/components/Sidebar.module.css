@@ -700,6 +700,11 @@
   background: var(--hover-bg);
 }
 
+.context-account-active {
+  background: rgba(var(--color-accent), 0.08);
+  border-left: 3px solid var(--accent-color);
+}
+
 .context-account-label:first-child {
   border-top: none;
   margin-top: 0;

@@ -8,6 +8,8 @@ import { ReadingPane } from './components/ReadingPane';
 const ComposeModal = lazy(() => import('./components/ComposeModal').then(m => ({ default: m.ComposeModal })));
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
 import { OnboardingScreen } from './components/OnboardingScreen';
+import { GlobalSearch } from './components/GlobalSearch';
+import { UpdateSplash } from './components/UpdateSplash';
 import { useEmailStore } from './stores/emailStore';
 import type { Account, EmailFull, EmailSummary, Folder } from './stores/emailStore';
 import { useThemeStore } from './stores/themeStore';
@@ -79,6 +81,7 @@ function App() {
   const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
   const [startupReady, setStartupReady] = useState(false);
+  const [postUpdateInfo, setPostUpdateInfo] = useState<{ previousVersion: string; newVersion: string; updatedAt: string; changelog?: string[] } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: ToastType; undo?: () => void; confirm?: { label: string; action: () => void } } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -95,7 +98,8 @@ function App() {
   }, []);
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
-  const isModalOpen = composeState !== null || isSettingsOpen || showShortcutHelp;
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const isModalOpen = composeState !== null || isSettingsOpen || showShortcutHelp || showGlobalSearch;
 
   // Listen for reminder:due events
   useEffect(() => {
@@ -213,6 +217,11 @@ function App() {
       updateSplash('Ready', 100);
 
       if (!cancelled) {
+        // Check for post-update marker (written before app quit during file-based update)
+        const postUpdate = await ipcInvoke<{ previousVersion: string; newVersion: string; updatedAt: string; changelog?: string[] } | null>('update:postUpdateInfo');
+        if (postUpdate && typeof postUpdate.previousVersion === 'string' && typeof postUpdate.newVersion === 'string') {
+          setPostUpdateInfo(postUpdate);
+        }
         setStartupReady(true);
         removeSplash();
         // Prewarm lazy-loaded modal chunks so first open is instant
@@ -398,6 +407,14 @@ function App() {
     setPendingSend(null);
   }, [pendingSend]);
 
+  const handleGlobalSearchNavigate = useCallback(async (emailId: string, accountId: string, folderId: string) => {
+    selectAccount(accountId);
+    selectFolder(folderId);
+    selectEmail(emailId);
+    const full = await ipcInvoke<import('./stores/emailStore').EmailFull>('emails:read', emailId);
+    if (full) setSelectedEmail(full);
+  }, [selectAccount, selectFolder, selectEmail, setSelectedEmail]);
+
   const shortcuts = useMemo(() => ({
     'mod+n': () => setComposeState({ to: '', subject: '', body: '' }),
     'mod+,': () => setIsSettingsOpen(true),
@@ -406,6 +423,7 @@ function App() {
       const el = document.querySelector('[data-search-input]') as HTMLInputElement;
       el?.focus();
     },
+    'mod+shift+f': () => setShowGlobalSearch(true),
     'mod+=': () => { const t = useThemeStore.getState(); t.setReadingPaneZoom(t.readingPaneZoom + 10); },
     'mod+-': () => { const t = useThemeStore.getState(); t.setReadingPaneZoom(t.readingPaneZoom - 10); },
     'mod+0': () => useThemeStore.getState().setReadingPaneZoom(100),
@@ -426,18 +444,34 @@ function App() {
     'j': () => handleNavigateEmail('next'),
     'k': () => handleNavigateEmail('prev'),
     'escape': () => {
-      if (showShortcutHelp) setShowShortcutHelp(false);
+      if (showGlobalSearch) setShowGlobalSearch(false);
+      else if (showShortcutHelp) setShowShortcutHelp(false);
       else if (composeState !== null) setComposeState(null);
       else if (isSettingsOpen) setIsSettingsOpen(false);
       else setSelectedEmail(null);
     },
     'shift+?': () => setShowShortcutHelp(v => !v),
-  }), [handleReply, handleForward, handleDeleteSelected, handleArchiveSelected, handleNavigateEmail, composeState, isSettingsOpen, showShortcutHelp, setSelectedEmail]);
+  }), [handleReply, handleForward, handleDeleteSelected, handleArchiveSelected, handleNavigateEmail, composeState, isSettingsOpen, showShortcutHelp, showGlobalSearch, setSelectedEmail]);
 
   useKeyboardShortcuts(shortcuts, !isModalOpen);
 
   // Show nothing while startup:load is in flight (HTML splash is visible)
   if (!startupReady) return null;
+
+  // Show post-update splash screen after a file-based update
+  if (postUpdateInfo) {
+    return (
+      <ErrorBoundary>
+        <UpdateSplash
+          info={postUpdateInfo}
+          onComplete={() => {
+            setPostUpdateInfo(null);
+            ipcInvoke('update:clearPostUpdate').catch(() => {});
+          }}
+        />
+      </ErrorBoundary>
+    );
+  }
 
   if (accounts.length === 0) {
     return (
@@ -513,6 +547,13 @@ function App() {
           </div>
         )}
 
+        {showGlobalSearch && (
+          <GlobalSearch
+            onClose={() => setShowGlobalSearch(false)}
+            onNavigate={handleGlobalSearchNavigate}
+          />
+        )}
+
         {showShortcutHelp && (
           <div className={appStyles['shortcut-overlay']} onClick={() => setShowShortcutHelp(false)} role="dialog" aria-label={t('shortcuts.title')}>
             <div className={appStyles['shortcut-modal']} onClick={(e) => e.stopPropagation()}>
@@ -523,6 +564,7 @@ function App() {
                   <div className={appStyles['shortcut-row']}><kbd>J</kbd> <span>{t('shortcuts.nextEmail')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>K</kbd> <span>{t('shortcuts.prevEmail')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>Ctrl+F</kbd> <span>{t('shortcuts.search')}</span></div>
+                  <div className={appStyles['shortcut-row']}><kbd>Ctrl+Shift+F</kbd> <span>{t('shortcuts.globalSearch', 'Global Search')}</span></div>
                   <div className={appStyles['shortcut-row']}><kbd>Esc</kbd> <span>{t('shortcuts.deselect')}</span></div>
                 </div>
                 <div className={appStyles['shortcut-section']}>

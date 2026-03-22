@@ -2,7 +2,7 @@ import { app, dialog } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { join, extname, basename } from 'path';
 import { tmpdir } from 'os';
-import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync, rmSync, createReadStream } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, unlinkSync, rmSync, createReadStream } from 'fs';
 import { spawn, execFileSync } from 'child_process';
 import { createHash, randomUUID } from 'crypto';
 import { logDebug } from './logger.js';
@@ -53,6 +53,13 @@ export type UpdateApplyPhase = 'validating' | 'extracting' | 'verifying' | 'chec
 export interface UpdateApplyStep {
   phase: UpdateApplyPhase;
   done: boolean;
+}
+
+export interface PostUpdateInfo {
+  previousVersion: string;
+  newVersion: string;
+  updatedAt: string;
+  changelog?: string[];
 }
 
 interface SignatureVerification {
@@ -634,6 +641,10 @@ export async function applyUpdate(
     writeFileSync(batchPath, batchContent, 'utf-8');
 
     progress({ phase: 'launching', done: false });
+
+    // Write post-update marker so the new version shows an update splash screen
+    writePostUpdateMarker(app.getVersion(), manifest.version, manifest.changelog ?? undefined);
+
     logDebug(`[UPDATER] Launching update script: ${batchPath}`);
     const child = spawn('cmd.exe', ['/c', batchPath], {
       detached: true,
@@ -651,6 +662,54 @@ export async function applyUpdate(
     logDebug(`[UPDATER] Failed to apply update: ${msg}`);
     return { success: false, error: msg };
   }
+}
+
+// ── Post-Update Marker ──────────────────────────────────────────────────────
+
+const POST_UPDATE_FILE = 'post-update.json';
+
+function getPostUpdatePath(): string {
+  return join(app.getPath('userData'), POST_UPDATE_FILE);
+}
+
+/** Write a marker file so the next launch shows the update splash screen. */
+export function writePostUpdateMarker(previousVersion: string, newVersion: string, changelog?: string[]): void {
+  try {
+    const info: PostUpdateInfo = {
+      previousVersion,
+      newVersion,
+      updatedAt: new Date().toISOString(),
+      ...(changelog ? { changelog } : {}),
+    };
+    writeFileSync(getPostUpdatePath(), JSON.stringify(info), 'utf-8');
+    logDebug(`[UPDATER] Post-update marker written: ${previousVersion} → ${newVersion}`);
+  } catch (err) {
+    logDebug(`[UPDATER] Failed to write post-update marker: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Read and consume the post-update marker (returns null if not present). */
+export function readPostUpdateMarker(): PostUpdateInfo | null {
+  const p = getPostUpdatePath();
+  try {
+    if (!existsSync(p)) return null;
+    const raw = JSON.parse(readFileSync(p, 'utf-8'));
+    // Validate minimal shape
+    if (typeof raw.previousVersion === 'string' && typeof raw.newVersion === 'string') {
+      return raw as PostUpdateInfo;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Delete the post-update marker after it has been displayed. */
+export function clearPostUpdateMarker(): void {
+  try {
+    const p = getPostUpdatePath();
+    if (existsSync(p)) unlinkSync(p);
+  } catch { /* fire-and-forget */ }
 }
 
 export function cleanStaging(): number {

@@ -72,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const savedSearches = useEmailStore(s => s.savedSearches);
   const setSavedSearches = useEmailStore(s => s.setSavedSearches);
   const { sidebarCollapsed, toggleSidebar } = useThemeStore();
+  const contextAccountId = useEmailStore(s => s.contextAccountId);
   const excludedAccountIds = useEmailStore(s => s.excludedAccountIds);
   const toggleExcludedAccount = useEmailStore(s => s.toggleExcludedAccount);
   const [showAccountPicker, setShowAccountPicker] = useState(false);
@@ -296,6 +297,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       return next;
     });
   }, []);
+
+  // Scroll to context account label when it changes in All Accounts mode
+  const prevContextRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAllAccounts || !contextAccountId || contextAccountId === prevContextRef.current) return;
+    prevContextRef.current = contextAccountId;
+    requestAnimationFrame(() => {
+      const label = document.querySelector(`[data-account-id="${contextAccountId}"]`);
+      if (label) label.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }, [isAllAccounts, contextAccountId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -674,12 +686,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
         {/* All Accounts mode: show each account's folders grouped with separators */}
         {isAllAccounts && includedAccounts.map((acc) => {
           const accFolders = allAccountFolders[acc.id] ?? [];
-          const isCollapsed = collapsedAccounts.has(acc.id);
+          // Context account is always expanded (overrides collapsed state)
+          const isCollapsed = contextAccountId === acc.id ? false : collapsedAccounts.has(acc.id);
           return (
             <React.Fragment key={acc.id}>
               {!sidebarCollapsed && (
                 <button
-                  className={styles['context-account-label']}
+                  className={`${styles['context-account-label']} ${contextAccountId === acc.id ? styles['context-account-active'] : ''}`}
+                  data-account-id={acc.id}
                   onClick={() => toggleAccountCollapse(acc.id)}
                   aria-expanded={!isCollapsed}
                   type="button"

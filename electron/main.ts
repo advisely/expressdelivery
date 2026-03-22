@@ -54,7 +54,7 @@ import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query, stripCRLF } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
-import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging } from './updater.js'
+import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging, readPostUpdateMarker, clearPostUpdateMarker } from './updater.js'
 import { rateLimit, cleanBuckets } from './rateLimiter.js'
 import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
@@ -866,24 +866,55 @@ function registerIpcHandlers() {
     return { ...email as object, bodyFetchStatus };
   });
 
-  ipcMain.handle('emails:search', (_event, query: string) => {
+  ipcMain.handle('emails:search', (_event, query: string, accountId?: string) => {
     const perfStart = performance.now();
     const sanitized = sanitizeFts5Query(query);
     if (!sanitized) return { results: [] };
+    // Append prefix wildcard for predictive as-you-type search
+    const prefixed = sanitized.split(/\s+/).map(w => w.endsWith('*') ? w : w + '*').join(' ');
     try {
+      const accountFilter = accountId && accountId !== '__all' ? 'AND e.account_id = ?' : '';
+      const params: string[] = [prefixed];
+      if (accountId && accountId !== '__all') params.push(accountId);
       const results = db.prepare(
         `SELECT e.id, e.subject, e.from_name, e.from_email, e.snippet, e.date,
                 e.is_read, e.is_flagged, e.has_attachments,
-                e.ai_category, e.ai_priority, e.ai_labels
+                e.ai_category, e.ai_priority, e.ai_labels,
+                e.thread_id, e.account_id, e.folder_id
          FROM emails_fts f
          JOIN emails e ON f.rowid = e.rowid
-         WHERE emails_fts MATCH ?
-         ORDER BY rank LIMIT 20`
-      ).all(sanitized);
+         WHERE emails_fts MATCH ? ${accountFilter}
+         ORDER BY rank LIMIT 50`
+      ).all(...params);
       logDebug(`[PERF] FTS5 search "${query.slice(0, 30)}": ${(performance.now() - perfStart).toFixed(1)}ms, ${results.length} results`);
       return { results };
     } catch (err) {
       logDebug(`[PERF] FTS5 search failed: ${err instanceof Error ? err.message : String(err)}`);
+      return { results: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Global search: searches across ALL accounts and ALL folders
+  ipcMain.handle('emails:search-global', (_event, query: string) => {
+    const perfStart = performance.now();
+    const sanitized = sanitizeFts5Query(query);
+    if (!sanitized) return { results: [] };
+    const prefixed = sanitized.split(/\s+/).map(w => w.endsWith('*') ? w : w + '*').join(' ');
+    try {
+      const results = db.prepare(
+        `SELECT e.id, e.subject, e.from_name, e.from_email, e.snippet, e.date,
+                e.is_read, e.is_flagged, e.has_attachments,
+                e.ai_category, e.ai_priority, e.ai_labels,
+                e.thread_id, e.account_id, e.folder_id
+         FROM emails_fts f
+         JOIN emails e ON f.rowid = e.rowid
+         WHERE emails_fts MATCH ?
+         ORDER BY rank LIMIT 100`
+      ).all(prefixed);
+      logDebug(`[PERF] FTS5 global search "${query.slice(0, 30)}": ${(performance.now() - perfStart).toFixed(1)}ms, ${results.length} results`);
+      return { results };
+    } catch (err) {
+      logDebug(`[PERF] FTS5 global search failed: ${err instanceof Error ? err.message : String(err)}`);
       return { results: [], error: err instanceof Error ? err.message : String(err) };
     }
   });
@@ -2203,6 +2234,15 @@ function registerIpcHandlers() {
 
   ipcMain.handle('update:cleanStaging', () => {
     return { cleaned: cleanStaging() };
+  });
+
+  ipcMain.handle('update:postUpdateInfo', () => {
+    return readPostUpdateMarker();
+  });
+
+  ipcMain.handle('update:clearPostUpdate', () => {
+    clearPostUpdateMarker();
+    return { success: true };
   });
 
   ipcMain.handle('folders:set-color', (_event, folderId: string, color: string | null) => {
