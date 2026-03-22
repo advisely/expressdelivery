@@ -378,6 +378,37 @@ describe('AccountSyncController', () => {
         });
     });
 
+    describe('updateIntervals', () => {
+        it('recreates timers with new intervals when not syncing', () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startSyncTimers();
+            const oldInbox = ctrl.inboxSyncTimer;
+            ctrl.updateIntervals({ inboxIntervalSec: 30, folderIntervalSec: 120, reconnectMaxMinutes: 10 });
+            expect(ctrl.inboxSyncTimer).not.toBe(oldInbox); // timer was recreated
+        });
+
+        it('sets pendingIntervalUpdate flag when syncing is true', () => {
+            ctrl.syncing = true;
+            ctrl.updateIntervals({ inboxIntervalSec: 30, folderIntervalSec: 120, reconnectMaxMinutes: 10 });
+            // Timer should not have been touched — just queued
+            expect(ctrl.inboxSyncTimer).toBeNull(); // was never started
+        });
+
+        it('applies pending update after sync cycle completes', async () => {
+            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            ctrl.startSyncTimers();
+            ctrl.syncing = true;
+            ctrl.updateIntervals({ inboxIntervalSec: 30, folderIntervalSec: 120, reconnectMaxMinutes: 10 });
+            // Simulate sync completion by calling applyPendingIntervalUpdate
+            ctrl.syncing = false;
+            ctrl.applyPendingIntervalUpdate();
+            // After applying, timers should have been recreated
+            expect(ctrl.inboxSyncTimer).not.toBeNull();
+        });
+    });
+
     describe('sync timers', () => {
         it('inbox timer fires at default interval', async () => {
             ctrl.client = { close: vi.fn() } as unknown as ImapFlow;

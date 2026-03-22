@@ -216,10 +216,29 @@ export class AccountSyncController {
 
     /** Apply any queued interval update and return true if intervals were changed. */
     applyPendingIntervalUpdate(): boolean {
-        if (!this.pendingIntervalUpdate) return false;
-        this.settings = this.pendingIntervalUpdate;
+        const pending = this.pendingIntervalUpdate;
+        if (!pending) return false;
         this.pendingIntervalUpdate = null;
+        this.settings = { ...pending };
+        this.restartSyncTimers();
         return true;
+    }
+
+    private restartSyncTimers(): void {
+        if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
+        if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
+        if (this.status !== 'disconnected') {
+            this.startSyncTimers();
+        }
+    }
+
+    updateIntervals(settings: SyncSettings): void {
+        if (this.syncing) {
+            this.queueIntervalUpdate(settings);
+            return;
+        }
+        this.settings = { ...settings };
+        this.restartSyncTimers();
     }
 
     /** Sync a single folder — wraps the operation with a 60s timeout.
