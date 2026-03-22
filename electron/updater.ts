@@ -228,11 +228,20 @@ export async function installUpdateOnline(): Promise<void> {
     logDebug('[UPDATER] Database closed before web update install');
   } catch { /* best effort — before-quit will also try */ }
 
-  // Brief delay to let tray/IMAP cleanup settle from before-quit handler
-  await new Promise(resolve => setTimeout(resolve, 500));
+  // Disconnect all IMAP connections to release sockets and file handles
+  try {
+    const { imapEngine } = await import('./imap.js');
+    imapEngine.disconnectAll();
+    logDebug('[UPDATER] IMAP connections closed before web update install');
+  } catch { /* best effort */ }
 
-  // isSilent=false (show installer if needed), isForceRunAfter=true (relaunch after install)
-  autoUpdater.quitAndInstall(false, true);
+  // Brief delay to let tray/IMAP cleanup settle from before-quit handler
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // isSilent=true: NSIS runs with /S flag — no wizard, no "app is running" dialog.
+  // This is the standard pattern for auto-updates (VS Code, Slack, Discord).
+  // isForceRunAfter=true: relaunch the app after install completes.
+  autoUpdater.quitAndInstall(true, true);
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────
