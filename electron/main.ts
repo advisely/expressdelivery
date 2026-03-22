@@ -75,15 +75,11 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null
 let tray: Tray | null = null
 
-// Track last successful IMAP sync timestamp per account (module-level so it's
-// accessible from both the new-email callback and the imap:status IPC handler)
-const lastSyncTimestamps: Map<string, number> = new Map();
-
 // Track excluded account IDs for "All Accounts" filtering
 let excludedAccountIds: Set<string> = new Set();
 
 // Helper: send sync status to renderer (guards destroyed window)
-function sendSyncStatus(accountId: string, status: 'connecting' | 'connected' | 'error', timestamp: number | null) {
+function sendSyncStatus(accountId: string, status: 'connecting' | 'connected' | 'error' | 'stale' | 'syncing', timestamp: number | null) {
   if (win && !win.isDestroyed()) {
     win.webContents.send('sync:status', { accountId, status, timestamp });
   }
@@ -355,26 +351,10 @@ function registerIpcHandlers() {
       account.imap_port ?? 993, account.smtp_host ?? null, account.smtp_port ?? 465,
       account.signature_html ? account.signature_html.slice(0, 10_000) : null);
 
-    // Post-add: connect IMAP, sync folders, sync INBOX
-    try {
-      sendSyncStatus(id, 'connecting', null);
-      const connected = await imapEngine.connectAccount(id);
-      if (connected) {
-        const folders = await imapEngine.listAndSyncFolders(id);
-        const inbox = folders.find(f => f.type === 'inbox');
-        if (inbox) {
-          await imapEngine.syncNewEmails(id, inbox.path.replace(/^\//, ''));
-        }
-        const now = Date.now();
-        lastSyncTimestamps.set(id, now);
-        sendSyncStatus(id, 'connected', now);
-      } else {
-        sendSyncStatus(id, 'error', null);
-      }
-    } catch (err) {
+    // Post-add: start the per-account controller (connects, syncs folders, syncs emails)
+    imapEngine.startAccount(id).catch((err) => {
       logDebug(`Post-add IMAP sync error: ${err instanceof Error ? err.message : String(err)}`);
-      sendSyncStatus(id, 'error', null);
-    }
+    });
 
     return { id };
   });
@@ -410,17 +390,12 @@ function registerIpcHandlers() {
     if (account.imap_host !== undefined || account.imap_port !== undefined || account.password || account.email !== undefined) {
       try {
         sendSyncStatus(account.id, 'connecting', null);
-        await imapEngine.disconnectAccount(account.id);
-        const connected = await imapEngine.connectAccount(account.id);
-        if (connected) {
-          const now = Date.now();
-          lastSyncTimestamps.set(account.id, now);
-          sendSyncStatus(account.id, 'connected', now);
-        } else {
-          sendSyncStatus(account.id, 'error', null);
-        }
+        await imapEngine.stopController(account.id);
+        imapEngine.startAccount(account.id).catch((err) => {
+          logDebug(`Post-update IMAP reconnect error for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
+        });
       } catch (err) {
-        logDebug(`Post-update IMAP reconnect error for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
+        logDebug(`Post-update IMAP stop error for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
         sendSyncStatus(account.id, 'error', null);
       }
     }
@@ -852,9 +827,7 @@ function registerIpcHandlers() {
         }
         // Update sync status after reconnect attempt
         if (connected) {
-          const now = Date.now();
-          lastSyncTimestamps.set(email.account_id as string, now);
-          sendSyncStatus(email.account_id as string, 'connected', now);
+          sendSyncStatus(email.account_id as string, 'connected', Date.now());
         } else {
           sendSyncStatus(email.account_id as string, 'error', null);
         }
@@ -1276,20 +1249,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('imap:status', (_event, accountId: string) => {
-    const lastSync = lastSyncTimestamps.get(accountId) ?? null;
-    try {
-      // 4-state status: none (no account setup), connecting (reconnecting), connected, error
-      const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(accountId);
-      if (!account) return { status: 'none', lastSync };
-
-      if (imapEngine.isConnected(accountId)) return { status: 'connected', lastSync };
-      if (imapEngine.isReconnecting(accountId)) return { status: 'connecting', lastSync };
-
-      return { status: 'error', lastSync };
-    } catch (err) {
-      logDebug(`[imap:status] error: ${err instanceof Error ? err.message : String(err)}`);
-      return { status: 'error', lastSync };
-    }
+    if (!accountId || typeof accountId !== 'string') return { status: 'none', lastSync: null, consecutiveFailures: 0, reconnectAttempts: 0 };
+    return imapEngine.getStatus(accountId);
   });
 
   // Set excluded account IDs for "All Accounts" filtering
@@ -1306,7 +1267,7 @@ function registerIpcHandlers() {
     return row?.value ?? null;
   });
 
-  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay', 'density_mode', 'reading_pane_zoom', 'sound_enabled', 'sound_custom_path', 'ai_compose_tone', 'mcp_enabled', 'mcp_port', 'mcp_auth_token']);
+  const ALLOWED_SETTINGS_KEYS = new Set(['theme', 'layout', 'sidebar_width', 'notifications', 'notifications_enabled', 'notifications_sound', 'locale', 'undo_send_delay', 'density_mode', 'reading_pane_zoom', 'sound_enabled', 'sound_custom_path', 'ai_compose_tone', 'mcp_enabled', 'mcp_port', 'mcp_auth_token', 'sync_interval_inbox', 'sync_interval_folders', 'reconnect_max_interval']);
   ipcMain.handle('settings:set', (_event, key: string, value: string) => {
     if (!ALLOWED_SETTINGS_KEYS.has(key)) {
       throw new Error(`Setting key not allowed: ${key}`);
@@ -1314,6 +1275,17 @@ function registerIpcHandlers() {
     db.prepare(
       'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
     ).run(key, value);
+    return { success: true };
+  });
+
+  ipcMain.handle('imap:apply-sync-settings', () => {
+    const get = (key: string, def: string) =>
+      (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? def;
+    imapEngine.updateSyncIntervals({
+      inboxIntervalSec: parseInt(get('sync_interval_inbox', '15'), 10),
+      folderIntervalSec: parseInt(get('sync_interval_folders', '60'), 10),
+      reconnectMaxMinutes: parseInt(get('reconnect_max_interval', '5'), 10),
+    });
     return { success: true };
   });
 
@@ -2573,15 +2545,17 @@ app.whenReady().then(() => {
 
   // Wire up email:new IPC event from IMAP sync
   imapEngine.setNewEmailCallback((accountId, folderId, count) => {
-    const now = Date.now();
-    lastSyncTimestamps.set(accountId, now);
     if (win && !win.isDestroyed()) {
       win.webContents.send('email:new', { accountId, folderId, count });
     }
-    sendSyncStatus(accountId, 'connected', now);
+    sendSyncStatus(accountId, 'connected', Date.now());
     if (count > 0) {
       showNotification('New Email', `${count} new message${count > 1 ? 's' : ''} received`, { accountId, folderId });
     }
+  });
+
+  imapEngine.setStatusCallback((accountId, status, timestamp) => {
+    sendSyncStatus(accountId, status as 'connecting' | 'connected' | 'error' | 'stale' | 'syncing', timestamp);
   });
 
   // Defer non-critical services to after window creation
@@ -2681,91 +2655,14 @@ app.whenReady().then(() => {
       const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
       for (const account of accounts) {
         sendSyncStatus(account.id, 'connecting', null);
-        const imapStart = performance.now();
-        logDebug(`[STARTUP] Connecting IMAP for ${account.id}...`);
-        imapEngine.connectAccount(account.id)
-          .then(async (connected) => {
-            logDebug(`[PERF] IMAP connect ${account.id}: ${(performance.now() - imapStart).toFixed(1)}ms, success=${connected}`);
-            if (connected) {
-              const folders = await imapEngine.listAndSyncFolders(account.id);
-              // Sync all folders (inbox first for responsiveness)
-              const inbox = folders.find(f => f.type === 'inbox');
-              if (inbox) {
-                logDebug(`[STARTUP] Syncing inbox for ${account.id}: ${inbox.path}`);
-                await imapEngine.syncNewEmails(account.id, inbox.path.replace(/^\//, ''));
-              }
-              // Sync remaining folders in background
-              for (const folder of folders) {
-                if (folder.type === 'inbox') continue;
-                try {
-                  await imapEngine.syncNewEmails(account.id, folder.path.replace(/^\//, ''));
-                } catch (err: unknown) {
-                  logDebug(`[STARTUP] Non-inbox sync error for ${folder.path}: ${err instanceof Error ? err.message : String(err)}`);
-                }
-              }
-              const now = Date.now();
-              lastSyncTimestamps.set(account.id, now);
-              sendSyncStatus(account.id, 'connected', now);
-              logDebug(`[PERF] IMAP full sync ${account.id}: ${(performance.now() - imapStart).toFixed(1)}ms`);
-            } else {
-              sendSyncStatus(account.id, 'error', null);
-            }
-          })
-          .catch((err) => {
-            logDebug(`[WARN] Startup IMAP connect failed for ${account.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
-            sendSyncStatus(account.id, 'error', null);
-          });
+        imapEngine.startAccount(account.id).catch((err) => {
+          logDebug(`[WARN] Startup IMAP failed for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
     } catch (err: unknown) {
       logDebug(`[ERROR] Startup IMAP sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
-
-  // 15-second polling sync: check all connected accounts for new emails
-  // and update sync timestamps. This replaces reliance on IDLE (which dies
-  // after reconnect exhaustion) with a reliable periodic poll.
-  // Delay first poll to let startup IMAP connect finish
-  let pollSyncRunning = false;
-  setInterval(async () => {
-    if (pollSyncRunning) return; // skip if previous poll is still running
-    pollSyncRunning = true;
-    try {
-      const db = getDatabase();
-      const accts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
-      for (const acct of accts) {
-        try {
-          // Skip reconnection if already connected — just sync
-          if (!imapEngine.isConnected(acct.id)) {
-            // Skip if currently reconnecting (startup or scheduled reconnect in progress)
-            if (imapEngine.isReconnecting(acct.id)) continue;
-            const connected = await imapEngine.ensureConnected(acct.id);
-            if (!connected) {
-              sendSyncStatus(acct.id, 'error', lastSyncTimestamps.get(acct.id) ?? null);
-              continue;
-            }
-          }
-          // Sync all folders for this account (inbox first)
-          const allFolders = db.prepare(
-            "SELECT path, type FROM folders WHERE account_id = ? ORDER BY CASE WHEN type = 'inbox' THEN 0 ELSE 1 END"
-          ).all(acct.id) as Array<{ path: string; type: string }>;
-          for (const f of allFolders) {
-            try {
-              await imapEngine.syncNewEmails(acct.id, f.path.replace(/^\//, ''));
-            } catch (syncErr: unknown) {
-              logDebug(`[WARN] Folder sync error for ${f.path}: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`);
-            }
-          }
-          const now = Date.now();
-          lastSyncTimestamps.set(acct.id, now);
-          sendSyncStatus(acct.id, 'connected', now);
-        } catch (err: unknown) {
-          logDebug(`[WARN] Periodic sync error for ${acct.id}: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`);
-        }
-      }
-    } finally {
-      pollSyncRunning = false;
-    }
-  }, 15_000);
 }).catch((err) => {
   logDebug(`[ERROR] app.whenReady() rejected: ${err.message}\n${err.stack}`);
 });
