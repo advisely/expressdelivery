@@ -23,6 +23,7 @@ vi.mock('./smtp.js', () => {
 
 vi.mock('./utils.js', () => ({
     sanitizeFts5Query: (raw: string) => raw.trim(),
+    stripCRLF: (s: string) => s.replace(/[\r\n\0]/g, ''),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

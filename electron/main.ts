@@ -52,7 +52,7 @@ import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpS
 import { imapEngine } from './imap.js'
 import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
-import { sanitizeFts5Query } from './utils.js'
+import { sanitizeFts5Query, stripCRLF } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
 import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging } from './updater.js'
 import { rateLimit, cleanBuckets } from './rateLimiter.js'
@@ -68,7 +68,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 process.env.APP_ROOT = path.join(__dirname, '..')
 
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
-export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
@@ -870,7 +869,7 @@ function registerIpcHandlers() {
   ipcMain.handle('emails:search', (_event, query: string) => {
     const perfStart = performance.now();
     const sanitized = sanitizeFts5Query(query);
-    if (!sanitized) return [];
+    if (!sanitized) return { results: [] };
     try {
       const results = db.prepare(
         `SELECT e.id, e.subject, e.from_name, e.from_email, e.snippet, e.date,
@@ -882,10 +881,10 @@ function registerIpcHandlers() {
          ORDER BY rank LIMIT 20`
       ).all(sanitized);
       logDebug(`[PERF] FTS5 search "${query.slice(0, 30)}": ${(performance.now() - perfStart).toFixed(1)}ms, ${results.length} results`);
-      return results;
+      return { results };
     } catch (err) {
       logDebug(`[PERF] FTS5 search failed: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      return { results: [], error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -895,7 +894,6 @@ function registerIpcHandlers() {
     attachments?: Array<{ filename: string; content: string; contentType: string }>;
   }) => {
     if (!rateLimit('email:send', 5, 1)) throw new Error('Rate limited — too many emails sent. Please wait.');
-    const stripCRLF = (s: string) => s.replace(/[\r\n\0]/g, '');
     const sanitizeList = (list: string | string[] | undefined) => {
       if (!list) return undefined;
       const arr = (Array.isArray(list) ? list : [list])
@@ -1091,8 +1089,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:toggle-flag', (_event, emailId: string, flagged: boolean) => {
-    db.prepare('UPDATE emails SET is_flagged = ? WHERE id = ?').run(flagged ? 1 : 0, emailId);
-    return { success: true };
+    const result = db.prepare('UPDATE emails SET is_flagged = ? WHERE id = ?').run(flagged ? 1 : 0, emailId);
+    return result.changes > 0 ? { success: true } : { success: false, error: 'Email not found' };
   });
 
   // Re-fetch email body from IMAP with charset-aware decoding (repair garbled emails)
@@ -1205,11 +1203,13 @@ function registerIpcHandlers() {
 
   // Print email
   ipcMain.handle('print:email', async () => {
-    if (!win) return { success: false };
-    win.webContents.print({}, (success) => {
-      logDebug(`[print:email] print result: ${success}`);
+    if (!win) return { success: false, error: 'No window available' };
+    return new Promise<{ success: boolean; error?: string }>((resolve) => {
+      win!.webContents.print({}, (success, failureReason) => {
+        logDebug(`[print:email] print result: ${success}${failureReason ? `, reason: ${failureReason}` : ''}`);
+        resolve(success ? { success: true } : { success: false, error: failureReason || 'Print failed' });
+      });
     });
-    return { success: true };
   });
 
   ipcMain.handle('print:email-pdf', async (_event, subject: string) => {
@@ -1246,21 +1246,26 @@ function registerIpcHandlers() {
 
   ipcMain.handle('imap:status', (_event, accountId: string) => {
     const lastSync = lastSyncTimestamps.get(accountId) ?? null;
+    try {
+      // 4-state status: none (no account setup), connecting (reconnecting), connected, error
+      const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(accountId);
+      if (!account) return { status: 'none', lastSync };
 
-    // 4-state status: none (no account setup), connecting (reconnecting), connected, error
-    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(accountId);
-    if (!account) return { status: 'none', lastSync };
+      if (imapEngine.isConnected(accountId)) return { status: 'connected', lastSync };
+      if (imapEngine.isReconnecting(accountId)) return { status: 'connecting', lastSync };
 
-    if (imapEngine.isConnected(accountId)) return { status: 'connected', lastSync };
-    if (imapEngine.isReconnecting(accountId)) return { status: 'connecting', lastSync };
-
-    return { status: 'error', lastSync };
+      return { status: 'error', lastSync };
+    } catch (err) {
+      logDebug(`[imap:status] error: ${err instanceof Error ? err.message : String(err)}`);
+      return { status: 'error', lastSync };
+    }
   });
 
   // Set excluded account IDs for "All Accounts" filtering
   ipcMain.handle('accounts:set-excluded', (_event, ids: string[]) => {
-    if (!Array.isArray(ids)) return;
+    if (!Array.isArray(ids)) return { success: false, error: 'Invalid input: expected array' };
     excludedAccountIds = new Set(ids.filter(id => typeof id === 'string').slice(0, 50));
+    return { success: true };
   });
 
   const BLOCKED_SETTINGS_GET_KEYS = new Set(['openrouter_api_key', 'mcp_auth_token']);
@@ -1382,9 +1387,10 @@ function registerIpcHandlers() {
             values.push(params[key]?.trim() ?? null);
         }
     }
-    if (fields.length === 0) return;
+    if (fields.length === 0) return { success: false, error: 'No fields to update' };
     values.push(params.id);
-    db.prepare(`UPDATE contacts SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    const result = db.prepare(`UPDATE contacts SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return result.changes > 0 ? { success: true } : { success: false, error: 'Contact not found' };
   });
 
   ipcMain.handle('drafts:list', (_event: Electron.IpcMainInvokeEvent, accountId: string) => {
@@ -1812,7 +1818,6 @@ function registerIpcHandlers() {
 
     const id = crypto.randomUUID();
     const attachmentsJson = params.attachments ? JSON.stringify(params.attachments) : null;
-    const stripCRLF = (s: string) => s.replace(/[\r\n\0]/g, '');
     db.prepare(
       `INSERT INTO scheduled_sends (id, account_id, draft_id, to_email, cc, bcc, subject, body_html, attachments_json, send_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -1877,8 +1882,8 @@ function registerIpcHandlers() {
 
   ipcMain.handle('reminders:cancel', (_event, reminderId: string, accountId: string) => {
     if (!reminderId || !accountId) throw new Error('Reminder ID and account ID required');
-    db.prepare('DELETE FROM reminders WHERE id = ? AND account_id = ? AND is_triggered = 0').run(reminderId, accountId);
-    return { success: true };
+    const result = db.prepare('DELETE FROM reminders WHERE id = ? AND account_id = ? AND is_triggered = 0').run(reminderId, accountId);
+    return result.changes > 0 ? { success: true } : { success: false, error: 'Reminder not found or already triggered' };
   });
 
   ipcMain.handle('reminders:list', (_event, accountId: string) => {
@@ -2050,8 +2055,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('templates:delete', (_event, templateId: string) => {
-    db.prepare('DELETE FROM reply_templates WHERE id = ?').run(templateId);
-    return { success: true };
+    const result = db.prepare('DELETE FROM reply_templates WHERE id = ?').run(templateId);
+    return result.changes > 0 ? { success: true } : { success: false, error: 'Template not found' };
   });
 
   // --- Renderer error logging handler ---
@@ -2123,13 +2128,17 @@ function registerIpcHandlers() {
     ).run(enabled ? 'true' : 'false');
 
     const mcp = getMcpServer();
-    if (enabled && !mcp.isRunning()) {
-      mcp.start();
-    } else if (!enabled && mcp.isRunning()) {
-      await mcp.stop();
+    try {
+      if (enabled && !mcp.isRunning()) {
+        mcp.start();
+      } else if (!enabled && mcp.isRunning()) {
+        await mcp.stop();
+      }
+      return { success: true, running: mcp.isRunning() };
+    } catch (err) {
+      logDebug(`[mcp:toggle] error: ${err instanceof Error ? err.message : String(err)}`);
+      return { success: false, running: mcp.isRunning(), error: err instanceof Error ? err.message : String(err) };
     }
-
-    return { success: true, running: mcp.isRunning() };
   });
 
   ipcMain.handle('mcp:get-tools', () => {
@@ -2160,7 +2169,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('update:install', () => {
-    installUpdateOnline();
+    try {
+      installUpdateOnline();
+      return { success: true };
+    } catch (err) {
+      logDebug(`[update:install] error: ${err instanceof Error ? err.message : String(err)}`);
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   // --- File-based update handlers (.expressdelivery packages) ---
@@ -2245,8 +2260,8 @@ function registerIpcHandlers() {
 
   ipcMain.handle('tags:remove', (_event, emailId: string, tagId: string) => {
     if (!emailId || !tagId) throw new Error('Email ID and tag ID required');
-    db.prepare('DELETE FROM email_tags WHERE email_id = ? AND tag_id = ?').run(emailId, tagId);
-    return { success: true };
+    const result = db.prepare('DELETE FROM email_tags WHERE email_id = ? AND tag_id = ?').run(emailId, tagId);
+    return result.changes > 0 ? { success: true } : { success: false, error: 'Tag assignment not found' };
   });
 
   ipcMain.handle('tags:emails', (_event, tagId: string) => {
@@ -2299,10 +2314,10 @@ function registerIpcHandlers() {
     if (!searchId || typeof searchId !== 'string') throw new Error('Invalid search ID');
     if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
     const search = db.prepare('SELECT query FROM saved_searches WHERE id = ? AND account_id = ?').get(searchId, accountId) as { query: string } | undefined;
-    if (!search) return [];
+    if (!search) return { results: [], error: 'Saved search not found' };
     const sanitized = sanitizeFts5Query(search.query);
-    if (!sanitized) return [];
-    return db.prepare(
+    if (!sanitized) return { results: [] };
+    const results = db.prepare(
       `SELECT e.id, e.thread_id, e.subject, e.from_name, e.from_email, e.to_email,
               e.date, e.snippet, e.is_read, e.is_flagged, e.has_attachments,
               e.ai_category, e.ai_priority, e.ai_labels
@@ -2311,6 +2326,7 @@ function registerIpcHandlers() {
        WHERE emails_fts MATCH ? AND e.account_id = ?
        ORDER BY e.date DESC LIMIT 50`
     ).all(sanitized, accountId);
+    return { results };
   });
 
   // Data Portability: Email Export/Import
@@ -2367,8 +2383,13 @@ function registerIpcHandlers() {
     if (!accountId || typeof accountId !== 'string') throw new Error('Invalid account ID');
     if (!emailId   || typeof emailId   !== 'string') throw new Error('Invalid email ID');
     if (typeof isSpam !== 'boolean') throw new Error('isSpam must be a boolean');
-    trainSpam(accountId, emailId, isSpam);
-    return { success: true };
+    try {
+      trainSpam(accountId, emailId, isSpam);
+      return { success: true };
+    } catch (err) {
+      logDebug(`[spam:train] error: ${err instanceof Error ? err.message : String(err)}`);
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   ipcMain.handle('spam:classify', (_e, accountId: string, emailId: string) => {
@@ -2482,18 +2503,21 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   // Window control IPC handlers for custom TitleBar
-  ipcMain.handle('window:minimize', () => { win?.minimize(); });
+  ipcMain.handle('window:minimize', () => { win?.minimize(); return { success: !!win }; });
   ipcMain.handle('window:maximize', () => {
     if (win?.isMaximized()) win.unmaximize();
     else win?.maximize();
+    return { success: !!win };
   });
-  ipcMain.handle('window:close', () => { win?.close(); });
+  ipcMain.handle('window:close', () => { win?.close(); return { success: !!win }; });
   ipcMain.handle('window:is-maximized', () => win?.isMaximized() ?? false);
   ipcMain.handle('window:toggle-fullscreen', () => {
-    if (win) win.setFullScreen(!win.isFullScreen());
+    if (win) { win.setFullScreen(!win.isFullScreen()); return { success: true }; }
+    return { success: false };
   });
   ipcMain.handle('window:toggle-devtools', () => {
     win?.webContents.toggleDevTools();
+    return { success: !!win };
   });
   ipcMain.handle('app:get-version', () => app.getVersion());
   ipcMain.handle('app:get-electron-version', () => process.versions.electron);
@@ -2609,8 +2633,9 @@ app.whenReady().then(() => {
     }
   }
 
-  // Defer IMAP connect until renderer has painted (avoids CPU contention during startup)
-  setTimeout(() => {
+  // Defer IMAP connect until renderer has finished loading (avoids CPU contention and race conditions)
+  if (!win) { logDebug('[ERROR] Window not available for IMAP startup'); return; }
+  win.webContents.once('did-finish-load', () => {
     try {
       const db = getDatabase();
       const accounts = db.prepare('SELECT id FROM accounts').all() as Array<{ id: string }>;
@@ -2654,7 +2679,7 @@ app.whenReady().then(() => {
     } catch (err: unknown) {
       logDebug(`[ERROR] Startup IMAP sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, 2000);
+  });
 
   // 15-second polling sync: check all connected accounts for new emails
   // and update sync timestamps. This replaces reliance on IDLE (which dies

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { smtpEngine } from './smtp.js';
-import { sanitizeFts5Query } from './utils.js';
+import { sanitizeFts5Query, stripCRLF } from './utils.js';
 
 /** Shape returned by every tool handler (index signature satisfies MCP SDK's ServerResult) */
 export interface ToolResult {
@@ -17,12 +17,6 @@ export interface ToolDefinition {
     inputSchema: Record<string, unknown>;
     handler: (args: Record<string, unknown>, db: BetterSqlite3.Database) => Promise<ToolResult>;
 }
-
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
-const stripCRLF = (s: string) => s.replace(/[\r\n\0]/g, '');
 
 // ---------------------------------------------------------------------------
 // Existing tools (extracted from mcpServer.ts)

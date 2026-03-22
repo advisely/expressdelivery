@@ -1263,7 +1263,7 @@ describe('ThreadList', () => {
         it('calls emails:search IPC after 300ms debounce when query is > 1 char', async () => {
             vi.useFakeTimers({ shouldAdvanceTime: true });
             setupStoreWithEmails([]);
-            mockIpcInvoke.mockResolvedValue([]);
+            mockIpcInvoke.mockResolvedValue({ results: [] });
 
             renderThreadList();
             const input = screen.getByPlaceholderText('threadList.search');
@@ -1285,7 +1285,7 @@ describe('ThreadList', () => {
         it('falls back to emails:list when query is cleared (< 2 chars)', async () => {
             vi.useFakeTimers({ shouldAdvanceTime: true });
             setupStoreWithEmails([]);
-            mockIpcInvoke.mockResolvedValue([]);
+            mockIpcInvoke.mockResolvedValue({ results: [] });
 
             renderThreadList();
             const input = screen.getByPlaceholderText('threadList.search');
@@ -1318,7 +1318,7 @@ describe('ThreadList', () => {
         it('does not call emails:search when query is exactly 1 character', async () => {
             vi.useFakeTimers({ shouldAdvanceTime: true });
             setupStoreWithEmails([]);
-            mockIpcInvoke.mockResolvedValue([]);
+            mockIpcInvoke.mockResolvedValue({ results: [] });
 
             renderThreadList();
             fireEvent.change(screen.getByPlaceholderText('threadList.search'), { target: { value: 'a' } });

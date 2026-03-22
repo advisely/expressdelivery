@@ -59,9 +59,6 @@ const PURIFY_CONFIG = {
     ADD_URI_SAFE_ATTR: ['src'],
 };
 
-// Thread view uses same sanitization config
-const PURIFY_CONFIG_THREAD = PURIFY_CONFIG;
-
 function escapeAttr(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
@@ -955,7 +952,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                                         <div className={styles['thread-message-body']} style={{ zoom: readingPaneZoom / 100 }}>
                                             {te.body_html ? (
                                                 <SandboxedEmailBody
-                                                    html={DOMPurify.sanitize(te.body_html, PURIFY_CONFIG_THREAD)}
+                                                    html={DOMPurify.sanitize(te.body_html, PURIFY_CONFIG)}
                                                 />
                                             ) : te.body_text ? (
                                                 <SandboxedEmailBody

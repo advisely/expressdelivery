@@ -146,17 +146,6 @@ const ALLOWED_INVOKE_CHANNELS = [
   'mcp:set-port',
   'mcp:toggle',
   'mcp:get-tools',
-  // Agentic channels
-  'channels:list',
-  'channels:add',
-  'channels:remove',
-  'channels:test',
-  'channels:toggle',
-  'channels:send',
-  'channels:status',
-  'intent:parse',
-  'llm:providers',
-  'llm:set-preference',
   // Phase 12.5: Window controls + app info (frameless window)
   'window:minimize',
   'window:maximize',
@@ -183,8 +172,6 @@ const ALLOWED_ON_CHANNELS = [
   'update:fileOpened',
   'scheduled:sent',
   'scheduled:failed',
-  // Phase 10: Application menu (kept for backward compatibility)
-  'menu:action',
   // Phase 12.5: Window state changes (frameless window)
   'window:maximized-change',
 ] as const

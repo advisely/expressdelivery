@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
  * to remove <script> blocks and inline event handler attributes.
  * The renderer still runs DOMPurify before rendering inside the sandboxed iframe.
  */
-function stripDangerousHtml(html: string): string {
+export function stripDangerousHtml(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '')
@@ -27,7 +27,7 @@ interface ParsedEmail {
   message_id: string;
 }
 
-function parseEmlContent(content: string): ParsedEmail | null {
+export function parseEmlContent(content: string): ParsedEmail | null {
   const headerEnd = content.indexOf('\r\n\r\n');
   const splitIdx = headerEnd !== -1 ? headerEnd : content.indexOf('\n\n');
   if (splitIdx === -1) return null;

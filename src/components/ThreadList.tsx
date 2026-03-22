@@ -199,8 +199,8 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
         searchTimerRef.current = setTimeout(async () => {
             if (query.trim().length > 1) {
-                const results = await ipcInvoke<EmailSummary[]>('emails:search', query);
-                if (Array.isArray(results)) setEmails(results);
+                const response = await ipcInvoke<{ results: EmailSummary[]; error?: string }>('emails:search', query);
+                if (response && Array.isArray(response.results)) setEmails(response.results);
             } else if (selectedFolderId) {
                 const result = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
                 if (Array.isArray(result)) setEmails(result);

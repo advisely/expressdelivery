@@ -20,7 +20,7 @@ interface UpdateFileInfo {
 
 interface UpdateInfo {
     currentVersion: string;
-    buildDate: string;
+    queryDate: string;
     installMode: 'installed' | 'portable' | 'development';
 }
 

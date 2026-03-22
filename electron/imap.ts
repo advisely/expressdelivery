@@ -484,7 +484,8 @@ export class ImapEngine {
         try {
             await client.messageMove(String(emailUid), destMailbox, { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[IMAP] moveMessage error (uid=${emailUid}, ${sourceMailbox} → ${destMailbox}): ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();

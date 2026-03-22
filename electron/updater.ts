@@ -43,7 +43,8 @@ export interface UpdateFileInfo {
 
 export interface UpdateInfo {
   currentVersion: string;
-  buildDate: string;
+  /** Timestamp of when this info was queried (not actual build date) */
+  queryDate: string;
   installMode: 'installed' | 'portable' | 'development';
 }
 
@@ -86,7 +87,7 @@ const REQUIRE_SIGNED_PAYLOAD = false;
  * Uses pure string checks — no path.resolve/join on untrusted input.
  * Only accepts absolute Windows paths without traversal components or null bytes.
  */
-function validateSafePath(inputPath: string): string {
+export function validateSafePath(inputPath: string): string {
   if (typeof inputPath !== 'string' || inputPath.length === 0) {
     throw new Error('Path must be a non-empty string');
   }
@@ -111,7 +112,7 @@ function validateSafePath(inputPath: string): string {
  * Sanitize a payload file name from manifest to prevent path traversal.
  * Only allows a simple filename (no directory separators, no ".." components).
  */
-function sanitizePayloadFileName(fileName: string): string {
+export function sanitizePayloadFileName(fileName: string): string {
   if (typeof fileName !== 'string' || fileName.length === 0) {
     throw new Error('Payload file name must be a non-empty string');
   }
@@ -225,13 +226,13 @@ function ensureStagingDir(): string {
   return dir;
 }
 
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function compareVersions(a: string, b: string): number {
+export function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number);
   const pb = b.split('.').map(Number);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -243,7 +244,7 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-function normalizeThumbprint(raw: string): string | null {
+export function normalizeThumbprint(raw: string): string | null {
   const cleaned = raw.replace(/[\s\-:]/g, '').toLowerCase();
   if (!/^[0-9a-f]+$/.test(cleaned)) return null;
   return cleaned;
@@ -375,7 +376,7 @@ export function getInstallMode(): 'installed' | 'portable' | 'development' {
 export function getUpdateInfo(): UpdateInfo {
   return {
     currentVersion: app.getVersion(),
-    buildDate: new Date().toISOString(),
+    queryDate: new Date().toISOString(),
     installMode: getInstallMode()
   };
 }
