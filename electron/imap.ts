@@ -118,6 +118,8 @@ export class AccountSyncController {
     inboxSyncTimer: ReturnType<typeof setInterval> | null = null;
     folderSyncTimer: ReturnType<typeof setInterval> | null = null;
     syncing = false;
+    /** Tracks which mailboxes are currently being synced (per-folder guard). */
+    syncingFolders: Set<string> = new Set();
     lastSuccessfulSync: number | null = null;
     consecutiveFailures = 0;
     heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -158,6 +160,7 @@ export class AccountSyncController {
         this.client = null;
         this.status = 'disconnected';
         this.syncing = false;
+        this.syncingFolders.clear();
     }
 
     forceDisconnect(reason: 'health' | 'user' | 'shutdown' = 'health'): void {
@@ -241,11 +244,10 @@ export class AccountSyncController {
         this.restartSyncTimers();
     }
 
-    /** Sync a single folder — wraps the operation with a 60s timeout.
+    /** Sync a single folder — wired by ImapEngine to call syncNewEmails.
      *  Can be overridden in tests. */
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async syncFolder(_mailbox: string): Promise<number> {
-        // This will be wired to the actual syncNewEmails logic in Task 9.
-        // For now, it's a no-op stub that can be mocked.
         return 0;
     }
 
@@ -328,42 +330,284 @@ export class AccountSyncController {
 }
 
 export class ImapEngine {
-    private clients: Map<string, ImapFlow> = new Map();
-    private existsHandlers: Map<string, () => void> = new Map();
-    private lastSeenUid: Map<string, number> = new Map();
-    private syncing: Map<string, boolean> = new Map();
-    private retryTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
-    private retryCounts: Map<string, number> = new Map();
-    private onNewEmail: ((accountId: string, folderId: string, count: number) => void) | null = null;
+    /** Per-account controllers — the single source of truth for connection state. */
+    controllers: Map<string, AccountSyncController> = new Map();
+    private newEmailCallback: ((accountId: string, folderId: string, count: number) => void) | null = null;
+    private statusCallback: ((accountId: string, status: string, timestamp: number | null) => void) | null = null;
 
-    setNewEmailCallback(cb: (accountId: string, folderId: string, count: number) => void) {
-        this.onNewEmail = cb;
+    // ─── Callback wiring ───────────────────────────────────────────────────────
+
+    setNewEmailCallback(cb: (accountId: string, folderId: string, count: number) => void): void {
+        this.newEmailCallback = cb;
+        // Propagate to all existing controllers
+        for (const ctrl of this.controllers.values()) {
+            ctrl.setNewEmailCallback(cb);
+        }
     }
 
+    setStatusCallback(cb: (accountId: string, status: string, timestamp: number | null) => void): void {
+        this.statusCallback = cb;
+        for (const ctrl of this.controllers.values()) {
+            ctrl.setStatusCallback(cb);
+        }
+    }
+
+    // ─── Status queries ────────────────────────────────────────────────────────
+
     isConnected(accountId: string): boolean {
-        return this.clients.has(accountId);
+        const ctrl = this.controllers.get(accountId);
+        if (!ctrl) return false;
+        if (ctrl.status !== 'connected' && ctrl.status !== 'syncing') return false;
+        // Stale guard: if lastSuccessfulSync > 180s ago, treat as disconnected
+        if (ctrl.lastSuccessfulSync !== null && Date.now() - ctrl.lastSuccessfulSync > 180_000) return false;
+        return true;
     }
 
     isReconnecting(accountId: string): boolean {
-        return this.retryTimeouts.has(accountId);
+        const ctrl = this.controllers.get(accountId);
+        if (!ctrl) return false;
+        return ctrl.reconnectTimer !== null;
     }
 
-    /** Ensure IMAP client is connected, attempting reconnect if needed */
-    async ensureConnected(accountId: string): Promise<boolean> {
-        if (this.clients.has(accountId)) return true;
-        // Cancel any pending scheduled reconnect — we'll do it now
-        const pending = this.retryTimeouts.get(accountId);
-        if (pending) {
-            clearTimeout(pending);
-            this.retryTimeouts.delete(accountId);
+    getStatus(accountId: string): { status: string; lastSync: number | null; consecutiveFailures: number; reconnectAttempts: number } {
+        const ctrl = this.controllers.get(accountId);
+        if (!ctrl) return { status: 'none', lastSync: null, consecutiveFailures: 0, reconnectAttempts: 0 };
+        return {
+            status: ctrl.status,
+            lastSync: ctrl.lastSuccessfulSync,
+            consecutiveFailures: ctrl.consecutiveFailures,
+            reconnectAttempts: ctrl.reconnectAttempts,
+        };
+    }
+
+    updateSyncIntervals(settings: SyncSettings): void {
+        for (const ctrl of this.controllers.values()) {
+            ctrl.updateIntervals(settings);
         }
-        this.retryCounts.delete(accountId);
+    }
+
+    // ─── Controller lifecycle ──────────────────────────────────────────────────
+
+    /** Stop and remove the controller for an account. */
+    stopController(accountId: string): void {
+        const ctrl = this.controllers.get(accountId);
+        if (!ctrl) return;
+        ctrl.forceDisconnect('user');
+        this.controllers.delete(accountId);
+    }
+
+    /** Primary entry point: create a controller, connect, sync, start timers. */
+    async startAccount(accountId: string): Promise<void> {
+        // Replace any existing controller for this account
+        if (this.controllers.has(accountId)) {
+            this.stopController(accountId);
+        }
+        const ctrl = new AccountSyncController(accountId);
+        if (this.statusCallback) ctrl.setStatusCallback(this.statusCallback);
+        if (this.newEmailCallback) ctrl.setNewEmailCallback(this.newEmailCallback);
+        // Wire syncFolder so the controller delegates to the engine's syncNewEmails
+        ctrl.syncFolder = (mailbox: string) => this.syncNewEmails(accountId, mailbox);
+        // Wire reconnect callback so the controller can trigger a full reconnect
+        ctrl.scheduleReconnect = () => {
+            const baseDelay = 1000 * Math.pow(2, ctrl.reconnectAttempts);
+            const maxDelay = 5 * 60 * 1000; // default 5 minutes
+            const capped = Math.min(baseDelay, maxDelay);
+            const jitter = capped * (0.8 + Math.random() * 0.4);
+            ctrl.reconnectAttempts++;
+            ctrl.reconnectTimer = setTimeout(() => {
+                ctrl.reconnectTimer = null;
+                this.startAccount(accountId).catch((err) => {
+                    logDebug(`[IMAP:${accountId}] startAccount (reconnect) failed: ${err instanceof Error ? err.message : String(err)}`);
+                });
+            }, jitter);
+        };
+        this.controllers.set(accountId, ctrl);
+
+        ctrl.status = 'connecting';
+        ctrl.emitStatus();
+        try {
+            await this.connectAccountToController(ctrl);
+
+            // List and sync folders; inbox first, then other folders non-blocking
+            const folders = await this.listAndSyncFolders(accountId);
+            const inbox = folders.find(f => f.type === 'inbox');
+            if (inbox) {
+                await this.syncNewEmails(accountId, inbox.path.replace(/^\//, ''));
+            }
+            for (const folder of folders) {
+                if (folder.type === 'inbox') continue;
+                try {
+                    await this.syncNewEmails(accountId, folder.path.replace(/^\//, ''));
+                } catch { /* non-inbox sync errors are non-blocking */ }
+            }
+
+            ctrl.resetOnSuccessfulConnect();
+            ctrl.status = 'connected';
+            ctrl.startHeartbeat();
+            ctrl.startSyncTimers();
+            ctrl.emitStatus();
+        } catch (err) {
+            ctrl.status = 'error';
+            ctrl.emitStatus();
+            logDebug(`[IMAP:${accountId}] startAccount failed: ${err instanceof Error ? err.message : String(err)}`);
+            ctrl.scheduleReconnect();
+        }
+    }
+
+    /** Connect an ImapFlow client and store it on the controller. */
+    private async connectAccountToController(ctrl: AccountSyncController): Promise<void> {
+        const accountId = ctrl.accountId;
+        const db = getDatabase();
+        const account = db.prepare(
+            'SELECT id, email, password_encrypted, provider, imap_host, imap_port FROM accounts WHERE id = ?'
+        ).get(accountId) as Record<string, unknown>;
+
+        if (!account) throw new Error('Account not found');
+        if (!account.password_encrypted) throw new Error('No password stored for account');
+
+        const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
+        const host = (account.imap_host as string) ||
+            (account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com');
+        const port = (account.imap_port as number) || 993;
+
+        const client = new ImapFlow({
+            host,
+            port,
+            secure: port === 993,
+            auth: { user: account.email as string, pass: password },
+            logger: false,
+        });
+
+        await client.connect();
+        ctrl.client = client;
+
+        // On unexpected close: trigger health-based reconnect via the controller
+        client.on('close', () => {
+            logDebug(`[IMAP:${accountId}] Connection closed — triggering health reconnect`);
+            ctrl.forceDisconnect('health');
+        });
+
+        // Log IMAP errors that don't trigger 'close'
+        client.on('error', (err: Error) => {
+            const safe = err.message.replace(/[<>"'&]/g, '').replace(/[\r\n\0]/g, ' ').slice(0, 500);
+            logDebug(`[IMAP:${accountId}] Client error: ${safe}`);
+        });
+
+        // Note: IDLE is NOT started here. The polling sync timers on the controller
+        // handle new email detection. IDLE + polling conflict because both compete
+        // for mailbox locks and cause "Command failed" errors.
+    }
+
+    // ─── Legacy connectAccount (used by main.ts directly) ─────────────────────
+
+    /** Legacy connection path used by main.ts startup and account editing flows.
+     *  Preserves the old boolean return contract. Prefer startAccount() for new code. */
+    async connectAccount(accountId: string): Promise<boolean> {
+        const db = getDatabase();
+        const account = db.prepare(
+            'SELECT id, email, password_encrypted, provider, imap_host, imap_port FROM accounts WHERE id = ?'
+        ).get(accountId) as Record<string, unknown>;
+
+        if (!account) throw new Error('Account not found');
+        if (!account.password_encrypted) throw new Error('No password stored for account');
+
+        const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
+        const host = (account.imap_host as string) ||
+            (account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com');
+        const port = (account.imap_port as number) || 993;
+
+        const client = new ImapFlow({
+            host,
+            port,
+            secure: port === 993,
+            auth: { user: account.email as string, pass: password },
+            logger: false,
+        });
+
+        try {
+            await client.connect();
+
+            // Upsert controller for this account
+            let ctrl = this.controllers.get(accountId);
+            if (!ctrl) {
+                ctrl = new AccountSyncController(accountId);
+                if (this.statusCallback) ctrl.setStatusCallback(this.statusCallback);
+                if (this.newEmailCallback) ctrl.setNewEmailCallback(this.newEmailCallback);
+                ctrl.syncFolder = (mailbox: string) => this.syncNewEmails(accountId, mailbox);
+                ctrl.scheduleReconnect = () => {
+                    const baseDelay = 1000 * Math.pow(2, ctrl!.reconnectAttempts);
+                    const maxDelay = 5 * 60 * 1000;
+                    const capped = Math.min(baseDelay, maxDelay);
+                    const jitter = capped * (0.8 + Math.random() * 0.4);
+                    ctrl!.reconnectAttempts++;
+                    ctrl!.reconnectTimer = setTimeout(() => {
+                        ctrl!.reconnectTimer = null;
+                        this.connectAccount(accountId).catch((err) => {
+                            logDebug(`[IMAP:${accountId}] reconnect failed: ${err instanceof Error ? err.message : String(err)}`);
+                        });
+                    }, jitter);
+                };
+                this.controllers.set(accountId, ctrl);
+            }
+            ctrl.client = client;
+            ctrl.status = 'connected';
+            ctrl.resetOnSuccessfulConnect();
+
+            // On unexpected close: trigger health-based reconnect via the controller
+            client.on('close', () => {
+                logDebug(`[IMAP:${accountId}] Connection closed — triggering health reconnect`);
+                ctrl!.forceDisconnect('health');
+            });
+
+            // Log IMAP errors that don't trigger 'close'
+            client.on('error', (err: Error) => {
+                const safe = err.message.replace(/[<>"'&]/g, '').replace(/[\r\n\0]/g, ' ').slice(0, 500);
+                logDebug(`[IMAP:${accountId}] Client error: ${safe}`);
+            });
+
+            // Note: IDLE is NOT started here.
+            return true;
+        } catch (error) {
+            logDebug(`Failed to connect to IMAP for ${accountId}: ${error instanceof Error ? error.message : String(error)}`);
+            return false;
+        }
+    }
+
+    // ─── ensureConnected ───────────────────────────────────────────────────────
+
+    /** Ensure IMAP client is connected, attempting reconnect if needed. */
+    async ensureConnected(accountId: string): Promise<boolean> {
+        if (this.isConnected(accountId)) return true;
+        // Cancel any pending reconnect timer so we reconnect immediately
+        const ctrl = this.controllers.get(accountId);
+        if (ctrl?.reconnectTimer) {
+            clearTimeout(ctrl.reconnectTimer);
+            ctrl.reconnectTimer = null;
+        }
         try {
             return await this.connectAccount(accountId);
         } catch {
             return false;
         }
     }
+
+    // ─── disconnectAccount / disconnectAll ─────────────────────────────────────
+
+    async disconnectAccount(accountId: string): Promise<void> {
+        const ctrl = this.controllers.get(accountId);
+        if (ctrl) {
+            try { await ctrl.client?.logout(); } catch { /* best effort */ }
+            ctrl.stop();
+        }
+        this.controllers.delete(accountId);
+    }
+
+    async disconnectAll(): Promise<void> {
+        const ids = [...this.controllers.keys()];
+        await Promise.allSettled(ids.map(id => this.disconnectAccount(id)));
+    }
+
+    // ─── testConnection (standalone — does not use controllers) ───────────────
 
     async testConnection(params: {
         email: string;
@@ -397,108 +641,13 @@ export class ImapEngine {
         }
     }
 
-    async connectAccount(accountId: string): Promise<boolean> {
-        const db = getDatabase();
-        const account = db.prepare(
-            'SELECT id, email, password_encrypted, provider, imap_host, imap_port FROM accounts WHERE id = ?'
-        ).get(accountId) as Record<string, unknown>;
+    // ─── startIdle (not actively used — preserved for future IDLE support) ─────
 
-        if (!account) throw new Error('Account not found');
-
-        if (!account.password_encrypted) throw new Error('No password stored for account');
-        const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
-
-        const host = (account.imap_host as string) ||
-            (account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com');
-        const port = (account.imap_port as number) || 993;
-
-        const client = new ImapFlow({
-            host,
-            port,
-            secure: port === 993,
-            auth: {
-                user: account.email as string,
-                pass: password
-            },
-            logger: false
-        });
-
-        try {
-            await client.connect();
-            this.clients.set(accountId, client);
-
-            // Reset retry state on successful connect
-            this.retryCounts.set(accountId, 0);
-
-            // Set up reconnect on unexpected close
-            client.on('close', () => {
-                logDebug(`IMAP connection closed for ${accountId}, scheduling reconnect`);
-                this.clients.delete(accountId);
-                this.scheduleReconnect(accountId);
-            });
-
-            // Log IMAP errors that don't trigger 'close'
-            client.on('error', (err: Error) => {
-                const safe = err.message.replace(/[<>"'&]/g, '').replace(/[\r\n\0]/g, ' ').slice(0, 500);
-                logDebug(`IMAP client error for ${accountId}: ${safe}`);
-            });
-
-            // Note: IDLE is NOT started here. The 5-second polling sync in main.ts
-            // handles new email detection. IDLE + polling conflict because both
-            // compete for mailbox locks and cause "Command failed" errors.
-            return true;
-        } catch (error) {
-            logDebug(`Failed to connect to IMAP for ${accountId}: ${error instanceof Error ? error.message : String(error)}`);
-            return false;
-        }
-    }
-
-    async disconnectAccount(accountId: string) {
-        const retryTimeout = this.retryTimeouts.get(accountId);
-        if (retryTimeout) {
-            clearTimeout(retryTimeout);
-            this.retryTimeouts.delete(accountId);
-        }
-        this.retryCounts.delete(accountId);
-
-        const client = this.clients.get(accountId);
-        if (client) {
-            const handler = this.existsHandlers.get(accountId);
-            if (handler) {
-                client.removeListener('exists', handler);
-                this.existsHandlers.delete(accountId);
-            }
-            // Clear per-folder sync state for this account
-            for (const key of this.lastSeenUid.keys()) {
-                if (key.startsWith(`${accountId}:`)) this.lastSeenUid.delete(key);
-            }
-            for (const key of this.syncing.keys()) {
-                if (key.startsWith(`${accountId}:`)) this.syncing.delete(key);
-            }
-            await client.logout();
-            this.clients.delete(accountId);
-        }
-    }
-
-    async disconnectAll() {
-        const ids = [...this.clients.keys()];
-        await Promise.allSettled(ids.map(id => this.disconnectAccount(id)));
-    }
-
-    async startIdle(accountId: string, mailbox: string) {
-        const client = this.clients.get(accountId);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async startIdle(accountId: string, _mailbox: string): Promise<void> {
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return;
-
-        const oldHandler = this.existsHandlers.get(accountId);
-        if (oldHandler) {
-            client.removeListener('exists', oldHandler);
-        }
-
-        const handler = () => {
-            this.syncNewEmails(accountId, mailbox);
-        };
-        this.existsHandlers.set(accountId, handler);
-        client.on('exists', handler);
 
         try {
             await client.idle();
@@ -507,14 +656,21 @@ export class ImapEngine {
         }
     }
 
+    // ─── syncNewEmails ─────────────────────────────────────────────────────────
+
     async syncNewEmails(accountId: string, mailbox: string): Promise<number> {
-        const syncKey = `${accountId}:${mailbox}`;
-        if (this.syncing.get(syncKey)) return 0;
-        this.syncing.set(syncKey, true);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
+
+        // Per-folder syncing guard: one active sync per mailbox per account.
+        // Uses controller.syncingFolders (Set<string>) rather than the old global Map.
+        const syncKey = mailbox;
+        if (!ctrl) return 0;
+        if (ctrl.syncingFolders.has(syncKey)) return 0;
+        ctrl.syncingFolders.add(syncKey);
 
         let insertedCount = 0;
         try {
-        const client = this.clients.get(accountId);
         if (!client) return 0;
 
         const db = getDatabase();
@@ -524,7 +680,7 @@ export class ImapEngine {
         if (!folder) return 0;
         const isInbox = folder.type === 'inbox';
 
-        const lastUid = this.lastSeenUid.get(syncKey) ?? 0;
+        const lastUid = ctrl.lastSeenUid.get(mailbox) ?? 0;
         const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
 
         const lock = await withImapTimeout(
@@ -663,8 +819,8 @@ export class ImapEngine {
                     updateBodyStmt.run(bodyText, bodyHtml, emailId);
                 }
 
-                if (uid > (this.lastSeenUid.get(syncKey) ?? 0)) {
-                    this.lastSeenUid.set(syncKey, uid);
+                if (uid > (ctrl.lastSeenUid.get(mailbox) ?? 0)) {
+                    ctrl.lastSeenUid.set(mailbox, uid);
                 }
             }
             } catch (fetchErr) {
@@ -680,16 +836,19 @@ export class ImapEngine {
         }
 
         if (insertedCount > 0) {
-            this.onNewEmail?.(accountId, folder.id, insertedCount);
+            this.newEmailCallback?.(accountId, folder.id, insertedCount);
         }
         } finally {
-            this.syncing.set(syncKey, false);
+            ctrl.syncingFolders.delete(syncKey);
         }
         return insertedCount;
     }
 
+    // ─── listAndSyncFolders ────────────────────────────────────────────────────
+
     async listAndSyncFolders(accountId: string): Promise<Array<{ id: string; name: string; path: string; type: string }>> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) throw new Error('Account not connected');
 
         const db = getDatabase();
@@ -719,8 +878,11 @@ export class ImapEngine {
         return folders;
     }
 
+    // ─── IMAP operations ───────────────────────────────────────────────────────
+
     async moveMessage(accountId: string, emailUid: number, sourceMailbox: string, destMailbox: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) throw new Error('Account not connected');
 
         const lock = await withImapTimeout(
@@ -740,7 +902,8 @@ export class ImapEngine {
     }
 
     async appendToSent(accountId: string, rawMessage: Buffer | string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
 
         const db = getDatabase();
@@ -772,7 +935,8 @@ export class ImapEngine {
         mailbox: string,
         partNumber: string
     ): Promise<Buffer | null> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) throw new Error('Account not connected');
 
         const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -802,7 +966,8 @@ export class ImapEngine {
     }
 
     async markAsRead(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -821,7 +986,8 @@ export class ImapEngine {
     }
 
     async markAsUnread(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -840,7 +1006,8 @@ export class ImapEngine {
     }
 
     async deleteMessage(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -865,7 +1032,8 @@ export class ImapEngine {
         emailUid: number,
         mailbox: string
     ): Promise<{ bodyText: string; bodyHtml: string | null } | null> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return null;
 
         const lock = await withImapTimeout(
@@ -910,7 +1078,8 @@ export class ImapEngine {
     }
 
     async fetchRawSource(accountId: string, uid: number): Promise<string> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) throw new Error('Not connected');
 
         const db = getDatabase();
@@ -980,7 +1149,8 @@ export class ImapEngine {
     }
 
     async createMailbox(accountId: string, path: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
         try {
             await client.mailboxCreate(path);
@@ -992,7 +1162,8 @@ export class ImapEngine {
     }
 
     async renameMailbox(accountId: string, oldPath: string, newPath: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
         try {
             await client.mailboxRename(oldPath, newPath);
@@ -1004,7 +1175,8 @@ export class ImapEngine {
     }
 
     async deleteMailbox(accountId: string, path: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
         try {
             await client.mailboxDelete(path);
@@ -1016,7 +1188,8 @@ export class ImapEngine {
     }
 
     async markAllRead(accountId: string, mailbox: string): Promise<boolean> {
-        const client = this.clients.get(accountId);
+        const ctrl = this.controllers.get(accountId);
+        const client = ctrl?.client;
         if (!client) return false;
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
@@ -1032,27 +1205,6 @@ export class ImapEngine {
         } finally {
             lock.release();
         }
-    }
-
-    private scheduleReconnect(accountId: string) {
-        const count = this.retryCounts.get(accountId) ?? 0;
-        if (count >= 5) {
-            logDebug(`IMAP reconnect failed after 5 attempts for ${accountId}`);
-            this.retryCounts.delete(accountId);
-            return;
-        }
-        const delay = Math.min(1000 * Math.pow(2, count), 30_000);
-        this.retryCounts.set(accountId, count + 1);
-
-        const timeout = setTimeout(async () => {
-            this.retryTimeouts.delete(accountId);
-            try {
-                await this.connectAccount(accountId);
-            } catch {
-                // connectAccount failure will trigger another close event
-            }
-        }, delay);
-        this.retryTimeouts.set(accountId, timeout);
     }
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ImapFlow } from 'imapflow';
-import { withImapTimeout } from './imap.js';
+import { withImapTimeout, imapEngine } from './imap.js';
 
 // === Mocks for AccountSyncController tests ===
 // vi.mock() calls are hoisted to the top of the file by Vitest.
@@ -27,6 +27,21 @@ vi.mock('./db.js', () => ({
 }));
 
 import { AccountSyncController } from './imap.js';
+
+describe('ImapEngine (controller integration)', () => {
+    it('isConnected returns false when no controller exists', () => {
+        expect(imapEngine.isConnected('nonexistent-account-xyz')).toBe(false);
+    });
+
+    it('getStatus returns none for unknown account', () => {
+        const status = imapEngine.getStatus('nonexistent-account-xyz');
+        expect(status.status).toBe('none');
+    });
+
+    it('isReconnecting returns false when no controller exists', () => {
+        expect(imapEngine.isReconnecting('nonexistent-account-xyz')).toBe(false);
+    });
+});
 
 describe('withImapTimeout', () => {
     beforeEach(() => { vi.useFakeTimers(); });
