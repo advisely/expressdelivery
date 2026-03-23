@@ -263,7 +263,7 @@ export class AccountSyncController {
             ).get(this.accountId) as { path: string } | undefined;
             if (!inboxFolder) return false;
             const mailbox = inboxFolder.path.replace(/^\//, '');
-            await withImapTimeout(
+            const synced = await withImapTimeout(
                 () => this.syncFolder(mailbox),
                 60_000,
                 `syncNewEmails(${mailbox})`
@@ -271,6 +271,9 @@ export class AccountSyncController {
             this.lastSuccessfulSync = Date.now();
             this.consecutiveFailures = 0;
             this.emitStatus();
+            if (synced > 0) {
+                logDebug(`[IMAP:${this.accountId}] Inbox sync: ${synced} new emails`);
+            }
             return true;
         } catch (err) {
             this.consecutiveFailures++;
