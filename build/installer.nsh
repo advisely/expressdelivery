@@ -44,3 +44,32 @@
   Pop $0
   Sleep 1000
 !macroend
+
+; Uninstall init: same kill logic for upgrade-via-reinstall scenarios
+!macro customUnInit
+  ${nsProcess::KillProcess} "ExpressDelivery.exe" $R0
+  nsExec::ExecToStack 'taskkill /F /IM "ExpressDelivery.exe"'
+  Pop $0
+  ; Longer wait for uninstall — Windows needs time to release DLL handles,
+  ; better-sqlite3 .node file, and the asar archive after process death
+  Sleep 3000
+
+  ; Verify process is actually gone
+  StrCpy $R1 0
+  ${Do}
+    ${nsProcess::FindProcess} "ExpressDelivery.exe" $R0
+    ${If} $R0 != 0
+      ${ExitDo}
+    ${EndIf}
+    IntOp $R1 $R1 + 1
+    nsExec::ExecToStack 'taskkill /F /IM "ExpressDelivery.exe"'
+    Pop $0
+    Sleep 2000
+    ${If} $R1 >= 5
+      ${ExitDo}
+    ${EndIf}
+  ${Loop}
+
+  ; Extra wait for file handle release (Windows file locking is async after process death)
+  Sleep 2000
+!macroend
