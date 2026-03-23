@@ -429,13 +429,17 @@ export class ImapEngine {
         ctrl.status = 'connecting';
         ctrl.emitStatus();
         try {
+            const startTime = performance.now();
             await this.connectAccountToController(ctrl);
+            logDebug(`[IMAP:${accountId}] Connected in ${(performance.now() - startTime).toFixed(0)}ms`);
 
             // List and sync folders; inbox first, then other folders non-blocking
             const folders = await this.listAndSyncFolders(accountId);
+            logDebug(`[IMAP:${accountId}] Found ${folders.length} folders`);
             const inbox = folders.find(f => f.type === 'inbox');
             if (inbox) {
-                await this.syncNewEmails(accountId, inbox.path.replace(/^\//, ''));
+                const inboxSynced = await this.syncNewEmails(accountId, inbox.path.replace(/^\//, ''));
+                logDebug(`[IMAP:${accountId}] Inbox initial sync: ${inboxSynced} new emails`);
             }
             for (const folder of folders) {
                 if (folder.type === 'inbox') continue;
@@ -449,6 +453,7 @@ export class ImapEngine {
             ctrl.startHeartbeat();
             ctrl.startSyncTimers();
             ctrl.emitStatus();
+            logDebug(`[IMAP:${accountId}] startAccount complete — timers started (inbox: ${15}s, folders: ${60}s, heartbeat: 120s)`);
         } catch (err) {
             ctrl.status = 'error';
             ctrl.emitStatus();

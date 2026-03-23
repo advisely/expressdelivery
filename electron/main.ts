@@ -749,6 +749,12 @@ function registerIpcHandlers() {
 
     if (!imapEngine.isConnected(folder.account_id)) return { success: false };
 
+    // Skip if the controller's sync cycle is already running — prevents two concurrent
+    // getMailboxLock calls on the same mailbox which deadlock and cause 10s timeouts.
+    // The controller's timer will complete within 60s and email:new will refresh the UI.
+    const ctrl = imapEngine.controllers.get(folder.account_id);
+    if (ctrl?.syncing) return { success: true, synced: 0 };
+
     try {
       const mailbox = folder.path.replace(/^\//, '');
       const synced = await imapEngine.syncNewEmails(folder.account_id, mailbox);
