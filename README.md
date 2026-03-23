@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/advisely/expressdelivery/releases/latest"><img src="https://img.shields.io/github/v/release/advisely/expressdelivery?style=flat-square&color=blue" alt="Latest Release" /></a>
-  <img src="https://img.shields.io/badge/tests-648%20passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-779%20passed-brightgreen?style=flat-square" alt="Tests" />
   <a href="https://github.com/advisely/expressdelivery/actions"><img src="https://img.shields.io/github/actions/workflow/status/advisely/expressdelivery/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square" alt="Platforms" />
@@ -36,7 +36,7 @@ Most email clients are either bloated, cloud-locked, or stuck in 2010. ExpressDe
 | | |
 |---|---|
 | **Multi-account** | Manage all your email accounts in one place with provider auto-detection |
-| **Full IMAP sync** | Envelope + body fetch, folder sync, IDLE push, automatic reconnect |
+| **Full IMAP sync** | Per-account sync engine, envelope + body fetch, folder sync, IDLE push, NOOP heartbeat, timeout protection, infinite reconnect with backoff |
 | **Rich compose** | Bold, italic, underline, lists, links — powered by TipTap editor |
 | **HTML rendering** | Sandboxed iframe with DOMPurify, inline CID images, remote image blocking |
 | **Attachments** | Send (25MB/file, max 10) and receive with on-demand IMAP download |
@@ -148,7 +148,7 @@ npm run dev
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Vite dev server + Electron |
-| `npm run test` | Run 648 tests (Vitest) |
+| `npm run test` | Run 779 tests (Vitest) |
 | `npm run test:coverage` | Tests with coverage report |
 | `npm run lint` | ESLint (strict, 0 warnings) |
 | `npm run build:win` | Clean Windows build (unpacked) |
@@ -164,13 +164,13 @@ npm run dev
 | **Backend** | Electron 41, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5 |
 | **AI** | MCP SDK (multi-client SSE), OpenRouter, 8 tool handlers |
 | **Build** | Vite 7, electron-builder (NSIS, AppImage, deb, rpm, DMG) |
-| **Test** | Vitest 4, Testing Library, 648 tests across 27 files |
+| **Test** | Vitest 4, Testing Library, 779 tests across 32 files |
 
 ### Project Structure
 
 ```
 electron/          Main process — DB, IMAP, SMTP, MCP server, updater
-src/               Renderer — React SPA (17 components, 2 stores)
+src/               Renderer — React SPA (19 components, 2 stores)
   components/      UI components + co-located CSS modules
   stores/          Zustand stores (theme + email)
   lib/             Utilities, IPC wrapper, keyboard shortcuts, i18n

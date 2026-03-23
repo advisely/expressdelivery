@@ -1,7 +1,7 @@
 # ExpressDelivery — System Architecture
 
 Anti-loop reference and architecture guide for contributors and AI agents.
-Last updated: 2026-03-18 (v1.12.5).
+Last updated: 2026-03-22 (v1.15.4).
 
 ---
 
@@ -33,7 +33,7 @@ Electron Main Process (Node.js / ABI 145)
 |
 +-- electron/main.ts         ~107 IPC handlers, window, tray, crash handler (frameless, no menu)
 +-- electron/db.ts           SQLite via better-sqlite3 (WAL, foreign keys, FTS5, 12 migrations)
-+-- electron/imap.ts         IMAPFlow client (connect, IDLE, sync, on-demand body, reconnect)
++-- electron/imap.ts         Per-account AccountSyncController (connect, IDLE, sync, withImapTimeout, NOOP heartbeat, infinite reconnect with backoff+jitter, on-demand body)
 +-- electron/smtp.ts         Nodemailer (TLS/STARTTLS, CC/BCC, attachments, CRLF-safe)
 +-- electron/mcpServer.ts    Express 5 SSE server (multi-client Map, bearer auth, lazy init)
 +-- electron/mcpTools.ts     8 MCP tool handlers — buildToolRegistry() returns Map<string, ToolDef>

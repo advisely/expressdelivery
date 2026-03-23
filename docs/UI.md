@@ -164,6 +164,20 @@ transform-origin: top left;
 
 ---
 
+## Sync Status Indicator
+
+A per-account staleness-aware indicator displayed in the Sidebar alongside each account's folder group.
+
+| State | Color | Condition |
+| ----- | ----- | --------- |
+| Fresh | Green | Last successful sync within 5 minutes |
+| Stale | Amber | Last successful sync more than 5 minutes ago |
+| Error | Red | Sync error or account disconnected |
+
+The indicator is driven by the `AccountSyncController` in `electron/imap.ts`, which tracks the last-sync timestamp and error state per account. State is pushed to the renderer via IPC (`imap:sync-status` event) and consumed by `Sidebar.tsx`. The three-color scheme uses the existing CSS custom properties (`--color-accent` for green/fresh, amber and red are defined as inline hex values consistent with the danger/warning semantic tokens).
+
+---
+
 ## Folder Colors
 
 8 preset colors selectable per folder via the folder context menu in the Sidebar.

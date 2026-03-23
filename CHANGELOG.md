@@ -9,6 +9,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.15.4] - 2026-03-22
+
+### Changed
+- Silent auto-update: `quitAndInstall(isSilent=true, forceRunAfter=true)` — app restarts automatically after update without showing a visible prompt
+- NSIS installer verified kill loop: polls until process exits before beginning installation, preventing file-lock failures
+- NSIS uses `nsProcess::KillProcess` with a 5-second wait for a clean app shutdown before overwriting binaries
+
+---
+
+## [1.15.3] - 2026-03-22
+
+### Added
+- Per-account `AccountSyncController` replaces the global poll loop — each account has an isolated sync lifecycle with `forceDisconnect` and independent reconnect state
+- `withImapTimeout` wrapper applied to all IMAP operations; configurable per-operation timeout prevents indefinite hangs
+- NOOP heartbeat every 2 minutes detects half-open TCP connections before they stall the sync cycle
+- Settings > Email > Sync sub-tab with 3 configurable intervals: sync frequency, NOOP heartbeat interval, and operation timeout
+- Staleness-aware sync status indicator in Sidebar: green (fresh, synced within 5min), amber (stale, >5min since last sync), red (error or disconnected)
+- `imapSync.test.ts`: 56 new tests covering `AccountSyncController` lifecycle, `forceDisconnect`, reconnect, heartbeat, `withImapTimeout`, and parallel account isolation
+
+### Changed
+- Reconnect strategy changed from "max 5 retries" to infinite reconnect with exponential backoff + jitter — accounts always recover from transient network failures
+- Test suite expanded to 779 tests across 32 files
+
+---
+
 ## [1.10.0] - 2026-03-16
 
 ### Added

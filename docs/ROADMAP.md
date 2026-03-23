@@ -2,7 +2,7 @@
 
 Feature comparison against Mailspring and Mozilla Thunderbird (reference email clients) and implementation status.
 
-Last updated: 2026-03-18
+Last updated: 2026-03-22
 
 ---
 
@@ -30,7 +30,7 @@ Last updated: 2026-03-18
 | IMAP connect + IDLE | Yes (C++ sync engine) | Yes | **Done** | Connects, syncs headers + body, folder sync, IDLE for new mail |
 | IMAP full message fetch | Yes | Yes | **Done** | Fetches first MIME part (body text), stored in body_text column |
 | IMAP folder sync | Yes | Yes | **Done** | `listAndSyncFolders()` syncs all mailboxes with RFC 6154 classification |
-| IMAP reconnect/retry | Yes | Yes | **Done** | Exponential backoff (1-30s), max 5 retries, auto-reconnect on close |
+| IMAP reconnect/retry | Yes | Yes | **Done** | Infinite reconnect with exponential backoff + jitter, per-account `AccountSyncController`, NOOP heartbeat, `withImapTimeout` protection |
 | Connection testing | Yes | Yes | **Done** | Standalone "Test Connection" button + test-before-save, `accounts:test` IPC, 10s timeout, status indicator (pass/fail/testing) |
 | SMTP send | Yes | Yes | **Done** | Nodemailer, TLS/STARTTLS auto-detect, injection-safe, CC/BCC |
 | Email search (full-text) | Yes (Gmail-style) | Yes | **Done** | SQLite FTS5, sanitized input, 300ms debounce |
@@ -163,7 +163,7 @@ Last updated: 2026-03-18
 
 | Feature | Mailspring | ExpressDelivery | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Unit tests | Yes | Yes | **Done** | 27 files, 648 tests, ~76% coverage |
+| Unit tests | Yes | Yes | **Done** | 32 files, 779 tests, ~80% coverage |
 | Integration tests | Yes | No | **Planned** | IMAP client not tested (SMTP unit-tested) |
 | E2E tests | Yes | No | **Planned** | No Playwright/Spectron |
 | Coverage thresholds | Unknown | Yes | **Done** | @vitest/coverage-v8, 70% line threshold, `npm run test:coverage` |
@@ -474,6 +474,22 @@ Removed native Windows title bar, custom TitleBar component, SettingsModal two-l
 - [x] **Keyboard shortcuts expansion** (Ctrl+P print, Ctrl+F search, Ctrl+0 reset zoom, Ctrl+\ sidebar, Ctrl+/ shortcuts, F11 fullscreen, Ctrl+Shift+I devtools)
 - [x] **Reset zoom button** (RotateCcw icon in ReadingPane, visible when zoom != 100%)
 - [x] **Roadmap consolidation** (merged deferred features report, added Phase 13/14, marked 11 features as Skipped)
+
+### Phase 15: Global Search & IMAP Reliability (v1.15.0–v1.15.4) -- COMPLETE
+
+- [x] **Global Search overlay** (Ctrl+Shift+F, cross-account/folder FTS5, 100-result limit, keyboard nav, glassmorphism)
+- [x] **Predictive search** (FTS5 prefix wildcards, 200ms debounce, 1-char minimum, 50-result limit)
+- [x] **Contextual folder switching** (click email in All Accounts mode auto-expands account folder group)
+- [x] **Post-update splash** (animated version badge, changelog, 3-phase animation, click-to-skip, WCAG reduced-motion)
+- [x] **Per-account AccountSyncController** (replaces global poll loop, isolated lifecycle, forceDisconnect)
+- [x] **withImapTimeout wrapper** (configurable per-operation timeouts on all IMAP calls)
+- [x] **NOOP heartbeat** (2-minute interval detects half-open TCP before stall)
+- [x] **Infinite reconnect** with exponential backoff + jitter (no retry cap)
+- [x] **Staleness-aware sync status** in Sidebar (green=fresh, amber=stale >5min, red=error)
+- [x] **Settings > Email > Sync sub-tab** (3 configurable intervals: sync frequency, heartbeat, timeout)
+- [x] **Silent auto-update** (`quitAndInstall(isSilent=true, forceRunAfter=true)`)
+- [x] **NSIS verified kill loop** (polls until process exits before install, `nsProcess::KillProcess` + 5s wait)
+- [x] 779 tests across 32 files (+56 in imapSync.test.ts)
 
 ### Phase 13: Quality & Distribution (planned)
 Ship-ready quality and code signing for public distribution.
