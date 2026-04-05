@@ -53,9 +53,17 @@
     color: var(--text-primary);
 }
 
+.title-bar__btn:active {
+    background: var(--active-bg);
+}
+
 .title-bar__btn--close:hover {
     background: #e81123;
     color: #ffffff;
+}
+
+.title-bar__btn--close:active {
+    background: #c50f1f;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -74,8 +74,9 @@
 
   --glass-bg: rgba(var(--color-bg-primary), 0.85);
   --glass-border: rgba(var(--color-border), 0.5);
-  --hover-bg: rgba(var(--color-text-primary), 0.06);
-  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --hover-bg: rgba(var(--color-text-primary), 0.09);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.04);
+  --active-bg: rgba(var(--color-text-primary), 0.15);
   --surface-overlay: rgba(var(--color-text-primary), 0.04);
   --surface-inset: rgba(var(--color-text-primary), 0.08);
   --close-hover-bg: rgba(var(--color-text-primary), 0.12);
@@ -116,8 +117,9 @@
   --accent-hover: rgb(var(--color-accent-hover));
   --glass-bg: rgba(var(--color-bg-primary), 0.85);
   --glass-border: rgba(var(--color-border), 0.5);
-  --hover-bg: rgba(var(--color-text-primary), 0.06);
-  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --hover-bg: rgba(var(--color-text-primary), 0.09);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.04);
+  --active-bg: rgba(var(--color-text-primary), 0.15);
   --surface-overlay: rgba(var(--color-text-primary), 0.04);
   --surface-inset: rgba(var(--color-text-primary), 0.08);
   --close-hover-bg: rgba(var(--color-text-primary), 0.12);
@@ -149,8 +151,9 @@
   --accent-hover: rgb(var(--color-accent-hover));
   --glass-bg: rgba(var(--color-bg-primary), 0.85);
   --glass-border: rgba(var(--color-border), 0.5);
-  --hover-bg: rgba(var(--color-text-primary), 0.06);
-  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --hover-bg: rgba(var(--color-text-primary), 0.09);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.04);
+  --active-bg: rgba(var(--color-text-primary), 0.15);
   --surface-overlay: rgba(var(--color-text-primary), 0.04);
   --surface-inset: rgba(var(--color-text-primary), 0.08);
   --close-hover-bg: rgba(var(--color-text-primary), 0.12);
@@ -182,8 +185,9 @@
   --accent-hover: rgb(var(--color-accent-hover));
   --glass-bg: rgba(var(--color-bg-primary), 0.85);
   --glass-border: rgba(var(--color-border), 0.5);
-  --hover-bg: rgba(var(--color-text-primary), 0.06);
-  --hover-bg-subtle: rgba(var(--color-text-primary), 0.03);
+  --hover-bg: rgba(var(--color-text-primary), 0.09);
+  --hover-bg-subtle: rgba(var(--color-text-primary), 0.04);
+  --active-bg: rgba(var(--color-text-primary), 0.15);
   --surface-overlay: rgba(var(--color-text-primary), 0.04);
   --surface-inset: rgba(var(--color-text-primary), 0.08);
   --close-hover-bg: rgba(var(--color-text-primary), 0.12);
@@ -323,6 +327,10 @@ button {
   padding: 0;
   color: inherit;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 /* Glassmorphism helpers */

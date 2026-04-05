@@ -339,6 +339,10 @@
   background: var(--hover-bg);
 }
 
+.bulk-btn:active {
+  background: var(--active-bg);
+}
+
 .bulk-danger:hover {
   color: rgb(var(--color-danger));
   background: rgba(var(--color-danger), 0.1);

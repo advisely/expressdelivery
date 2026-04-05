@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.15.8] - 2026-04-05
+
+### Changed
+- Increased hover background opacity from 6% to 9% across all 4 themes for more visible button feedback
+- Added `--active-bg` CSS variable (15% opacity) for pressed/active button states
+- Icon buttons (ReadingPane, SettingsModal) gain subtle box-shadow on hover for elevation feel
+- Added `:active` pressed states to icon buttons, sidebar nav items, compose button, collapse button, bulk action buttons, and title bar window controls
+- Global `button:active` applies `scale(0.96)` micro-interaction for click feedback
+- Close button in title bar uses darker red (`#c50f1f`) on press
+
+---
+
 ## [1.15.4] - 2026-03-22
 
 ### Changed

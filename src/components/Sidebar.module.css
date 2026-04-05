@@ -227,6 +227,10 @@
   color: var(--text-primary);
 }
 
+.collapse-btn:active {
+  background: var(--active-bg);
+}
+
 .compose-wrapper {
   padding: 0 8px 12px;
 }
@@ -259,6 +263,12 @@
 .compose-btn:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.compose-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 /* Scrollable nav section */
@@ -312,6 +322,10 @@
 .nav-item:hover {
   background: var(--hover-bg);
   color: var(--text-primary);
+}
+
+.nav-item:active {
+  background: var(--active-bg);
 }
 
 .nav-item.active {
