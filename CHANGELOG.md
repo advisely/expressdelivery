@@ -9,6 +9,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.15.9] - 2026-04-05
+
+### Fixed
+- Web update checker reported older GitHub releases as "available" — `update:check` IPC now uses `compareVersions` to verify the remote version is actually newer than the installed version
+
+### Changed
+- Icon buttons (ReadingPane, SettingsModal) now show a subtle resting background tint for better button affordance
+- Stronger dual-layer hover shadow on icon buttons for more pronounced elevation effect
+
+---
+
 ## [1.15.8] - 2026-04-05
 
 ### Changed

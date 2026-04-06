@@ -54,7 +54,7 @@ import { smtpEngine } from './smtp.js'
 import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query, stripCRLF } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
-import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging, readPostUpdateMarker, clearPostUpdateMarker } from './updater.js'
+import { initAutoUpdater, setUpdateCallback, checkForUpdatesOnline, downloadUpdateOnline, installUpdateOnline, pickUpdateFile, validateFile, applyUpdate, getUpdateInfo, cleanStaging, readPostUpdateMarker, clearPostUpdateMarker, compareVersions } from './updater.js'
 import { rateLimit, cleanBuckets } from './rateLimiter.js'
 import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
@@ -2158,7 +2158,10 @@ function registerIpcHandlers() {
   ipcMain.handle('update:check', async () => {
     try {
       const result = await checkForUpdatesOnline();
-      return { available: !!result?.updateInfo, version: result?.updateInfo?.version ?? null };
+      const remoteVersion = result?.updateInfo?.version ?? null;
+      const current = app.getVersion();
+      const isNewer = remoteVersion ? compareVersions(remoteVersion, current) > 0 : false;
+      return { available: isNewer, version: remoteVersion };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logDebug(`[update:check] Error: ${msg}`);
