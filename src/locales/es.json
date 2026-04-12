@@ -368,7 +368,8 @@
     "port": "Puerto",
     "optional": "(opcional)",
     "showPassword": "Mostrar contraseña",
-    "hidePassword": "Ocultar contraseña"
+    "hidePassword": "Ocultar contraseña",
+    "useCustomInstead": "Usar Otro / Personalizado en su lugar"
   },
   "toast": {
     "scheduledSent": "Correo programado enviado",

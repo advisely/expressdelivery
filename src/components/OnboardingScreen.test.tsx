@@ -44,11 +44,15 @@ describe('OnboardingScreen', () => {
         expect(screen.getByText('onboarding.chooseProvider')).toBeInTheDocument();
     });
 
-    it('shows provider cards in provider step', async () => {
+    it('shows all 6 provider cards in provider step', async () => {
         render(<OnboardingScreen onAccountAdded={vi.fn()} />);
         await userEvent.click(screen.getByText('onboarding.getStarted'));
         expect(screen.getByText('Gmail')).toBeInTheDocument();
-        expect(screen.getByText('Outlook / Hotmail')).toBeInTheDocument();
+        expect(screen.getByText('Outlook.com (Personal)')).toBeInTheDocument();
+        expect(screen.getByText('Microsoft 365 (Work/School)')).toBeInTheDocument();
+        expect(screen.getByText('Yahoo Mail')).toBeInTheDocument();
+        expect(screen.getByText('iCloud Mail')).toBeInTheDocument();
+        expect(screen.getByText('Other / Custom')).toBeInTheDocument();
     });
 
     it('advances to credentials step when a provider is selected', async () => {
@@ -110,5 +114,30 @@ describe('OnboardingScreen', () => {
         });
 
         expect(screen.getByText('onboarding.connectionFailed')).toBeInTheDocument();
+    });
+
+    it('renders ProviderHelpPanel on credentials step for gmail', async () => {
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Gmail'));
+        expect(screen.getByText('providerHelp.gmail.shortNote')).toBeInTheDocument();
+    });
+
+    it('shows disabled state for Outlook.com Personal with custom fallback CTA', async () => {
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Outlook.com (Personal)'));
+        expect(screen.getByText('providerHelp.outlookPersonal.comingSoonMessage')).toBeInTheDocument();
+        expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
+        expect(screen.queryByText('onboarding.connect')).not.toBeInTheDocument();
+        expect(screen.getByText('onboarding.useCustomInstead')).toBeInTheDocument();
+    });
+
+    it('shows disabled state for Microsoft 365 business', async () => {
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Microsoft 365 (Work/School)'));
+        expect(screen.getByText('providerHelp.outlookBusiness.comingSoonMessage')).toBeInTheDocument();
+        expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
     });
 });

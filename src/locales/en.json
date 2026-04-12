@@ -368,7 +368,8 @@
     "port": "Port",
     "optional": "(optional)",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "useCustomInstead": "Use Other / Custom instead"
   },
   "toast": {
     "scheduledSent": "Scheduled email sent successfully",

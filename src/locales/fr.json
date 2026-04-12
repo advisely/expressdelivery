@@ -368,7 +368,8 @@
     "port": "Port",
     "optional": "(optionnel)",
     "showPassword": "Afficher le mot de passe",
-    "hidePassword": "Masquer le mot de passe"
+    "hidePassword": "Masquer le mot de passe",
+    "useCustomInstead": "Utiliser Autre / Personnalisé à la place"
   },
   "toast": {
     "scheduledSent": "E-mail planifié envoyé",

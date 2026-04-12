@@ -6,6 +6,7 @@ import { getProviderIcon } from '../lib/providerIcons';
 import { useTranslation } from 'react-i18next';
 import { ipcInvoke } from '../lib/ipc';
 import { useEmailStore } from '../stores/emailStore';
+import { ProviderHelpPanel } from './ProviderHelpPanel';
 import styles from './OnboardingScreen.module.css';
 
 interface OnboardingScreenProps {
@@ -16,11 +17,12 @@ const STEPS = ['welcome', 'provider', 'credentials', 'server'] as const;
 type Step = typeof STEPS[number];
 
 const PROVIDER_ACCENTS: Record<string, string> = {
-    gmail:   '#EA4335',
-    outlook: '#0078D4',
-    yahoo:   '#6001D2',
-    icloud:  '#007AFF',
-    custom:  'var(--accent-color)',
+    gmail:              '#EA4335',
+    'outlook-personal': '#0078D4',
+    'outlook-business': '#0078D4',
+    yahoo:              '#6001D2',
+    icloud:             '#007AFF',
+    custom:             'var(--accent-color)',
 };
 
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdded }) => {
@@ -207,9 +209,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
                                         </span>
                                         <span className={styles['ob-provider-content']}>
                                             <span className={styles['ob-provider-label']}>{preset.label}</span>
-                                            {preset.notes && (
-                                                <span className={styles['ob-provider-notes']}>{preset.notes}</span>
-                                            )}
+                                            <span className={styles['ob-provider-notes']}>{t(preset.shortNoteKey)}</span>
                                         </span>
                                         <ChevronRight size={14} className={styles['ob-provider-arrow']} />
                                     </button>
@@ -220,80 +220,113 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
                 )}
 
                 {/* ---- Credentials ---- */}
-                {step === 'credentials' && (
+                {step === 'credentials' && selectedPreset && (
                     <div className={`${styles['ob-step']} ${styles['ob-step-left']}`}>
                         <h2 className={styles['ob-step-title']}>{t('onboarding.accountDetails')}</h2>
                         <p className={styles['ob-step-subtitle']}>
-                            {selectedPreset?.id !== 'custom'
-                                ? t('onboarding.connectingTo', { provider: selectedPreset?.label })
+                            {selectedPreset.id !== 'custom'
+                                ? t('onboarding.connectingTo', { provider: selectedPreset.label })
                                 : t('onboarding.enterYourCredentials')}
                         </p>
 
-                        {error && (
-                            <div key={errorKey} className={styles['ob-error']} role="alert">
-                                {error}
-                            </div>
+                        <ProviderHelpPanel preset={selectedPreset} />
+
+                        {selectedPreset.authModel === 'oauth2-required' ? (
+                            <>
+                                {selectedPreset.comingSoonMessageKey && (
+                                    <div className={styles['ob-coming-soon-message']}>
+                                        {t(selectedPreset.comingSoonMessageKey)}
+                                    </div>
+                                )}
+                                <div className={styles['ob-actions']}>
+                                    <button className={styles['ob-secondary-btn']} onClick={() => setStep('provider')}>
+                                        <ChevronLeft size={16} />
+                                        <span>{t('onboarding.back')}</span>
+                                    </button>
+                                    <button
+                                        className={`${styles['ob-primary-btn']} ${styles['ob-shimmer-btn']}`}
+                                        onClick={() => {
+                                            const customPreset = PROVIDER_PRESETS.find(p => p.id === 'custom');
+                                            if (!customPreset) return;
+                                            selectProvider(customPreset);
+                                            // Jump straight to server step — custom has no hosts
+                                            setStep('server');
+                                        }}
+                                    >
+                                        <span>{t('onboarding.useCustomInstead')}</span>
+                                        <ChevronRight size={18} />
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {error && (
+                                    <div key={errorKey} className={styles['ob-error']} role="alert">
+                                        {error}
+                                    </div>
+                                )}
+
+                                <div className={styles['ob-form-group']}>
+                                    <label className={styles['ob-label']} htmlFor="ob-email">{t('settings.email')}</label>
+                                    <input
+                                        id="ob-email"
+                                        type="email"
+                                        className={styles['ob-input']}
+                                        placeholder="you@example.com"
+                                        value={email}
+                                        onChange={e => setEmail(e.target.value)}
+                                        autoFocus
+                                    />
+                                </div>
+
+                                <div className={styles['ob-form-group']}>
+                                    <label className={styles['ob-label']} htmlFor="ob-display-name">
+                                        {t('settings.displayName')} <span className={styles['ob-label-optional']}>{t('onboarding.optional')}</span>
+                                    </label>
+                                    <input
+                                        id="ob-display-name"
+                                        type="text"
+                                        className={styles['ob-input']}
+                                        placeholder="John Doe"
+                                        value={displayName}
+                                        onChange={e => setDisplayName(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className={styles['ob-form-group']}>
+                                    <label className={styles['ob-label']} htmlFor="ob-password">{t('settings.password')}</label>
+                                    <div className={styles['ob-password-wrap']}>
+                                        <input
+                                            id="ob-password"
+                                            type={showPassword ? 'text' : 'password'}
+                                            className={styles['ob-input']}
+                                            placeholder="App Password"
+                                            value={password}
+                                            onChange={e => setPassword(e.target.value)}
+                                        />
+                                        <button
+                                            className={styles['ob-pw-toggle']}
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            type="button"
+                                            aria-label={showPassword ? t('onboarding.hidePassword') : t('onboarding.showPassword')}
+                                        >
+                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className={styles['ob-actions']}>
+                                    <button className={styles['ob-secondary-btn']} onClick={() => setStep('provider')}>
+                                        <ChevronLeft size={16} />
+                                        <span>{t('onboarding.back')}</span>
+                                    </button>
+                                    <button className={`${styles['ob-primary-btn']} ${styles['ob-shimmer-btn']}`} onClick={handleCredentialsNext} disabled={saving}>
+                                        <span>{saving ? (testStatus === 'testing' ? t('onboarding.testingConnection') : t('onboarding.connecting')) : selectedPreset.id === 'custom' ? t('onboarding.next') : t('onboarding.connect')}</span>
+                                        <ChevronRight size={18} />
+                                    </button>
+                                </div>
+                            </>
                         )}
-
-                        <div className={styles['ob-form-group']}>
-                            <label className={styles['ob-label']} htmlFor="ob-email">{t('settings.email')}</label>
-                            <input
-                                id="ob-email"
-                                type="email"
-                                className={styles['ob-input']}
-                                placeholder="you@example.com"
-                                value={email}
-                                onChange={e => setEmail(e.target.value)}
-                                autoFocus
-                            />
-                        </div>
-
-                        <div className={styles['ob-form-group']}>
-                            <label className={styles['ob-label']} htmlFor="ob-display-name">
-                                {t('settings.displayName')} <span className={styles['ob-label-optional']}>{t('onboarding.optional')}</span>
-                            </label>
-                            <input
-                                id="ob-display-name"
-                                type="text"
-                                className={styles['ob-input']}
-                                placeholder="John Doe"
-                                value={displayName}
-                                onChange={e => setDisplayName(e.target.value)}
-                            />
-                        </div>
-
-                        <div className={styles['ob-form-group']}>
-                            <label className={styles['ob-label']} htmlFor="ob-password">{t('settings.password')}</label>
-                            <div className={styles['ob-password-wrap']}>
-                                <input
-                                    id="ob-password"
-                                    type={showPassword ? 'text' : 'password'}
-                                    className={styles['ob-input']}
-                                    placeholder={selectedPreset?.notes ? 'App Password recommended' : 'Password'}
-                                    value={password}
-                                    onChange={e => setPassword(e.target.value)}
-                                />
-                                <button
-                                    className={styles['ob-pw-toggle']}
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    type="button"
-                                    aria-label={showPassword ? t('onboarding.hidePassword') : t('onboarding.showPassword')}
-                                >
-                                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className={styles['ob-actions']}>
-                            <button className={styles['ob-secondary-btn']} onClick={() => setStep('provider')}>
-                                <ChevronLeft size={16} />
-                                <span>{t('onboarding.back')}</span>
-                            </button>
-                            <button className={`${styles['ob-primary-btn']} ${styles['ob-shimmer-btn']}`} onClick={handleCredentialsNext} disabled={saving}>
-                                <span>{saving ? (testStatus === 'testing' ? t('onboarding.testingConnection') : t('onboarding.connecting')) : selectedPreset?.id === 'custom' ? t('onboarding.next') : t('onboarding.connect')}</span>
-                                <ChevronRight size={18} />
-                            </button>
-                        </div>
                     </div>
                 )}
 
