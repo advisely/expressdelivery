@@ -60,6 +60,7 @@ import { exportEml, exportMbox } from './emailExport.js'
 import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
+import { handleShellOpenExternal } from './shellOpen.js'
 // menu.ts removed — frameless window with custom TitleBar component (Phase 12.5)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -2542,6 +2543,12 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('app:get-version', () => app.getVersion());
   ipcMain.handle('app:get-electron-version', () => process.versions.electron);
+
+  // External link opener — exact-URL allowlist in shellOpen.ts (provider help URLs only).
+  // Keeps renderer-side XSS / prompt-injection from opening arbitrary URLs via shell.
+  ipcMain.handle('shell:open-external', async (_event, args: { url?: unknown }) => {
+    return handleShellOpenExternal(args);
+  });
 
   // Global shortcuts for actions that should work regardless of focus
   globalShortcut.register('F11', () => {
