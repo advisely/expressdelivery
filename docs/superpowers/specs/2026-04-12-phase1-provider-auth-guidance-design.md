@@ -339,7 +339,7 @@ This is a verification step, not a design decision.
 
 ### 9.1 `OnboardingScreen.tsx`
 
-- **Step 2 (provider grid):** Unchanged structurally. Each card still uses `preset.label` and `preset.notes` for the short text, but `notes` is now sourced from `shortNoteKey` via i18n instead of a hardcoded English string. Card count grows from 5 to 6 (Outlook splits).
+- **Step 2 (provider grid):** Unchanged structurally. Each card still uses `preset.label` and a localized short note resolved from `preset.shortNoteKey` via i18n (replacing the previous hardcoded `notes` string on the interface). Card count grows from 5 to 6 (Outlook splits).
 - **Step 3 (credentials):** Insert `<ProviderHelpPanel preset={selectedPreset} />` between the step title and the email input field. If `selectedPreset.authModel === 'oauth2-required'`, render the disabled state panel instead of the credentials form.
 - **No other structural changes.** Step dots, animations, back button, test flow all unchanged.
 
@@ -453,7 +453,7 @@ Phase 1 is complete when:
 1. The onboarding provider grid shows 6 cards (Gmail, Outlook.com Personal, Microsoft 365 Work/School, Yahoo, iCloud, Other/Custom)
 2. Selecting any provider in onboarding or "Add Account" shows the new `ProviderHelpPanel`
 3. Selecting Outlook.com Personal or Microsoft 365 Work/School shows the disabled state with a clear message and a Custom escape hatch
-4. Existing accounts with `provider === 'outlook'` continue to work in the Edit Account flow with a non-blocking warning banner
+4. Existing accounts with `provider === 'outlook'` remain editable and testable in the Edit Account flow with a non-blocking warning banner
 5. The "Open official page" button opens the provider's exact help URL via the allowlisted IPC
 6. All new strings are present in `en`, `fr`, `es`, `de`
 7. New test files exist and pass: `ProviderHelpPanel.test.tsx`, `shellOpen.test.ts`, `providerPresets.test.ts` (or updated)
