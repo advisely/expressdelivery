@@ -62,6 +62,7 @@ import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
 import { handleShellOpenExternal } from './shellOpen.js'
+import { registerAuthIpcHandlers } from './auth/ipcHandlers.js'
 // menu.ts removed — frameless window with custom TitleBar component (Phase 12.5)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -2515,11 +2516,23 @@ app.whenReady().then(() => {
   logDebug('Registering IPC handlers...');
   try {
     registerIpcHandlers();
+    registerAuthIpcHandlers();
     logDebug('IPC handlers registered successfully.');
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] IPC handler registration failed: ${e.message}\n${e.stack}`);
   }
+
+  // Phase 2 OAuth2: wire needs-reauth callback so IMAP can notify the renderer
+  // when a refresh token is permanently invalid (D8.4). The renderer surfaces
+  // this as a toast with a "Sign in again" CTA.
+  imapEngine.setNeedsReauthCallback(({ accountId }) => {
+    try {
+      win?.webContents.send('auth:needs-reauth', { accountId });
+    } catch (err) {
+      logDebug(`[OAUTH] failed to emit auth:needs-reauth: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
 
   // Create window FIRST so user sees UI immediately
   logDebug('Creating main window...');
