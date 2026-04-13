@@ -11,10 +11,18 @@
 // The interactive flow (with loopback server) is in this same file but
 // lives in the next task.
 
+import http from 'node:http';
+import crypto from 'node:crypto';
+import net from 'node:net';
+
 import { logDebug } from '../logger.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+const LOOPBACK_TIMEOUT_MS = 60_000;
+
+const GOOGLE_SCOPES = ['https://mail.google.com/', 'openid', 'email', 'profile'].join(' ');
 
 export interface GoogleOAuthClientConfig {
     clientId: string;
@@ -98,4 +106,211 @@ export async function revokeRefreshToken(refreshToken: string): Promise<void> {
     } catch (err) {
         logDebug(`[OAUTH] [GOOGLE] revoke threw (best-effort, swallowed): ${String(err).slice(0, 200)}`);
     }
+}
+
+// -----------------------------------------------------------------------------
+// Interactive flow (D3.1, D3.2, D3.5, D11.2)
+// -----------------------------------------------------------------------------
+
+export interface InteractiveFlowParams {
+    clientConfig: GoogleOAuthClientConfig;
+    onAuthUrl: (url: string) => Promise<void>;
+    abortSignal: AbortSignal;
+}
+
+export interface GoogleInteractiveResult {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+    idToken: string;
+    scope: string;
+    tokenType: string;
+}
+
+function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
+    // PKCE per RFC 7636: 32 cryptographically random bytes, base64url encoded.
+    // NEVER Math.random — must be crypto-grade because this is the CSRF
+    // defense for installed-app OAuth.
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    return { codeVerifier, codeChallenge };
+}
+
+async function pickFreePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const server = net.createServer();
+        // Bind to 127.0.0.1 explicitly — never 0.0.0.0. The loopback-only
+        // binding is half the security model for desktop OAuth (PKCE is
+        // the other half).
+        server.listen(0, '127.0.0.1', () => {
+            const addr = server.address();
+            if (addr && typeof addr === 'object') {
+                const freePort = addr.port;
+                server.close(() => resolve(freePort));
+            } else {
+                server.close();
+                reject(new Error('Could not pick free port'));
+            }
+        });
+        server.on('error', reject);
+    });
+}
+
+const SUCCESS_HTML =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sign in complete</title>' +
+    '<style>body{font-family:system-ui;text-align:center;padding-top:80px}</style></head>' +
+    '<body><h1>Sign in complete</h1><p>You can close this tab and return to ExpressDelivery.</p></body></html>';
+
+const ERROR_HTML =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sign in error</title>' +
+    '<style>body{font-family:system-ui;text-align:center;padding-top:80px}</style></head>' +
+    '<body><h1>Sign in error</h1><p>Please return to ExpressDelivery and try again.</p></body></html>';
+
+export async function startInteractiveFlow(
+    params: InteractiveFlowParams
+): Promise<GoogleInteractiveResult> {
+    const { clientConfig, onAuthUrl, abortSignal } = params;
+    const { codeVerifier, codeChallenge } = generatePKCE();
+    // State token for CSRF defense — validated against the callback's
+    // state parameter BEFORE exchanging the code for tokens.
+    const state = crypto.randomBytes(32).toString('hex');
+    const port = await pickFreePort();
+    const redirectUri = `http://127.0.0.1:${port}/callback`;
+
+    return new Promise<GoogleInteractiveResult>((resolve, reject) => {
+        let settled = false;
+        const settle = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            fn();
+        };
+
+        const server = http.createServer(async (req, res) => {
+            const url = new URL(req.url || '', `http://127.0.0.1:${port}`);
+            if (url.pathname !== '/callback') {
+                res.writeHead(404).end();
+                return;
+            }
+            const callbackCode = url.searchParams.get('code');
+            const callbackState = url.searchParams.get('state');
+            const callbackError = url.searchParams.get('error');
+
+            if (callbackError) {
+                res.writeHead(400, { 'Content-Type': 'text/html' }).end(ERROR_HTML);
+                server.close();
+                settle(() =>
+                    reject(
+                        Object.assign(new Error(`OAuth error: ${callbackError}`), {
+                            code: callbackError,
+                        })
+                    )
+                );
+                return;
+            }
+            if (callbackState !== state) {
+                res.writeHead(400, { 'Content-Type': 'text/html' }).end(ERROR_HTML);
+                server.close();
+                settle(() => reject(new Error('OAuth state mismatch — possible CSRF')));
+                return;
+            }
+            if (!callbackCode) {
+                res.writeHead(400, { 'Content-Type': 'text/html' }).end(ERROR_HTML);
+                server.close();
+                settle(() => reject(new Error('OAuth callback missing code parameter')));
+                return;
+            }
+
+            // Exchange the code for tokens.
+            try {
+                const tokenParams = new URLSearchParams({
+                    client_id: clientConfig.clientId,
+                    client_secret: clientConfig.clientSecret,
+                    code: callbackCode,
+                    code_verifier: codeVerifier,
+                    grant_type: 'authorization_code',
+                    redirect_uri: redirectUri,
+                });
+                const tokenResp = await fetch(GOOGLE_TOKEN_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: tokenParams.toString(),
+                });
+                const tokenBody = (await tokenResp.json()) as Record<string, unknown>;
+                if (!tokenResp.ok || 'error' in tokenBody) {
+                    res.writeHead(400, { 'Content-Type': 'text/html' }).end(ERROR_HTML);
+                    server.close();
+                    settle(() =>
+                        reject(
+                            new Error(
+                                `Token exchange failed: ${String(tokenBody.error) || tokenResp.statusText}`
+                            )
+                        )
+                    );
+                    return;
+                }
+                res.writeHead(200, { 'Content-Type': 'text/html' }).end(SUCCESS_HTML);
+                server.close();
+                settle(() =>
+                    resolve({
+                        accessToken: tokenBody.access_token as string,
+                        refreshToken: tokenBody.refresh_token as string,
+                        expiresAt: Date.now() + (tokenBody.expires_in as number) * 1000,
+                        idToken: tokenBody.id_token as string,
+                        scope: (tokenBody.scope as string) || '',
+                        tokenType: (tokenBody.token_type as string) || 'Bearer',
+                    })
+                );
+            } catch (err) {
+                res.writeHead(500, { 'Content-Type': 'text/html' }).end(ERROR_HTML);
+                server.close();
+                settle(() => reject(err));
+            }
+        });
+
+        server.listen(port, '127.0.0.1', async () => {
+            // Build auth URL and hand it to the caller's system-browser
+            // launcher (shell.openExternal at the IPC layer).
+            const authUrl = new URL(GOOGLE_AUTH_URL);
+            authUrl.searchParams.set('client_id', clientConfig.clientId);
+            authUrl.searchParams.set('redirect_uri', redirectUri);
+            authUrl.searchParams.set('response_type', 'code');
+            authUrl.searchParams.set('scope', GOOGLE_SCOPES);
+            authUrl.searchParams.set('code_challenge', codeChallenge);
+            authUrl.searchParams.set('code_challenge_method', 'S256');
+            authUrl.searchParams.set('state', state);
+            // access_type=offline + prompt=consent forces Google to return
+            // a refresh_token on every interactive flow (rather than only
+            // on first consent), which is what we need for long-lived
+            // sessions.
+            authUrl.searchParams.set('access_type', 'offline');
+            authUrl.searchParams.set('prompt', 'consent');
+
+            try {
+                await onAuthUrl(authUrl.toString());
+            } catch (err) {
+                server.close();
+                settle(() => reject(err));
+            }
+        });
+
+        // Hard timeout — if the user never completes the flow, we don't
+        // leave an abandoned loopback listener running forever.
+        const timeoutHandle = setTimeout(() => {
+            server.close();
+            settle(() =>
+                reject(Object.assign(new Error('OAuth flow timed out'), { code: 'timeout' }))
+            );
+        }, LOOPBACK_TIMEOUT_MS);
+
+        // Abort handling (D11.2) — caller can cancel via AbortSignal.
+        abortSignal.addEventListener('abort', () => {
+            clearTimeout(timeoutHandle);
+            server.close();
+            settle(() =>
+                reject(Object.assign(new Error('OAuth flow cancelled'), { code: 'cancelled' }))
+            );
+        });
+
+        server.on('close', () => clearTimeout(timeoutHandle));
+    });
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import nock from 'nock';
-import { refreshAccessToken, revokeRefreshToken } from './google.js';
+import http from 'node:http';
+import { refreshAccessToken, revokeRefreshToken, startInteractiveFlow } from './google.js';
 
 describe('google.refreshAccessToken', () => {
     beforeEach(() => {
@@ -126,5 +127,146 @@ describe('google.revokeRefreshToken', () => {
         // The caller (AuthTokenManager / accounts:delete handler) will catch
         // and log via logDebug per D11.1 + D11.10.
         await expect(revokeRefreshToken('rt')).resolves.toBeUndefined();
+    });
+});
+
+describe('google.startInteractiveFlow', () => {
+    beforeEach(() => nock.disableNetConnect());
+    afterEach(() => {
+        nock.cleanAll();
+        nock.enableNetConnect();
+    });
+
+    function fakeOnAuthUrl(simulateCallback: (port: number, code: string, state: string) => void) {
+        return async (url: string) => {
+            const parsed = new URL(url);
+            const redirectUri = parsed.searchParams.get('redirect_uri') || '';
+            const portMatch = redirectUri.match(/:(\d+)/);
+            const port = portMatch ? parseInt(portMatch[1], 10) : 0;
+            const state = parsed.searchParams.get('state') || '';
+            // Simulate the user completing OAuth in the browser by hitting
+            // the loopback server with the expected callback.
+            setTimeout(() => simulateCallback(port, 'fake_auth_code', state), 50);
+        };
+    }
+
+    it('completes the flow when the loopback server receives a valid callback', async () => {
+        // Allow loopback traffic for the test's own simulated callback
+        nock.enableNetConnect('127.0.0.1');
+        nock('https://oauth2.googleapis.com')
+            .post('/token')
+            .reply(200, {
+                access_token: 'AT_value',
+                refresh_token: 'RT_value',
+                expires_in: 3599,
+                scope: 'https://mail.google.com/',
+                token_type: 'Bearer',
+                id_token: 'fake.id.token',
+            });
+
+        const abortController = new AbortController();
+        const onAuthUrl = fakeOnAuthUrl((port, code, state) => {
+            const req = http.request(
+                { hostname: '127.0.0.1', port, path: `/callback?code=${code}&state=${state}` },
+                () => {}
+            );
+            req.end();
+        });
+
+        const result = await startInteractiveFlow({
+            clientConfig: { clientId: 'cid', clientSecret: 'csec' },
+            onAuthUrl,
+            abortSignal: abortController.signal,
+        });
+
+        expect(result.accessToken).toBe('AT_value');
+        expect(result.refreshToken).toBe('RT_value');
+        expect(result.idToken).toBe('fake.id.token');
+        expect(result.expiresAt).toBeGreaterThan(Date.now());
+    });
+
+    it('rejects when the callback state does not match', async () => {
+        nock.enableNetConnect('127.0.0.1');
+        const abortController = new AbortController();
+        const onAuthUrl = fakeOnAuthUrl(port => {
+            const req = http.request(
+                { hostname: '127.0.0.1', port, path: `/callback?code=fake&state=WRONG_STATE` },
+                () => {}
+            );
+            req.end();
+        });
+
+        await expect(
+            startInteractiveFlow({
+                clientConfig: { clientId: 'cid', clientSecret: 'csec' },
+                onAuthUrl,
+                abortSignal: abortController.signal,
+            })
+        ).rejects.toThrow(/state/i);
+    });
+
+    it('rejects with a cancelled error when the abort signal fires', async () => {
+        const abortController = new AbortController();
+        const onAuthUrl = async (): Promise<void> => {
+            // Don't simulate a callback; abort instead
+            setTimeout(() => abortController.abort(), 50);
+        };
+
+        await expect(
+            startInteractiveFlow({
+                clientConfig: { clientId: 'cid', clientSecret: 'csec' },
+                onAuthUrl,
+                abortSignal: abortController.signal,
+            })
+        ).rejects.toMatchObject({ code: 'cancelled' });
+    });
+
+    it('shuts down the loopback server cleanly after a successful callback', async () => {
+        nock.enableNetConnect('127.0.0.1');
+        nock('https://oauth2.googleapis.com')
+            .post('/token')
+            .reply(200, {
+                access_token: 'AT',
+                refresh_token: 'RT',
+                expires_in: 3600,
+                scope: '',
+                token_type: 'Bearer',
+                id_token: 't',
+            });
+
+        let portUsed = 0;
+        const abortController = new AbortController();
+        const onAuthUrl = fakeOnAuthUrl((port, code, state) => {
+            portUsed = port;
+            const req = http.request(
+                { hostname: '127.0.0.1', port, path: `/callback?code=${code}&state=${state}` },
+                () => {}
+            );
+            req.end();
+        });
+
+        await startInteractiveFlow({
+            clientConfig: { clientId: 'cid', clientSecret: 'csec' },
+            onAuthUrl,
+            abortSignal: abortController.signal,
+        });
+
+        // Server should be shut down — a new request to the same port should fail
+        await expect(
+            new Promise<void>((resolve, reject) => {
+                const req = http.request(
+                    { hostname: '127.0.0.1', port: portUsed, path: '/', timeout: 500 },
+                    () => {
+                        reject(new Error('server still listening'));
+                    }
+                );
+                req.on('error', () => resolve());
+                req.on('timeout', () => {
+                    req.destroy();
+                    resolve();
+                });
+                req.end();
+            })
+        ).resolves.toBeUndefined();
     });
 });
