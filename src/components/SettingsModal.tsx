@@ -14,12 +14,13 @@ import { useLayout, Layout as LayoutType } from './ThemeContext';
 import { useThemeStore, THEMES, ThemeName } from '../stores/themeStore';
 import { useEmailStore } from '../stores/emailStore';
 import type { Account, Folder, Tag } from '../stores/emailStore';
-import { PROVIDER_PRESETS } from '../lib/providerPresets';
+import { PROVIDER_PRESETS, getPresetForAccount, OUTLOOK_LEGACY_PRESET } from '../lib/providerPresets';
 import type { ProviderPreset } from '../lib/providerPresets';
 import { ipcInvoke } from '../lib/ipc';
 import { getProviderIcon } from '../lib/providerIcons';
 import styles from './SettingsModal.module.css';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ProviderHelpPanel } from './ProviderHelpPanel';
 
 const THEME_ICONS: Record<ThemeName, ElementType> = {
     light: Sun,
@@ -41,8 +42,10 @@ const CATEGORY_TABS: Record<string, string> = {
     system: 'update',
 };
 
-const providerLabel = (providerId: string) =>
-    PROVIDER_PRESETS.find(p => p.id === providerId)?.label ?? providerId;
+const providerLabel = (providerId: string) => {
+    if (providerId === 'outlook') return OUTLOOK_LEGACY_PRESET.label;
+    return PROVIDER_PRESETS.find(p => p.id === providerId)?.label ?? providerId;
+};
 
 type TestStatus = 'idle' | 'testing' | 'passed' | 'failed';
 
@@ -53,6 +56,10 @@ interface SettingsModalProps {
 export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [isAddingAccount, setIsAddingAccount] = useState(false);
     const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+    // Preserves the stored provider value (e.g., legacy 'outlook') on the
+    // edit path so handleUpdateAccount does not rewrite it to 'outlook-legacy'
+    // and the DB column remains stable across edits.
+    const [editingOriginalProvider, setEditingOriginalProvider] = useState<string | null>(null);
 
     // Account form state
     const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
@@ -325,6 +332,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
     const resetForm = () => {
         setSelectedPreset(null);
+        setEditingOriginalProvider(null);
         setFormEmail('');
         setFormDisplayName('');
         setFormPassword('');
@@ -481,8 +489,16 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setFormError(null);
     };
 
+    const selectCustomFallback = () => {
+        const custom = PROVIDER_PRESETS.find(p => p.id === 'custom');
+        if (custom) {
+            selectProvider(custom);
+        }
+    };
+
     const enterEditMode = (account: Account) => {
         setEditingAccountId(account.id);
+        setEditingOriginalProvider(account.provider);
         setIsAddingAccount(true);
         setFormEmail(account.email);
         setFormDisplayName(account.display_name ?? '');
@@ -495,7 +511,10 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setFormSignature(account.signature_html ?? '');
         setFormError(null);
         setTestStatus('idle');
-        const preset = PROVIDER_PRESETS.find(p => p.id === account.provider) ?? null;
+        // Map legacy 'outlook' stored value to OUTLOOK_LEGACY_PRESET so the
+        // help panel renders the legacy warning banner; unknown providers
+        // fall through to the custom preset.
+        const preset = getPresetForAccount({ provider: account.provider });
         setSelectedPreset(preset);
         setShowServerFields(true);
     };
@@ -588,7 +607,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             const payload: Record<string, unknown> = {
                 id: editingAccountId,
                 email: formEmail.trim(),
-                provider: selectedPreset?.id ?? 'custom',
+                provider: editingOriginalProvider ?? selectedPreset?.id ?? 'custom',
                 display_name: formDisplayName.trim() || null,
                 imap_host: finalImapHost,
                 imap_port: formImapPort,
@@ -603,7 +622,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
             updateAccount({
                 id: editingAccountId,
                 email: formEmail.trim(),
-                provider: selectedPreset?.id ?? 'custom',
+                provider: editingOriginalProvider ?? selectedPreset?.id ?? 'custom',
                 display_name: formDisplayName.trim() || null,
                 imap_host: finalImapHost,
                 imap_port: formImapPort,
@@ -681,6 +700,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     };
 
     const isEditing = editingAccountId !== null;
+    // OAuth2-only providers cannot be added via password — the add flow is
+    // gated and we surface a coming-soon message + custom-fallback button
+    // instead of the credential form. Editing an existing oauth2-required
+    // row (should not happen in practice) is intentionally NOT gated so the
+    // user retains the ability to modify or remove the account.
+    const isOAuth2Gated = !editingAccountId && selectedPreset?.authModel === 'oauth2-required';
     const hasPassword = formPassword.trim().length > 0;
 
     // Render gate: only mount tab content after it has been visited at least once
@@ -856,6 +881,31 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </div>
                                     </div>
 
+                                    {selectedPreset && (
+                                        <ProviderHelpPanel preset={selectedPreset} />
+                                    )}
+
+                                    {isOAuth2Gated ? (
+                                        <>
+                                            {selectedPreset?.comingSoonMessageKey && (
+                                                <div className={styles['coming-soon-message']}>
+                                                    {t(selectedPreset.comingSoonMessageKey)}
+                                                </div>
+                                            )}
+                                            <div className={styles['form-actions']}>
+                                                <div className={styles['form-spacer']} />
+                                                <button className={styles['secondary-btn']} onClick={resetForm}>{t('settings.cancel')}</button>
+                                                <button
+                                                    className={styles['secondary-btn']}
+                                                    onClick={selectCustomFallback}
+                                                    type="button"
+                                                >
+                                                    {t('onboarding.useCustomInstead')}
+                                                </button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                    <>
                                     <div className={styles['form-group']}>
                                         <label className={styles['form-label']} htmlFor="settings-email">{t('settings.email')}</label>
                                         <input
@@ -1009,6 +1059,8 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             {getPrimaryButtonLabel()}
                                         </button>
                                     </div>
+                                    </>
+                                    )}
                                 </div>
                             )}
                         </Tabs.Content>

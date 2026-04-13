@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { SettingsModal } from './SettingsModal';
 import { ThemeProvider } from './ThemeContext';
 import { useThemeStore } from '../stores/themeStore';
+import { useEmailStore } from '../stores/emailStore';
 import { ipcInvoke } from '../lib/ipc';
 
 // Hoist IPC mock so it is available before module imports resolve
@@ -41,6 +42,9 @@ vi.mock('lucide-react', () => ({
     RefreshCw: () => <div data-testid="icon-RefreshCw">Rw</div>,
     Wrench: () => <div data-testid="icon-Wrench">Wr</div>,
     AlertTriangle: () => <div data-testid="icon-AlertTriangle">AT</div>,
+    ChevronDown: () => <div data-testid="icon-ChevronDown">CD</div>,
+    ChevronRight: () => <div data-testid="icon-ChevronRight">CR</div>,
+    ExternalLink: () => <div data-testid="icon-ExternalLink">EL</div>,
     Download: () => <div data-testid="icon-Download">Dl</div>,
     Shield: () => <div data-testid="icon-Shield">Sh</div>,
     HardDrive: () => <div data-testid="icon-HardDrive">Hd</div>,
@@ -555,5 +559,117 @@ describe('SettingsModal Integration Tests', () => {
 
         // The tools count label includes the number of tools
         expect(screen.getByText(/mcp\.toolsTitle/i).textContent).toContain('2');
+    });
+
+    // --- Provider help panel integration ---
+
+    describe('Provider help panel integration', () => {
+        beforeEach(() => {
+            vi.clearAllMocks();
+            mockIpcInvoke.mockResolvedValue(null);
+            // Reset the email store so legacy-account fixtures don't bleed
+            // between tests in the suite.
+            useEmailStore.setState({
+                accounts: [],
+                folders: [],
+                emails: [],
+                selectedAccountId: null,
+                selectedFolderId: null,
+                selectedEmailId: null,
+                selectedEmail: null,
+                searchQuery: '',
+            });
+        });
+
+        it('shows ProviderHelpPanel when adding a Gmail account', async () => {
+            renderSettings();
+
+            fireEvent.click(screen.getByText('settings.addAccount'));
+            fireEvent.click(screen.getByText('Gmail'));
+
+            expect(screen.getByText('providerHelp.gmail.shortNote')).toBeInTheDocument();
+            // Password input must still be present for a password-supported provider
+            expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
+        });
+
+        it('disables add flow for outlook-personal with coming soon message', async () => {
+            renderSettings();
+
+            fireEvent.click(screen.getByText('settings.addAccount'));
+            fireEvent.click(screen.getByText('Outlook.com (Personal)'));
+
+            // Warning banner from ProviderHelpPanel
+            expect(screen.getByText('providerHelp.outlookPersonal.warning')).toBeInTheDocument();
+            // Coming-soon block
+            expect(screen.getByText('providerHelp.outlookPersonal.comingSoonMessage')).toBeInTheDocument();
+            // Password input must NOT be rendered while the flow is gated
+            expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
+            // The custom-fallback button must be present
+            expect(screen.getByText('onboarding.useCustomInstead')).toBeInTheDocument();
+        });
+
+        it('custom fallback button switches oauth2-gated add flow to Other / Custom', async () => {
+            renderSettings();
+
+            fireEvent.click(screen.getByText('settings.addAccount'));
+            fireEvent.click(screen.getByText('Microsoft 365 (Work/School)'));
+
+            // Coming-soon message visible, password hidden
+            expect(screen.getByText('providerHelp.outlookBusiness.comingSoonMessage')).toBeInTheDocument();
+            expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
+
+            // Click the custom fallback button
+            fireEvent.click(screen.getByText('onboarding.useCustomInstead'));
+
+            // Coming-soon banner gone; password input back
+            expect(screen.queryByText('providerHelp.outlookBusiness.comingSoonMessage')).not.toBeInTheDocument();
+            expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
+            // Help panel now shows the custom preset short note
+            expect(screen.getByText('providerHelp.custom.shortNote')).toBeInTheDocument();
+        });
+
+        it('shows legacy warning but keeps form editable for stored provider="outlook"', async () => {
+            // Seed the email store with a legacy Outlook account row (the
+            // SettingsModal component reads accounts from Zustand, not from
+            // accounts:list IPC).
+            useEmailStore.setState({
+                accounts: [{
+                    id: 'acc-legacy',
+                    email: 'legacy@outlook.com',
+                    provider: 'outlook',
+                    display_name: 'Legacy',
+                    imap_host: 'outlook.office365.com',
+                    imap_port: 993,
+                    smtp_host: 'smtp.office365.com',
+                    smtp_port: 587,
+                    signature_html: null,
+                }],
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+
+            // Legacy account row visible with the Outlook (Legacy) label
+            expect(screen.getByText('legacy@outlook.com')).toBeInTheDocument();
+            expect(screen.getByText('Outlook (Legacy)')).toBeInTheDocument();
+
+            // Click the row to enter edit mode
+            await user.click(screen.getByText('legacy@outlook.com'));
+
+            // Warning banner from ProviderHelpPanel with role="alert"
+            const alerts = screen.getAllByRole('alert');
+            const legacyWarning = alerts.find(el =>
+                el.textContent?.includes('providerHelp.outlookLegacy.warning')
+            );
+            expect(legacyWarning).toBeDefined();
+
+            // Form remains editable: password input rendered and enabled
+            const passwordInput = screen.getByLabelText('settings.password') as HTMLInputElement;
+            expect(passwordInput).toBeInTheDocument();
+            expect(passwordInput.disabled).toBe(false);
+
+            // The coming-soon block must NOT appear on the legacy edit path
+            expect(screen.queryByText('providerHelp.outlookPersonal.comingSoonMessage')).not.toBeInTheDocument();
+        });
     });
 });
