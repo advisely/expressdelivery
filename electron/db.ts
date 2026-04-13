@@ -585,3 +585,155 @@ export function runMigrations(db: DatabaseType) {
         ).run(String(version));
     })();
 }
+
+// Phase 2 OAuth credentials DB helpers (§4.2, D4.5, D5.6, D8.2).
+//
+// These are the sole entry points for read/write access to the
+// oauth_credentials table. They validate the provider enum in application
+// code (SQLite does not enforce CHECK on this column — see §4.2 note) and
+// enforce the base64-TEXT token storage convention shared with
+// accounts.password_encrypted. Token encryption/decryption is the caller's
+// responsibility (done at the safeStorage boundary in electron/crypto.ts).
+
+export interface OAuthCredentialRow {
+    accountId: string;
+    provider: 'google' | 'microsoft_personal' | 'microsoft_business';
+    accessTokenEncrypted: string;
+    refreshTokenEncrypted: string;
+    expiresAt: number;
+    scope: string | null;
+    tokenType: string | null;
+    providerAccountEmail: string | null;
+    providerAccountId: string | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface InsertOAuthCredentialParams {
+    accountId: string;
+    provider: 'google' | 'microsoft_personal' | 'microsoft_business';
+    accessTokenEncrypted: string;
+    refreshTokenEncrypted: string;
+    expiresAt: number;
+    scope?: string;
+    tokenType?: string;
+    providerAccountEmail?: string;
+    providerAccountId?: string;
+}
+
+const VALID_AUTH_STATES = new Set(['ok', 'recommended_reauth', 'reauth_required'] as const);
+export type AuthState = 'ok' | 'recommended_reauth' | 'reauth_required';
+
+const VALID_OAUTH_PROVIDERS = new Set(['google', 'microsoft_personal', 'microsoft_business'] as const);
+
+export function insertOAuthCredential(
+    db: DatabaseType,
+    params: InsertOAuthCredentialParams
+): void {
+    if (!VALID_OAUTH_PROVIDERS.has(params.provider)) {
+        throw new Error(`Invalid OAuth provider: ${params.provider}`);
+    }
+    const now = Date.now();
+    db.prepare(`
+        INSERT INTO oauth_credentials (
+            account_id, provider, access_token_encrypted, refresh_token_encrypted,
+            expires_at, scope, token_type, provider_account_email, provider_account_id,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(account_id) DO UPDATE SET
+            provider = excluded.provider,
+            access_token_encrypted = excluded.access_token_encrypted,
+            refresh_token_encrypted = excluded.refresh_token_encrypted,
+            expires_at = excluded.expires_at,
+            scope = excluded.scope,
+            token_type = excluded.token_type,
+            provider_account_email = excluded.provider_account_email,
+            provider_account_id = excluded.provider_account_id,
+            updated_at = excluded.updated_at
+    `).run(
+        params.accountId,
+        params.provider,
+        params.accessTokenEncrypted,
+        params.refreshTokenEncrypted,
+        params.expiresAt,
+        params.scope ?? null,
+        params.tokenType ?? null,
+        params.providerAccountEmail ?? null,
+        params.providerAccountId ?? null,
+        now,
+        now
+    );
+}
+
+export function getOAuthCredential(
+    db: DatabaseType,
+    accountId: string
+): OAuthCredentialRow | null {
+    const row = db.prepare(`
+        SELECT account_id, provider, access_token_encrypted, refresh_token_encrypted,
+               expires_at, scope, token_type, provider_account_email, provider_account_id,
+               created_at, updated_at
+          FROM oauth_credentials
+         WHERE account_id = ?
+    `).get(accountId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+        accountId: row.account_id as string,
+        provider: row.provider as OAuthCredentialRow['provider'],
+        accessTokenEncrypted: row.access_token_encrypted as string,
+        refreshTokenEncrypted: row.refresh_token_encrypted as string,
+        expiresAt: row.expires_at as number,
+        scope: row.scope as string | null,
+        tokenType: row.token_type as string | null,
+        providerAccountEmail: row.provider_account_email as string | null,
+        providerAccountId: row.provider_account_id as string | null,
+        createdAt: row.created_at as number,
+        updatedAt: row.updated_at as number,
+    };
+}
+
+export function updateAccessToken(
+    db: DatabaseType,
+    accountId: string,
+    params: { accessTokenEncrypted: string; expiresAt: number }
+): void {
+    db.prepare(`
+        UPDATE oauth_credentials
+           SET access_token_encrypted = ?,
+               expires_at = ?,
+               updated_at = ?
+         WHERE account_id = ?
+    `).run(params.accessTokenEncrypted, params.expiresAt, Date.now(), accountId);
+}
+
+export function updateAccessAndRefreshToken(
+    db: DatabaseType,
+    accountId: string,
+    params: { accessTokenEncrypted: string; refreshTokenEncrypted: string; expiresAt: number }
+): void {
+    db.prepare(`
+        UPDATE oauth_credentials
+           SET access_token_encrypted = ?,
+               refresh_token_encrypted = ?,
+               expires_at = ?,
+               updated_at = ?
+         WHERE account_id = ?
+    `).run(
+        params.accessTokenEncrypted,
+        params.refreshTokenEncrypted,
+        params.expiresAt,
+        Date.now(),
+        accountId
+    );
+}
+
+export function deleteOAuthCredential(db: DatabaseType, accountId: string): void {
+    db.prepare('DELETE FROM oauth_credentials WHERE account_id = ?').run(accountId);
+}
+
+export function setAuthState(db: DatabaseType, accountId: string, state: AuthState): void {
+    if (!VALID_AUTH_STATES.has(state)) {
+        throw new Error(`Invalid auth_state value: ${state}`);
+    }
+    db.prepare('UPDATE accounts SET auth_state = ? WHERE id = ?').run(state, accountId);
+}

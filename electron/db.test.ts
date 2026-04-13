@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDatabase, getDatabase, runMigrations } from './db';
+import {
+    initDatabase,
+    getDatabase,
+    runMigrations,
+    insertOAuthCredential,
+    getOAuthCredential,
+    updateAccessToken,
+    updateAccessAndRefreshToken,
+    deleteOAuthCredential,
+    setAuthState,
+} from './db';
 import { app } from 'electron';
 import fs from 'fs';
 import os from 'os';
@@ -312,6 +322,236 @@ describe('Phase 2 migration 17: legacy outlook recommended_reauth', () => {
         runMigrations(d);
         const after = d.prepare("SELECT auth_state FROM accounts WHERE id = 'a1'").get() as { auth_state: string };
         expect(after.auth_state).toBe('ok');
+        d.close();
+    });
+});
+
+// Phase 2 OAuth2: DB access helpers (insertOAuthCredential, getOAuthCredential,
+// updateAccessToken, updateAccessAndRefreshToken, deleteOAuthCredential,
+// setAuthState). Uses a hand-rolled schema-v17 fixture so helpers can be
+// exercised without the app.getPath mocking and tmpDir dance.
+function buildSchemaV17Fixture(): Database.Database {
+    const d = new Database(':memory:');
+    d.pragma('journal_mode = WAL');
+    d.pragma('foreign_keys = ON');
+    // Full post-migration-17 schema for the tables these helpers touch.
+    d.exec(`
+        CREATE TABLE accounts (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            provider TEXT NOT NULL,
+            password_encrypted TEXT,
+            auth_type TEXT NOT NULL DEFAULT 'password',
+            auth_state TEXT NOT NULL DEFAULT 'ok'
+        );
+        CREATE TABLE oauth_credentials (
+            account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            access_token_encrypted TEXT NOT NULL,
+            refresh_token_encrypted TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            scope TEXT,
+            token_type TEXT,
+            provider_account_email TEXT,
+            provider_account_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_oauth_credentials_provider ON oauth_credentials(provider);
+        CREATE TABLE settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT INTO settings (key, value) VALUES ('schema_version', '17');
+    `);
+    return d;
+}
+
+describe('OAuth credentials DB helpers', () => {
+    function setup(): Database.Database {
+        const d = buildSchemaV17Fixture();
+        d.prepare("INSERT INTO accounts (id, email, provider) VALUES ('acc1', 'test@gmail.com', 'gmail')").run();
+        return d;
+    }
+
+    it('insertOAuthCredential persists a row and sets created_at/updated_at', () => {
+        const d = setup();
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'google',
+            accessTokenEncrypted: 'AT_enc',
+            refreshTokenEncrypted: 'RT_enc',
+            expiresAt: 1234567890000,
+            scope: 'https://mail.google.com/',
+            tokenType: 'Bearer',
+            providerAccountEmail: 'test@gmail.com',
+            providerAccountId: '12345',
+        });
+        const row = d.prepare("SELECT * FROM oauth_credentials WHERE account_id = 'acc1'").get() as Record<string, unknown>;
+        expect(row.provider).toBe('google');
+        expect(row.access_token_encrypted).toBe('AT_enc');
+        expect(row.refresh_token_encrypted).toBe('RT_enc');
+        expect(row.expires_at).toBe(1234567890000);
+        expect(row.created_at).toBeGreaterThan(0);
+        expect(row.updated_at).toBeGreaterThan(0);
+        d.close();
+    });
+
+    it('insertOAuthCredential upserts on conflict (re-auth case)', () => {
+        const d = setup();
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'google',
+            accessTokenEncrypted: 'AT_v1',
+            refreshTokenEncrypted: 'RT_v1',
+            expiresAt: 1000,
+            scope: 'foo',
+            tokenType: 'Bearer',
+            providerAccountEmail: 'a@b.c',
+            providerAccountId: '1',
+        });
+        // Re-insert with new values — should upsert, not throw PK constraint
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'google',
+            accessTokenEncrypted: 'AT_v2',
+            refreshTokenEncrypted: 'RT_v2',
+            expiresAt: 2000,
+            scope: 'bar',
+            tokenType: 'Bearer',
+            providerAccountEmail: 'a@b.c',
+            providerAccountId: '1',
+        });
+        const row = d.prepare("SELECT * FROM oauth_credentials WHERE account_id = 'acc1'").get() as Record<string, unknown>;
+        expect(row.access_token_encrypted).toBe('AT_v2');
+        expect(row.refresh_token_encrypted).toBe('RT_v2');
+        expect(row.expires_at).toBe(2000);
+        expect(row.scope).toBe('bar');
+        d.close();
+    });
+
+    it('insertOAuthCredential rejects invalid provider values', () => {
+        const d = setup();
+        expect(() => insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'bogus' as never,
+            accessTokenEncrypted: 'AT',
+            refreshTokenEncrypted: 'RT',
+            expiresAt: 1000,
+        })).toThrow(/Invalid OAuth provider/);
+        d.close();
+    });
+
+    it('getOAuthCredential returns null for non-existent account', () => {
+        const d = setup();
+        const cred = getOAuthCredential(d, 'nonexistent');
+        expect(cred).toBeNull();
+        d.close();
+    });
+
+    it('getOAuthCredential returns the typed row for an existing account', () => {
+        const d = setup();
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'microsoft_personal',
+            accessTokenEncrypted: 'AT',
+            refreshTokenEncrypted: 'RT',
+            expiresAt: 9999999999000,
+            scope: 'Mail.Send',
+            tokenType: 'Bearer',
+            providerAccountEmail: 'test@hotmail.com',
+            providerAccountId: 'msuser',
+        });
+        const cred = getOAuthCredential(d, 'acc1');
+        expect(cred).not.toBeNull();
+        expect(cred?.provider).toBe('microsoft_personal');
+        expect(cred?.providerAccountEmail).toBe('test@hotmail.com');
+        expect(cred?.providerAccountId).toBe('msuser');
+        expect(cred?.accessTokenEncrypted).toBe('AT');
+        expect(cred?.refreshTokenEncrypted).toBe('RT');
+        expect(cred?.expiresAt).toBe(9999999999000);
+        d.close();
+    });
+
+    it('updateAccessToken updates only access_token + expires_at + updated_at, leaves refresh_token alone', () => {
+        const d = setup();
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'google',
+            accessTokenEncrypted: 'AT_v1',
+            refreshTokenEncrypted: 'RT_v1',
+            expiresAt: 1000,
+            scope: 'foo',
+            tokenType: 'Bearer',
+            providerAccountEmail: 'a@b.c',
+            providerAccountId: '1',
+        });
+
+        updateAccessToken(d, 'acc1', { accessTokenEncrypted: 'AT_v2', expiresAt: 2000 });
+
+        const row = d.prepare("SELECT * FROM oauth_credentials WHERE account_id = 'acc1'").get() as Record<string, unknown>;
+        expect(row.access_token_encrypted).toBe('AT_v2');
+        expect(row.expires_at).toBe(2000);
+        expect(row.refresh_token_encrypted).toBe('RT_v1'); // unchanged
+        d.close();
+    });
+
+    it('updateAccessAndRefreshToken updates both tokens (Google rotation case D5.4)', () => {
+        const d = setup();
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'google',
+            accessTokenEncrypted: 'AT_v1',
+            refreshTokenEncrypted: 'RT_v1',
+            expiresAt: 1000,
+            scope: 'foo',
+            tokenType: 'Bearer',
+            providerAccountEmail: 'a@b.c',
+            providerAccountId: '1',
+        });
+
+        updateAccessAndRefreshToken(d, 'acc1', {
+            accessTokenEncrypted: 'AT_v2',
+            refreshTokenEncrypted: 'RT_v2',
+            expiresAt: 2000,
+        });
+
+        const row = d.prepare("SELECT * FROM oauth_credentials WHERE account_id = 'acc1'").get() as Record<string, unknown>;
+        expect(row.access_token_encrypted).toBe('AT_v2');
+        expect(row.refresh_token_encrypted).toBe('RT_v2');
+        expect(row.expires_at).toBe(2000);
+        d.close();
+    });
+
+    it('deleteOAuthCredential removes the row', () => {
+        const d = setup();
+        insertOAuthCredential(d, {
+            accountId: 'acc1',
+            provider: 'google',
+            accessTokenEncrypted: 'AT',
+            refreshTokenEncrypted: 'RT',
+            expiresAt: 1000,
+            scope: '',
+            tokenType: 'Bearer',
+            providerAccountEmail: '',
+            providerAccountId: '',
+        });
+        deleteOAuthCredential(d, 'acc1');
+        expect(getOAuthCredential(d, 'acc1')).toBeNull();
+        d.close();
+    });
+
+    it('setAuthState validates the value and updates accounts.auth_state', () => {
+        const d = setup();
+        setAuthState(d, 'acc1', 'reauth_required');
+        const row = d.prepare("SELECT auth_state FROM accounts WHERE id = 'acc1'").get() as { auth_state: string };
+        expect(row.auth_state).toBe('reauth_required');
+        d.close();
+    });
+
+    it('setAuthState throws on invalid value', () => {
+        const d = setup();
+        expect(() => setAuthState(d, 'acc1', 'bogus' as never)).toThrow(/auth_state/);
         d.close();
     });
 });
