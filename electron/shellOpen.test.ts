@@ -42,14 +42,12 @@ describe('shell:open-external handler', () => {
     });
 
     it('rejects a missing url argument', async () => {
-        // @ts-expect-error intentionally missing
         const result = await handleShellOpenExternal({});
         expect(result.success).toBe(false);
         expect(mockOpenExternal).not.toHaveBeenCalled();
     });
 
     it('rejects a non-string url argument', async () => {
-        // @ts-expect-error intentionally wrong type
         const result = await handleShellOpenExternal({ url: 123 });
         expect(result.success).toBe(false);
         expect(mockOpenExternal).not.toHaveBeenCalled();
