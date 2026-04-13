@@ -9,6 +9,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.17.0] - 2026-04-13
+
+Phase 2 — OAuth2 sign-in for Gmail, Outlook.com (Personal), and Microsoft 365 (Work/School). Replaces the Phase 1 "coming soon" gate on Outlook presets with a live, working OAuth flow built on RFC 8252 loopback (Google) and MSAL (Microsoft), and adds a Microsoft Graph send path for personal Outlook.com accounts so they keep working after Microsoft removes Basic Auth SMTP on April 30, 2026.
+
+### Added
+
+#### OAuth2 backend (Tasks 1-18)
+- New `oauth_credentials` SQLite table (schema v17) — one row per `(account_id, provider)` storing AES-encrypted access + refresh tokens via `electron.safeStorage`, expiry epoch, scope, token type, last-refreshed timestamp, and last-error code. Foreign-key cascade to `accounts`
+- New `accounts.auth_type` column (`'password'` | `'oauth2'`, default `'password'`) and `accounts.auth_state` column (`'ok'` | `'recommended_reauth'` | `'reauth_required'`, default `'ok'`) — both populated by schema v17 migration with backfill
+- `electron/oauth/clientConfig.ts` — reads `VITE_OAUTH_GOOGLE_CLIENT_ID`, `VITE_OAUTH_GOOGLE_CLIENT_SECRET`, and `VITE_OAUTH_MICROSOFT_CLIENT_ID` from `import.meta.env` at build time, with friendly error messages pointing at `.env.local`
+- `electron/oauth/google.ts` — full RFC 8252 loopback flow with `crypto.randomBytes(32)` PKCE code verifier, S256 code challenge, 32-byte hex state token for CSRF protection, 127.0.0.1 explicit bind (never 0.0.0.0), AbortSignal cancellation, error/success HTML response pages, `refreshAccessToken()` and `revokeRefreshToken()` (real Google revoke endpoint)
+- `electron/oauth/microsoft.ts` — `@azure/msal-node` `PublicClientApplication` with `acquireTokenInteractive()` opening the system browser, `tid` claim classification (`9188040d-…` magic GUID → `microsoft_personal`, anything else → `microsoft_business`), `acquireTokenByRefreshToken()` for silent refresh, no-op `revokeRefreshToken()` (Microsoft's `revokeSignInSessions` is nuclear and intentionally not called per design D11.1)
+- `electron/auth/tokenManager.ts` — singleton `AuthTokenManager` providing `getValidAccessToken()` with JIT pre-flight refresh (refreshes when within 60s of expiry), per-account dedup mutex (in-flight Map<accountId, Promise>) so concurrent IMAP/SMTP/Graph callers share one refresh round-trip, error classification (`isPermanentOAuthError` for `invalid_grant` / `consent_required` → flips `auth_state` to `reauth_required`; transient errors retry without state change), `invalidateToken()` for on-401 retry callers, `persistInitialTokens()` for first-token write after the interactive flow, redacted log lines (8-char token preview, 2+2-char account preview)
+- `electron/send/sendMail.ts` — provider-aware send dispatcher chooses between SMTP-with-XOAUTH2 (Gmail, Outlook.com password fallback, Microsoft 365 business) and Microsoft Graph `POST /me/sendMail` (personal Outlook.com because Basic Auth SMTP is being removed)
+- `electron/send/graphSend.ts` — Microsoft Graph send adapter for personal Outlook.com; serializes the in-memory `MailComposition` to a Graph `Message` with file attachments, calls `https://graph.microsoft.com/v1.0/me/sendMail` with the access token from `tokenManager`
+- `electron/smtp.ts` — extended to accept an `auth: { type: 'oauth2', user, accessToken }` parameter and pass `XOAUTH2` SASL credentials to `nodemailer`. New `sendEmailWithOAuthRetry()` wrapper handles `EAUTH` failures by calling `tokenManager.invalidateToken()` and retrying once with a fresh token
+- `electron/imap.ts` — `AccountSyncController` extended with OAuth2 wiring: at connect time it calls `tokenManager.getValidAccessToken()` and passes `{ user, accessToken }` to `IMAPFlow`; on `EAUTHENTICATIONFAILED` (HTTP 401-equivalent) it calls `tokenManager.invalidateToken()`, retries once, and on second failure flips `auth_state` to `reauth_required` and emits a needs-reauth IPC event
+- `electron/auth/ipcHandlers.ts` — five new IPC channels:
+  - `auth:start-oauth-flow` — runs `googleStartFlow` or `microsoftStartFlow`, decodes the `id_token` `email` claim, creates a new `accounts` row + persists tokens in a single transaction (D11.5b: never an account row without credentials), returns `{ success, accountId, classifiedProvider }`
+  - `auth:start-reauth-flow` — same but for an existing account; D8.2 transaction order ensures `persistInitialTokens` succeeds before `password_encrypted` is cleared, so a failed reauth leaves the account in legacy password mode and retryable
+  - `auth:cancel-flow` — aborts the in-flight `AbortController`
+  - `auth:flow-status` — returns `{ inFlight, provider }` for UI gating
+  - `auth:get-state` — returns the current `auth_state` for an account
+  - All handlers use `safeErrorMessage()` to strip control chars and cap stack traces, sanitize accountIds via `redactAccountId()` in logs, and wrap mutations in try/catch returning `{ success, error }`
+- `electron/auth/accountRevoke.ts` — extracted `maybeRevokeOAuthCredentials(db, accountId)` helper called by `accounts:remove` BEFORE the account row is deleted; best-effort, never throws
+
+#### OAuth2 UI (Tasks 19-24)
+- `src/components/OAuthSignInButton.tsx` — reusable button component with `provider: 'google' | 'microsoft'`, `onSuccess` and `onError` callbacks, in-flight spinner, double-click guard via `inFlight` state, `aria-busy` attribute, `data-provider` attribute for QA selection
+- `OnboardingScreen.tsx` — Gmail card now renders the `OAuthSignInButton` (Google) above the existing email/password form, separated by an "or use an app password" divider — the dual path keeps Gmail working for users who prefer app passwords. Outlook Personal and Microsoft 365 cards now render `OAuthSignInButton` (Microsoft) inside the same `role="status"` region that Phase 1 used for the disabled state, with the "Use Other / Custom instead" escape hatch still present
+- `SettingsModal.tsx` Account Add tab — same pattern: Gmail dual path with OAuth + app password; Outlook Personal / Microsoft 365 OAuth-only with the Custom escape hatch
+- `SettingsModal.tsx` Account Edit tab — new reauth banner shown when `editingAuthType === 'oauth' && (auth_state === 'reauth_required' || auth_state === 'recommended_reauth')`. Banner color flips between amber (recommended) and red (required) and surfaces a "Sign in again" CTA that invokes `auth:start-reauth-flow`. Legacy accounts with stored `provider='outlook'` AND `auth_type='password'` show a separate migration banner ("Microsoft is removing password-based access — sign in again to modernize this account")
+- `Sidebar.tsx` — new reauth badge rendered next to the account row when `auth_state` is `reauth_required` (red) or `recommended_reauth` (amber). Inline "Sign in again" button (not a context menu) opens Settings to the relevant account. Listens for the `auth:needs-reauth` IPC event and refreshes the badge state without a full reload
+- `src/stores/emailStore.ts` Account type extended with `auth_type: 'password' | 'oauth'` and `auth_state: 'ok' | 'recommended_reauth' | 'reauth_required'`. `accounts:list` IPC handler projects the new columns
+- `src/lib/providerPresets.ts` — `outlook-personal` and `outlook-business` presets flipped from Phase 1 `'oauth2-required'` (disabled state) to `'oauth2-supported'`. Their `warningKey` cleared (replaced by the new accent banner described below). New `oauth.providerHelp.outlookPersonalShortNote` / `outlookBusinessShortNote` short notes and `providerPresets.outlookPersonal.oauthSteps` / `outlookBusiness.oauthSteps` step lists
+- `src/components/ProviderHelpPanel.tsx` — new accent banner rendered above the step list for any provider in the OAuth allowlist (`gmail`, `outlook-personal`, `outlook-business`), titled "Faster sign-in available" with a per-provider note pointing the user at the OAuth button. Legacy `OUTLOOK_LEGACY_PRESET` warning text updated to the actionable migration message ("Microsoft is removing password-based SMTP — sign in again to modernize your account")
+
+#### Test fixtures and i18n (Tasks 25, 27)
+- New top-level `oauth` namespace in all 4 locales (en/fr/es/de) with 6 sub-namespaces and 21 leaf keys covering button labels, divider text, mismatch warnings, reauth banners (banner title + CTA + 2 badge labels + context menu item + edit "signed in via {{provider}}" interpolation + failed message), and the new providerHelp banner family. Real professional translations (not key fallbacks); Spanish uses typographic `«guillemets»`, French uses `« espaces insécables »`, German uses `„doppelte Anführungszeichen"`
+- New `providerPresets.outlookPersonal.oauthSteps` and `providerPresets.outlookBusiness.oauthSteps` 5-step arrays in all 4 locales describing the OAuth flow click-through
+- New `tests/fixtures/oauth/` directory with 5 scrubbed JSON fixtures (Google + Microsoft personal + Microsoft business token responses, Google + Microsoft `invalid_grant` errors) and a README documenting scrubbing rules and current consumers. Microsoft personal fixture uses the real public personal-account magic GUID `9188040d-6c67-4c5b-b112-36a304b66dad` (documented public, not secret); business fixture uses a fake placeholder tenant GUID. All token strings are `scrubbed_*_xxx` placeholders; Google `id_token` is a literal marker string and Microsoft fixtures use parsed `id_token_claims` objects to avoid Semgrep CWE-321 false positives on fake JWTs
+
+#### CI (Task 26)
+- `.github/workflows/release.yml` — both `build-windows` and `build-linux` jobs gain a new "Verify OAuth secrets are present" step (after `npm ci`) that fails the workflow loudly with `::error::` annotations if any of `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET`, or `OAUTH_MICROSOFT_CLIENT_ID` repository secrets are empty. Each missing secret is reported individually before exit so the release engineer can fix them all in one pass
+- `.github/workflows/release.yml` — `Build Electron app` step gains `VITE_OAUTH_GOOGLE_CLIENT_ID`, `VITE_OAUTH_GOOGLE_CLIENT_SECRET`, and `VITE_OAUTH_MICROSOFT_CLIENT_ID` env injection so Vite inlines them into the bundle at build time. Re-injected on the package step as defense in depth
+- `.env.example` — three new `VITE_OAUTH_*` placeholder lines for local development setup
+
+#### E2E (Task 28)
+- `tests/e2e/console-health.spec.ts` — adapted 2 Phase 1 Outlook tests to the new accent banner (replaces the Phase 1 amber warning) + 2 new Phase 2 OAuth UI tests (Gmail Google sign-in button + divider + password fallback; Outlook.com OAuth button enablement). One placeholder test for the Sidebar reauth badge marked `.skip` with a TODO referencing the missing seed-hook infrastructure (covered by 4 jsdom unit tests in the meantime). Console Health test count: 5 → 7 enabled + 1 skipped
+
+### Changed
+- `outlook-personal` and `outlook-business` presets flipped from Phase 1 `'oauth2-required'` (disabled state) to `'oauth2-supported'` — both presets now render a live OAuth sign-in button instead of the "coming soon" status block
+- `OUTLOOK_LEGACY_PRESET.warningKey` now points at `oauth.providerHelp.legacyReauthWarning` (the actionable "Sign in again to modernize" copy) instead of the Phase 1 generic Basic Auth notice
+- `accounts:list` IPC handler projects the new `auth_type` and `auth_state` columns from the schema v17 accounts table
+- Account-id redaction is now symmetric across the OAuth subsystem: `tokenManager.ts`, `ipcHandlers.ts`, and `accountRevoke.ts` all use the same `redactAccountId()` 2+2-char preview helper
+
+### Security
+- All OAuth tokens encrypted at rest via `electron.safeStorage` (OS keychain on Win/macOS, libsecret on Linux) before being written to the `oauth_credentials` table — never stored as plaintext, never logged
+- Loopback redirect server bound to `127.0.0.1` explicitly (never `0.0.0.0`) per RFC 8252 §7.3 — the auth code is observable only by processes on the local machine
+- PKCE S256 code challenge (RFC 7636) generated via `crypto.randomBytes(32)` → `base64url(sha256(verifier))`, mandatory on every Google flow even though Google still supports plain code exchange
+- 32-byte hex CSRF state token compared on the redirect URL; mismatch rejects the flow with "OAuth state mismatch — possible CSRF"
+- `id_token` JWTs are decoded only — never verified at the application layer — because the token was obtained over TLS within the same OAuth transaction (we trust the TLS channel, same as `googleapis` itself does)
+- Token redaction in all `logDebug` call sites: 8-char prefix for tokens, 2+2-char preview for account UUIDs. Raw token bytes never reach `app.log`
+- `safeErrorMessage()` strips CR/LF/NUL and caps length on every error string returned to the renderer — no stack traces escape main process
+- D11.5b transaction ordering: account row + initial token write happen in a single SQLite transaction so we never end up with an account row without credentials (or vice versa). Reauth flow uses the inverse ordering so a failed reauth leaves the account in legacy password mode and retryable
+- `auth:start-reauth-flow` accountId validation prevents cross-account state injection; `safeErrorMessage` strips control chars before logging
+- D11.3 singleton `activeOAuthFlow` blocks concurrent OAuth flows so a malicious renderer cannot race two `auth:start-oauth-flow` invocations to bypass UI state
+
+### Test count
+- 1002 tests across 45 files in vitest (was 779 across 32 in v1.16.1)
+- 7 Console Health E2E tests + 1 skipped (was 5 enabled in v1.16.1)
+- ESLint `--max-warnings 0` clean, `tsc --noEmit` clean, `npm audit` reports 0 vulnerabilities (preserved from v1.16.1)
+
+### Notes
+- This release ships the OAuth2 secrets as build-time env vars via Vite. Forks must populate `VITE_OAUTH_GOOGLE_CLIENT_ID`, `VITE_OAUTH_GOOGLE_CLIENT_SECRET`, and `VITE_OAUTH_MICROSOFT_CLIENT_ID` in `.env.local` (development) or as repository secrets `OAUTH_*` (CI) before building. The `release.yml` pre-flight check fails loudly if they are missing
+- Phase 2 deliberately keeps the Gmail app-password fallback alive — Gmail still accepts both auth modes and many users prefer app passwords. Outlook accounts (personal + business) are OAuth-only because Microsoft is in the process of removing password-based SMTP entirely
+
+---
+
 ## [1.16.1] - 2026-04-13
 
 ### Added
