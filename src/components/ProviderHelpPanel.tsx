@@ -41,7 +41,7 @@ export const ProviderHelpPanel: FC<ProviderHelpPanelProps> = ({ preset }) => {
     return (
         <section
             className={styles['panel']}
-            aria-label={`Help for ${preset.label}`}
+            aria-label={t('providerHelp.common.panelAriaLabel', { provider: preset.label })}
         >
             {preset.warningKey && (
                 <div className={styles['warning']} role="alert">

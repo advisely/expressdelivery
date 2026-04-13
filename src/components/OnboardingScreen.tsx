@@ -234,7 +234,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
                         {selectedPreset.authModel === 'oauth2-required' ? (
                             <>
                                 {selectedPreset.comingSoonMessageKey && (
-                                    <div className={styles['ob-coming-soon-message']}>
+                                    <div
+                                        className={styles['ob-coming-soon-message']}
+                                        role="status"
+                                        aria-live="polite"
+                                    >
                                         {t(selectedPreset.comingSoonMessageKey)}
                                     </div>
                                 )}

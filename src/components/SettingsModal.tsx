@@ -491,6 +491,9 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
     const selectCustomFallback = () => {
         const custom = PROVIDER_PRESETS.find(p => p.id === 'custom');
+        // The custom preset is a static, hand-authored entry in PROVIDER_PRESETS —
+        // this branch is unreachable in practice. Guard is defensive; skipping the
+        // call silently is acceptable per CLAUDE.md's silent-failure rule.
         if (custom) {
             selectProvider(custom);
         }
@@ -888,7 +891,11 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                     {isOAuth2Gated ? (
                                         <>
                                             {selectedPreset?.comingSoonMessageKey && (
-                                                <div className={styles['coming-soon-message']}>
+                                                <div
+                                                    className={styles['coming-soon-message']}
+                                                    role="status"
+                                                    aria-live="polite"
+                                                >
                                                     {t(selectedPreset.comingSoonMessageKey)}
                                                 </div>
                                             )}

@@ -600,8 +600,11 @@ describe('SettingsModal Integration Tests', () => {
 
             // Warning banner from ProviderHelpPanel
             expect(screen.getByText('providerHelp.outlookPersonal.warning')).toBeInTheDocument();
-            // Coming-soon block
-            expect(screen.getByText('providerHelp.outlookPersonal.comingSoonMessage')).toBeInTheDocument();
+            // Coming-soon block — exposed as role="status" / aria-live="polite" so
+            // assistive tech announces the disabled state when it appears.
+            const status = screen.getByRole('status');
+            expect(status).toHaveTextContent('providerHelp.outlookPersonal.comingSoonMessage');
+            expect(status).toHaveAttribute('aria-live', 'polite');
             // Password input must NOT be rendered while the flow is gated
             expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
             // The custom-fallback button must be present

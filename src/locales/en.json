@@ -539,7 +539,8 @@
       "hideSteps": "Hide steps",
       "openHelpPage": "Open official page",
       "oauth2NotSupported": "OAuth2 sign-in is not supported yet in this app.",
-      "useCustomInstead": "Use Other / Custom only if your organization still allows password-based IMAP/SMTP."
+      "useCustomInstead": "Use Other / Custom only if your organization still allows password-based IMAP/SMTP.",
+      "panelAriaLabel": "Help for {{provider}}"
     },
     "gmail": {
       "shortNote": "Gmail accepts App Passwords for personal accounts with 2-Step Verification enabled. OAuth2 sign-in is the preferred long-term path and is planned for a future update.",

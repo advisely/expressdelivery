@@ -539,7 +539,8 @@
       "hideSteps": "Schritte ausblenden",
       "openHelpPage": "Offizielle Seite öffnen",
       "oauth2NotSupported": "OAuth2-Anmeldung wird von dieser App noch nicht unterstützt.",
-      "useCustomInstead": "Verwenden Sie Andere / Benutzerdefiniert nur, wenn Ihre Organisation passwortbasiertes IMAP/SMTP noch erlaubt."
+      "useCustomInstead": "Verwenden Sie Andere / Benutzerdefiniert nur, wenn Ihre Organisation passwortbasiertes IMAP/SMTP noch erlaubt.",
+      "panelAriaLabel": "Hilfe für {{provider}}"
     },
     "gmail": {
       "shortNote": "Gmail akzeptiert App-Passwörter für persönliche Konten mit aktivierter Bestätigung in zwei Schritten. OAuth2-Anmeldung ist der langfristig bevorzugte Weg und ist für ein zukünftiges Update geplant.",

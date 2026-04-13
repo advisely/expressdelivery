@@ -133,11 +133,36 @@ describe('OnboardingScreen', () => {
         expect(screen.getByText('onboarding.useCustomInstead')).toBeInTheDocument();
     });
 
+    it('announces the Outlook disabled state via role="status" / aria-live', async () => {
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Outlook.com (Personal)'));
+        const status = screen.getByRole('status');
+        expect(status).toHaveTextContent('providerHelp.outlookPersonal.comingSoonMessage');
+        expect(status).toHaveAttribute('aria-live', 'polite');
+    });
+
     it('shows disabled state for Microsoft 365 business', async () => {
         render(<OnboardingScreen onAccountAdded={vi.fn()} />);
         await userEvent.click(screen.getByText('onboarding.getStarted'));
         await userEvent.click(screen.getByText('Microsoft 365 (Work/School)'));
         expect(screen.getByText('providerHelp.outlookBusiness.comingSoonMessage')).toBeInTheDocument();
         expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
+    });
+
+    it('Use Custom Instead button pivots an oauth2-gated flow to the server step', async () => {
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Outlook.com (Personal)'));
+
+        // Still on credentials step showing the disabled state
+        expect(screen.getByText('providerHelp.outlookPersonal.comingSoonMessage')).toBeInTheDocument();
+
+        // Click the custom fallback button
+        await userEvent.click(screen.getByText('onboarding.useCustomInstead'));
+
+        // Jumped straight to the server step — disabled state is gone, server heading is present
+        expect(screen.queryByText('providerHelp.outlookPersonal.comingSoonMessage')).not.toBeInTheDocument();
+        expect(screen.getByText('onboarding.serverSettings')).toBeInTheDocument();
     });
 });

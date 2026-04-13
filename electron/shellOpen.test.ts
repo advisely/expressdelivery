@@ -65,4 +65,23 @@ describe('shell:open-external handler', () => {
         const result = await handleShellOpenExternal({ url: HELP_URLS[0] + ' ' });
         expect(result.success).toBe(false);
     });
+
+    it('sanitizes CR/LF/NUL from rejected URL in log output (log-injection defense)', async () => {
+        const poisoned = 'https://evil.example.com/\r\nFAKE LOG LINE\x00tail';
+        const result = await handleShellOpenExternal({ url: poisoned });
+        expect(result.success).toBe(false);
+        expect(mockLogDebug).toHaveBeenCalledTimes(1);
+        const logMessage = String(mockLogDebug.mock.calls[0]?.[0] ?? '');
+        expect(logMessage).not.toContain('\r');
+        expect(logMessage).not.toContain('\n');
+        expect(logMessage).not.toContain('\x00');
+    });
+
+    it('truncates overly long rejected URLs before logging', async () => {
+        const longUrl = 'https://evil.example.com/' + 'a'.repeat(2000);
+        await handleShellOpenExternal({ url: longUrl });
+        const logMessage = String(mockLogDebug.mock.calls[0]?.[0] ?? '');
+        // Full raw URL is >2000 chars; the sanitized version must be much shorter.
+        expect(logMessage.length).toBeLessThan(600);
+    });
 });

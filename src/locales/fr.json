@@ -539,7 +539,8 @@
       "hideSteps": "Masquer les étapes",
       "openHelpPage": "Ouvrir la page officielle",
       "oauth2NotSupported": "La connexion OAuth2 n'est pas encore prise en charge par cette application.",
-      "useCustomInstead": "N'utilisez Autre / Personnalisé que si votre organisation autorise encore l'IMAP/SMTP par mot de passe."
+      "useCustomInstead": "N'utilisez Autre / Personnalisé que si votre organisation autorise encore l'IMAP/SMTP par mot de passe.",
+      "panelAriaLabel": "Aide pour {{provider}}"
     },
     "gmail": {
       "shortNote": "Gmail accepte les mots de passe d'application pour les comptes personnels avec la validation en deux étapes activée. OAuth2 est la méthode préférée à long terme et est prévu pour une future mise à jour.",
