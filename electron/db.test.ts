@@ -144,3 +144,80 @@ describe('Local SQLite Database Engine', () => {
         expect(indexNames).toContain('idx_rules_account_active');
     });
 });
+
+// Phase 2 OAuth2: migration 16 verification
+// Uses an isolated temp directory per suite so the migration runs from a
+// fresh DB (independent of the suite above, which uses a different tmpDir).
+// The existing runMigrations() API does not take a target version — it always
+// runs through CURRENT_SCHEMA_VERSION — so we verify the end-state after
+// initDatabase() rather than stopping at version 16.
+describe('Phase 2 migration 16: oauth_credentials + auth columns', () => {
+    let db: ReturnType<typeof getDatabase>;
+    let tmpDir: string;
+
+    beforeAll(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-db-test-m16-'));
+        vi.mocked(app.getPath).mockReturnValue(tmpDir);
+        db = initDatabase();
+    });
+
+    afterAll(() => {
+        if (db) db.close();
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it('adds auth_type column to accounts with default password', () => {
+        const cols = db.prepare("SELECT name, dflt_value FROM pragma_table_info('accounts')").all() as Array<{ name: string; dflt_value: string }>;
+        const authType = cols.find(c => c.name === 'auth_type');
+        expect(authType).toBeDefined();
+        expect(authType?.dflt_value).toContain('password');
+    });
+
+    it('adds auth_state column to accounts with default ok', () => {
+        const cols = db.prepare("SELECT name, dflt_value FROM pragma_table_info('accounts')").all() as Array<{ name: string; dflt_value: string }>;
+        const authState = cols.find(c => c.name === 'auth_state');
+        expect(authState).toBeDefined();
+        expect(authState?.dflt_value).toContain('ok');
+    });
+
+    it('creates oauth_credentials table with correct schema', () => {
+        const tableExists = db.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='oauth_credentials'"
+        ).get();
+        expect(tableExists).toBeDefined();
+
+        const cols = db.prepare("SELECT name, type, `notnull`, pk FROM pragma_table_info('oauth_credentials')").all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
+        const colsByName = Object.fromEntries(cols.map(c => [c.name, c]));
+
+        expect(colsByName.account_id).toMatchObject({ type: 'TEXT', pk: 1 });
+        expect(colsByName.provider).toMatchObject({ type: 'TEXT', notnull: 1 });
+        expect(colsByName.access_token_encrypted).toMatchObject({ type: 'TEXT', notnull: 1 });
+        expect(colsByName.refresh_token_encrypted).toMatchObject({ type: 'TEXT', notnull: 1 });
+        expect(colsByName.expires_at).toMatchObject({ type: 'INTEGER', notnull: 1 });
+        expect(colsByName.scope).toBeDefined();
+        expect(colsByName.token_type).toBeDefined();
+        expect(colsByName.provider_account_email).toBeDefined();
+        expect(colsByName.provider_account_id).toBeDefined();
+        expect(colsByName.created_at).toMatchObject({ type: 'INTEGER', notnull: 1 });
+        expect(colsByName.updated_at).toMatchObject({ type: 'INTEGER', notnull: 1 });
+    });
+
+    it('oauth_credentials has FK CASCADE delete on accounts.id', () => {
+        // Insert account + credential, delete account, expect credential gone
+        db.prepare("INSERT INTO accounts (id, email, provider) VALUES ('m16_acc', 'm16@example.com', 'gmail')").run();
+        db.prepare(
+            "INSERT INTO oauth_credentials (account_id, provider, access_token_encrypted, refresh_token_encrypted, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run('m16_acc', 'google', 'AT', 'RT', 9999999999, 0, 0);
+
+        db.prepare("DELETE FROM accounts WHERE id = 'm16_acc'").run();
+        const remaining = db.prepare("SELECT COUNT(*) as n FROM oauth_credentials WHERE account_id = 'm16_acc'").get() as { n: number };
+        expect(remaining.n).toBe(0);
+    });
+
+    it('creates idx_oauth_credentials_provider index', () => {
+        const indexes = db.prepare(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='oauth_credentials'"
+        ).all() as Array<{ name: string }>;
+        expect(indexes.some(i => i.name === 'idx_oauth_credentials_provider')).toBe(true);
+    });
+});

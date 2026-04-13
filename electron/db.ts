@@ -126,7 +126,7 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 
 function runMigrations(db: DatabaseType) {
     db.transaction(() => {
@@ -530,6 +530,38 @@ function runMigrations(db: DatabaseType) {
                 CREATE INDEX IF NOT EXISTS idx_sender_list_account ON sender_list(account_id, list_type);
             `);
             version = 15;
+        }
+
+        // Migration 16: Phase 2 OAuth2 — add auth_type/auth_state columns to accounts
+        // and create oauth_credentials table for OAuth token storage.
+        // Spec D4.1 through D4.5, §4.1 and §4.2.
+        if (version < 16) {
+            const accCols16 = db.prepare("SELECT name FROM pragma_table_info('accounts')").all() as { name: string }[];
+            const accColNames16 = new Set(accCols16.map(c => c.name));
+            if (!accColNames16.has('auth_type')) {
+                db.exec("ALTER TABLE accounts ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password'");
+            }
+            if (!accColNames16.has('auth_state')) {
+                db.exec("ALTER TABLE accounts ADD COLUMN auth_state TEXT NOT NULL DEFAULT 'ok'");
+            }
+
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS oauth_credentials (
+                    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    access_token_encrypted TEXT NOT NULL,
+                    refresh_token_encrypted TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    scope TEXT,
+                    token_type TEXT,
+                    provider_account_email TEXT,
+                    provider_account_id TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_oauth_credentials_provider ON oauth_credentials(provider);
+            `);
+            version = 16;
         }
 
         db.prepare(
