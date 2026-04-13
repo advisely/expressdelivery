@@ -646,6 +646,15 @@ describe('SettingsModal Integration Tests', () => {
                 }],
             });
 
+            // The save flow calls accounts:test then accounts:update. Mock
+            // both to succeed so handleUpdateAccount completes and we can
+            // assert on the update payload.
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'accounts:test') return { success: true };
+                if (channel === 'accounts:update') return { success: true };
+                return null;
+            });
+
             const user = userEvent.setup();
             renderSettings();
 
@@ -670,6 +679,30 @@ describe('SettingsModal Integration Tests', () => {
 
             // The coming-soon block must NOT appear on the legacy edit path
             expect(screen.queryByText('providerHelp.outlookPersonal.comingSoonMessage')).not.toBeInTheDocument();
+
+            // Type a new password and save. This exercises handleUpdateAccount
+            // which must preserve the original stored provider ('outlook'),
+            // NOT rewrite it to the preset-derived 'outlook-legacy' id. This
+            // asserts the editingOriginalProvider invariant.
+            await user.clear(passwordInput);
+            await user.type(passwordInput, 'new-app-password');
+
+            // In edit mode with a new password the primary button is labeled
+            // settings.testAndSave (see getPrimaryButtonLabel).
+            const saveButton = screen.getByRole('button', { name: 'settings.testAndSave' });
+            await user.click(saveButton);
+
+            await waitFor(() => {
+                const updateCall = mockIpcInvoke.mock.calls.find(call => call[0] === 'accounts:update');
+                expect(updateCall).toBeDefined();
+                // The payload (second arg) must carry provider: 'outlook',
+                // NOT 'outlook-legacy' — this locks in the
+                // editingOriginalProvider invariant.
+                expect(updateCall![1]).toMatchObject({
+                    id: 'acc-legacy',
+                    provider: 'outlook',
+                });
+            });
         });
     });
 });

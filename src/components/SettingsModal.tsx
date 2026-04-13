@@ -905,161 +905,161 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                             </div>
                                         </>
                                     ) : (
-                                    <>
-                                    <div className={styles['form-group']}>
-                                        <label className={styles['form-label']} htmlFor="settings-email">{t('settings.email')}</label>
-                                        <input
-                                            id="settings-email"
-                                            type="email"
-                                            className={styles['form-input']}
-                                            placeholder="you@example.com"
-                                            value={formEmail}
-                                            onChange={e => { setFormEmail(e.target.value); resetTestStatus(); }}
-                                        />
-                                    </div>
-
-                                    <div className={styles['form-group']}>
-                                        <label className={styles['form-label']} htmlFor="settings-display-name">{t('settings.displayName')}</label>
-                                        <input
-                                            id="settings-display-name"
-                                            type="text"
-                                            className={styles['form-input']}
-                                            placeholder={t('settings.displayNamePlaceholder')}
-                                            value={formDisplayName}
-                                            onChange={e => setFormDisplayName(e.target.value)}
-                                        />
-                                    </div>
-
-                                    <div className={styles['form-group']}>
-                                        <label className={styles['form-label']} htmlFor="settings-signature">{t('settings.signatureHtml')}</label>
-                                        <textarea
-                                            id="settings-signature"
-                                            className={`${styles['form-input']} ${styles['signature-textarea']}`}
-                                            placeholder={t('settings.signaturePlaceholder')}
-                                            value={formSignature}
-                                            onChange={e => setFormSignature(e.target.value)}
-                                            rows={3}
-                                        />
-                                    </div>
-
-                                    <div className={styles['form-group']}>
-                                        <label className={styles['form-label']} htmlFor="settings-password">{t('settings.password')}</label>
-                                        <div className={styles['password-wrapper']}>
-                                            <input
-                                                id="settings-password"
-                                                type={showPassword ? 'text' : 'password'}
-                                                className={styles['form-input']}
-                                                placeholder={isEditing ? t('settings.passwordKeep') : t('settings.passwordNew')}
-                                                value={formPassword}
-                                                onChange={e => { setFormPassword(e.target.value); resetTestStatus(); }}
-                                            />
-                                            <button
-                                                className={styles['password-toggle']}
-                                                onClick={() => setShowPassword(!showPassword)}
-                                                type="button"
-                                                aria-label={showPassword ? t('settings.hidePassword') : t('settings.showPassword')}
-                                            >
-                                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {(showServerFields || selectedPreset) && (
-                                        <div className={styles['server-fields']}>
-                                            <button
-                                                type="button"
-                                                className={styles['server-header']}
-                                                onClick={() => setShowServerFields(!showServerFields)}
-                                                aria-expanded={showServerFields}
-                                            >
-                                                <Server size={14} />
-                                                <span>{t('settings.serverSettings')}</span>
-                                                <span className={styles['toggle-hint']}>{showServerFields ? t('settings.hide') : t('settings.show')}</span>
-                                            </button>
-                                            {showServerFields && (
-                                                <>
-                                                    <div className={styles['form-row']}>
-                                                        <div className={styles['form-group']}>
-                                                            <label className={styles['form-label']} htmlFor="settings-imap-host">{t('settings.imapHost')}</label>
-                                                            <input
-                                                                id="settings-imap-host"
-                                                                type="text"
-                                                                className={styles['form-input']}
-                                                                placeholder="imap.example.com"
-                                                                value={formImapHost}
-                                                                onChange={e => { setFormImapHost(e.target.value); resetTestStatus(); }}
-                                                            />
-                                                        </div>
-                                                        <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
-                                                            <label className={styles['form-label']} htmlFor="settings-imap-port">{t('settings.port')}</label>
-                                                            <input
-                                                                id="settings-imap-port"
-                                                                type="number"
-                                                                className={styles['form-input']}
-                                                                value={formImapPort}
-                                                                min={1}
-                                                                max={65535}
-                                                                onChange={e => { setFormImapPort(Number(e.target.value)); resetTestStatus(); }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className={styles['form-row']}>
-                                                        <div className={styles['form-group']}>
-                                                            <label className={styles['form-label']} htmlFor="settings-smtp-host">{t('settings.smtpHost')}</label>
-                                                            <input
-                                                                id="settings-smtp-host"
-                                                                type="text"
-                                                                className={styles['form-input']}
-                                                                placeholder="smtp.example.com"
-                                                                value={formSmtpHost}
-                                                                onChange={e => { setFormSmtpHost(e.target.value); resetTestStatus(); }}
-                                                            />
-                                                        </div>
-                                                        <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
-                                                            <label className={styles['form-label']} htmlFor="settings-smtp-port">{t('settings.port')}</label>
-                                                            <input
-                                                                id="settings-smtp-port"
-                                                                type="number"
-                                                                className={styles['form-input']}
-                                                                value={formSmtpPort}
-                                                                min={1}
-                                                                max={65535}
-                                                                onChange={e => { setFormSmtpPort(Number(e.target.value)); resetTestStatus(); }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </>
+                                        <>
+                                            <div className={styles['form-group']}>
+                                                <label className={styles['form-label']} htmlFor="settings-email">{t('settings.email')}</label>
+                                                <input
+                                                    id="settings-email"
+                                                    type="email"
+                                                    className={styles['form-input']}
+                                                    placeholder="you@example.com"
+                                                    value={formEmail}
+                                                    onChange={e => { setFormEmail(e.target.value); resetTestStatus(); }}
+                                                />
+                                            </div>
+        
+                                            <div className={styles['form-group']}>
+                                                <label className={styles['form-label']} htmlFor="settings-display-name">{t('settings.displayName')}</label>
+                                                <input
+                                                    id="settings-display-name"
+                                                    type="text"
+                                                    className={styles['form-input']}
+                                                    placeholder={t('settings.displayNamePlaceholder')}
+                                                    value={formDisplayName}
+                                                    onChange={e => setFormDisplayName(e.target.value)}
+                                                />
+                                            </div>
+        
+                                            <div className={styles['form-group']}>
+                                                <label className={styles['form-label']} htmlFor="settings-signature">{t('settings.signatureHtml')}</label>
+                                                <textarea
+                                                    id="settings-signature"
+                                                    className={`${styles['form-input']} ${styles['signature-textarea']}`}
+                                                    placeholder={t('settings.signaturePlaceholder')}
+                                                    value={formSignature}
+                                                    onChange={e => setFormSignature(e.target.value)}
+                                                    rows={3}
+                                                />
+                                            </div>
+        
+                                            <div className={styles['form-group']}>
+                                                <label className={styles['form-label']} htmlFor="settings-password">{t('settings.password')}</label>
+                                                <div className={styles['password-wrapper']}>
+                                                    <input
+                                                        id="settings-password"
+                                                        type={showPassword ? 'text' : 'password'}
+                                                        className={styles['form-input']}
+                                                        placeholder={isEditing ? t('settings.passwordKeep') : t('settings.passwordNew')}
+                                                        value={formPassword}
+                                                        onChange={e => { setFormPassword(e.target.value); resetTestStatus(); }}
+                                                    />
+                                                    <button
+                                                        className={styles['password-toggle']}
+                                                        onClick={() => setShowPassword(!showPassword)}
+                                                        type="button"
+                                                        aria-label={showPassword ? t('settings.hidePassword') : t('settings.showPassword')}
+                                                    >
+                                                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                    </button>
+                                                </div>
+                                            </div>
+        
+                                            {(showServerFields || selectedPreset) && (
+                                                <div className={styles['server-fields']}>
+                                                    <button
+                                                        type="button"
+                                                        className={styles['server-header']}
+                                                        onClick={() => setShowServerFields(!showServerFields)}
+                                                        aria-expanded={showServerFields}
+                                                    >
+                                                        <Server size={14} />
+                                                        <span>{t('settings.serverSettings')}</span>
+                                                        <span className={styles['toggle-hint']}>{showServerFields ? t('settings.hide') : t('settings.show')}</span>
+                                                    </button>
+                                                    {showServerFields && (
+                                                        <>
+                                                            <div className={styles['form-row']}>
+                                                                <div className={styles['form-group']}>
+                                                                    <label className={styles['form-label']} htmlFor="settings-imap-host">{t('settings.imapHost')}</label>
+                                                                    <input
+                                                                        id="settings-imap-host"
+                                                                        type="text"
+                                                                        className={styles['form-input']}
+                                                                        placeholder="imap.example.com"
+                                                                        value={formImapHost}
+                                                                        onChange={e => { setFormImapHost(e.target.value); resetTestStatus(); }}
+                                                                    />
+                                                                </div>
+                                                                <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
+                                                                    <label className={styles['form-label']} htmlFor="settings-imap-port">{t('settings.port')}</label>
+                                                                    <input
+                                                                        id="settings-imap-port"
+                                                                        type="number"
+                                                                        className={styles['form-input']}
+                                                                        value={formImapPort}
+                                                                        min={1}
+                                                                        max={65535}
+                                                                        onChange={e => { setFormImapPort(Number(e.target.value)); resetTestStatus(); }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div className={styles['form-row']}>
+                                                                <div className={styles['form-group']}>
+                                                                    <label className={styles['form-label']} htmlFor="settings-smtp-host">{t('settings.smtpHost')}</label>
+                                                                    <input
+                                                                        id="settings-smtp-host"
+                                                                        type="text"
+                                                                        className={styles['form-input']}
+                                                                        placeholder="smtp.example.com"
+                                                                        value={formSmtpHost}
+                                                                        onChange={e => { setFormSmtpHost(e.target.value); resetTestStatus(); }}
+                                                                    />
+                                                                </div>
+                                                                <div className={`${styles['form-group']} ${styles['form-group-port']}`}>
+                                                                    <label className={styles['form-label']} htmlFor="settings-smtp-port">{t('settings.port')}</label>
+                                                                    <input
+                                                                        id="settings-smtp-port"
+                                                                        type="number"
+                                                                        className={styles['form-input']}
+                                                                        value={formSmtpPort}
+                                                                        min={1}
+                                                                        max={65535}
+                                                                        onChange={e => { setFormSmtpPort(Number(e.target.value)); resetTestStatus(); }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
                                             )}
-                                        </div>
-                                    )}
-
-                                    <div className={styles['form-actions']}>
-                                        <button
-                                            className={`${styles['test-btn']} ${testStatus === 'passed' ? styles['test-passed'] : ''} ${testStatus === 'failed' ? styles['test-failed'] : ''}`}
-                                            onClick={handleTestConnection}
-                                            disabled={testStatus === 'testing' || !formEmail.trim() || (!formPassword.trim() && !isEditing)}
-                                            type="button"
-                                        >
-                                            {testStatus === 'testing' && <Loader size={14} className={styles['test-spin']} />}
-                                            {testStatus === 'passed' && <CheckCircle2 size={14} />}
-                                            {testStatus === 'failed' && <XCircle size={14} />}
-                                            <span>
-                                                {testStatus === 'testing' ? t('settings.testing') :
-                                                 testStatus === 'passed' ? t('settings.connected') :
-                                                 testStatus === 'failed' ? t('settings.failed') : t('settings.testConnection')}
-                                            </span>
-                                        </button>
-                                        <div className={styles['form-spacer']} />
-                                        <button className={styles['secondary-btn']} onClick={resetForm}>{t('settings.cancel')}</button>
-                                        <button
-                                            className={styles['primary-btn']}
-                                            onClick={isEditing ? handleUpdateAccount : handleAddAccount}
-                                            disabled={formSaving}
-                                        >
-                                            {getPrimaryButtonLabel()}
-                                        </button>
-                                    </div>
-                                    </>
+        
+                                            <div className={styles['form-actions']}>
+                                                <button
+                                                    className={`${styles['test-btn']} ${testStatus === 'passed' ? styles['test-passed'] : ''} ${testStatus === 'failed' ? styles['test-failed'] : ''}`}
+                                                    onClick={handleTestConnection}
+                                                    disabled={testStatus === 'testing' || !formEmail.trim() || (!formPassword.trim() && !isEditing)}
+                                                    type="button"
+                                                >
+                                                    {testStatus === 'testing' && <Loader size={14} className={styles['test-spin']} />}
+                                                    {testStatus === 'passed' && <CheckCircle2 size={14} />}
+                                                    {testStatus === 'failed' && <XCircle size={14} />}
+                                                    <span>
+                                                        {testStatus === 'testing' ? t('settings.testing') :
+                                                         testStatus === 'passed' ? t('settings.connected') :
+                                                         testStatus === 'failed' ? t('settings.failed') : t('settings.testConnection')}
+                                                    </span>
+                                                </button>
+                                                <div className={styles['form-spacer']} />
+                                                <button className={styles['secondary-btn']} onClick={resetForm}>{t('settings.cancel')}</button>
+                                                <button
+                                                    className={styles['primary-btn']}
+                                                    onClick={isEditing ? handleUpdateAccount : handleAddAccount}
+                                                    disabled={formSaving}
+                                                >
+                                                    {getPrimaryButtonLabel()}
+                                                </button>
+                                            </div>
+                                        </>
                                     )}
                                 </div>
                             )}
