@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { initDatabase, getDatabase } from './db';
+import Database from 'better-sqlite3';
+import { initDatabase, getDatabase, runMigrations } from './db';
 import { app } from 'electron';
 import fs from 'fs';
 import os from 'os';
@@ -219,5 +220,98 @@ describe('Phase 2 migration 16: oauth_credentials + auth columns', () => {
             "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='oauth_credentials'"
         ).all() as Array<{ name: string }>;
         expect(indexes.some(i => i.name === 'idx_oauth_credentials_provider')).toBe(true);
+    });
+});
+
+// Phase 2 OAuth2: migration 17 (legacy outlook recommended_reauth data migration)
+// Uses :memory: DBs with a hand-rolled schema-16 skeleton (accounts + settings
+// tables, schema_version row set to 16) so runMigrations() runs ONLY migration
+// 17. This is cleaner than full initDatabase() because migration 17 is a
+// data migration whose effect depends on which rows exist at the moment it
+// runs — we must seed legacy outlook rows *before* the migration executes.
+// runMigrations is exported (Phase 2) precisely to enable this test pattern.
+function buildSchemaV16Fixture(): Database.Database {
+    const d = new Database(':memory:');
+    d.pragma('journal_mode = WAL');
+    d.pragma('foreign_keys = ON');
+    // Minimum schema that migration 17 touches: accounts with auth_state column
+    // and the settings table used by runMigrations for version bookkeeping.
+    d.exec(`
+        CREATE TABLE accounts (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            provider TEXT NOT NULL,
+            password_encrypted TEXT,
+            auth_type TEXT NOT NULL DEFAULT 'password',
+            auth_state TEXT NOT NULL DEFAULT 'ok'
+        );
+        CREATE TABLE settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT INTO settings (key, value) VALUES ('schema_version', '16');
+    `);
+    return d;
+}
+
+describe('Phase 2 migration 17: legacy outlook recommended_reauth', () => {
+    it('marks all accounts with provider=outlook as recommended_reauth', () => {
+        const d = buildSchemaV16Fixture();
+        // Seed legacy outlook accounts
+        d.prepare("INSERT INTO accounts (id, email, provider, password_encrypted) VALUES ('a1', 'p@hotmail.com', 'outlook', 'enc1')").run();
+        d.prepare("INSERT INTO accounts (id, email, provider, password_encrypted) VALUES ('a2', 'b@company.com', 'outlook', 'enc2')").run();
+        // Seed a non-outlook account that should NOT be touched
+        d.prepare("INSERT INTO accounts (id, email, provider, password_encrypted) VALUES ('a3', 'g@gmail.com', 'gmail', 'enc3')").run();
+
+        runMigrations(d);
+
+        const a1 = d.prepare("SELECT auth_state FROM accounts WHERE id = 'a1'").get() as { auth_state: string };
+        const a2 = d.prepare("SELECT auth_state FROM accounts WHERE id = 'a2'").get() as { auth_state: string };
+        const a3 = d.prepare("SELECT auth_state FROM accounts WHERE id = 'a3'").get() as { auth_state: string };
+        expect(a1.auth_state).toBe('recommended_reauth');
+        expect(a2.auth_state).toBe('recommended_reauth');
+        expect(a3.auth_state).toBe('ok');
+        d.close();
+    });
+
+    it('does NOT touch password_encrypted on legacy outlook accounts', () => {
+        const d = buildSchemaV16Fixture();
+        d.prepare("INSERT INTO accounts (id, email, provider, password_encrypted) VALUES ('a1', 'p@hotmail.com', 'outlook', 'original_pwd')").run();
+
+        runMigrations(d);
+
+        const a1 = d.prepare("SELECT password_encrypted FROM accounts WHERE id = 'a1'").get() as { password_encrypted: string };
+        expect(a1.password_encrypted).toBe('original_pwd');
+        d.close();
+    });
+
+    it('does NOT change auth_type on legacy outlook accounts', () => {
+        const d = buildSchemaV16Fixture();
+        d.prepare("INSERT INTO accounts (id, email, provider, password_encrypted) VALUES ('a1', 'p@hotmail.com', 'outlook', 'enc')").run();
+
+        runMigrations(d);
+
+        const a1 = d.prepare("SELECT auth_type FROM accounts WHERE id = 'a1'").get() as { auth_type: string };
+        expect(a1.auth_type).toBe('password');
+        d.close();
+    });
+
+    it('is idempotent — running twice does not re-flip rows that have since been changed', () => {
+        const d = buildSchemaV16Fixture();
+        d.prepare("INSERT INTO accounts (id, email, provider, password_encrypted) VALUES ('a1', 'p@hotmail.com', 'outlook', 'enc')").run();
+
+        // First run: applies migration 17, flipping a1 to recommended_reauth.
+        runMigrations(d);
+        expect((d.prepare("SELECT auth_state FROM accounts WHERE id = 'a1'").get() as { auth_state: string }).auth_state).toBe('recommended_reauth');
+
+        // Simulate downstream state change: user clicked "re-auth" later and app set a1 back to ok.
+        d.prepare("UPDATE accounts SET auth_state = 'ok' WHERE id = 'a1'").run();
+
+        // Second run: short-circuits at version >= CURRENT_SCHEMA_VERSION guard,
+        // so migration 17 must NOT re-flip the row.
+        runMigrations(d);
+        const after = d.prepare("SELECT auth_state FROM accounts WHERE id = 'a1'").get() as { auth_state: string };
+        expect(after.auth_state).toBe('ok');
+        d.close();
     });
 });

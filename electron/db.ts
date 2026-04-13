@@ -126,9 +126,9 @@ function setupSchema(db: DatabaseType) {
     runMigrations(db);
 }
 
-const CURRENT_SCHEMA_VERSION = 16;
+const CURRENT_SCHEMA_VERSION = 17;
 
-function runMigrations(db: DatabaseType) {
+export function runMigrations(db: DatabaseType) {
     db.transaction(() => {
         const versionRow = db.prepare(
             "SELECT value FROM settings WHERE key = 'schema_version'"
@@ -562,6 +562,22 @@ function runMigrations(db: DatabaseType) {
                 CREATE INDEX IF NOT EXISTS idx_oauth_credentials_provider ON oauth_credentials(provider);
             `);
             version = 16;
+        }
+
+        // Migration 17: Phase 2 — mark legacy Outlook accounts as recommended_reauth
+        // without touching their stored basic-auth credentials. The password stays
+        // valid until either Microsoft rejects it server-side (D5.10 transitions
+        // to reauth_required) or the user clicks "Sign in again" and the in-place
+        // re-auth flow (D8.2) clears it as part of the OAuth swap.
+        // Spec D8.1, D8.4, §4.3.
+        if (version < 17) {
+            db.exec(`
+                UPDATE accounts
+                   SET auth_state = 'recommended_reauth'
+                 WHERE provider = 'outlook'
+                   AND auth_state = 'ok';
+            `);
+            version = 17;
         }
 
         db.prepare(
