@@ -17,6 +17,12 @@ import { revokeRefreshToken as googleRevokeRefreshToken } from '../oauth/google.
 import { revokeRefreshToken as microsoftRevokeRefreshToken } from '../oauth/microsoft.js';
 import { logDebug } from '../logger.js';
 
+// Account-id redaction symmetric with tokenManager.ts and ipcHandlers.ts.
+function redactAccountId(accountId: string): string {
+    if (accountId.length <= 4) return '***';
+    return `${accountId.slice(0, 2)}***${accountId.slice(-2)}`;
+}
+
 /**
  * Revoke the OAuth refresh token for `accountId` if one exists. Best-effort:
  * never throws. Returns `{ attempted, revoked }` so callers can log outcomes
@@ -31,7 +37,7 @@ export async function maybeRevokeOAuthCredentials(
     try {
         cred = getOAuthCredential(db, accountId);
     } catch (err) {
-        logDebug(`[OAUTH] revoke lookup failed for ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
+        logDebug(`[OAUTH] revoke lookup failed for ${redactAccountId(accountId)}: ${err instanceof Error ? err.message : String(err)}`);
         return { attempted: false, revoked: false };
     }
     if (cred === null) {
@@ -42,17 +48,17 @@ export async function maybeRevokeOAuthCredentials(
         const refreshToken = await getAuthTokenManager().getDecryptedRefreshToken(accountId);
         if (cred.provider === 'google') {
             await googleRevokeRefreshToken(refreshToken);
-            logDebug(`[OAUTH] google refresh token revoked for account ${accountId}`);
+            logDebug(`[OAUTH] google refresh token revoked for account ${redactAccountId(accountId)}`);
             return { attempted: true, revoked: true, provider: cred.provider };
         }
         // microsoft_personal / microsoft_business: adapter is a no-op per D11.1.
         await microsoftRevokeRefreshToken(refreshToken);
-        logDebug(`[OAUTH] microsoft refresh token revoke (no-op) for account ${accountId}`);
+        logDebug(`[OAUTH] microsoft refresh token revoke (no-op) for account ${redactAccountId(accountId)}`);
         return { attempted: true, revoked: true, provider: cred.provider };
     } catch (err) {
         // Revocation failure is non-fatal. The local credential row will
         // be deleted anyway; the token will age out on the provider side.
-        logDebug(`[OAUTH] revoke failed for ${accountId} (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        logDebug(`[OAUTH] revoke failed for ${redactAccountId(accountId)} (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
         return { attempted: true, revoked: false, provider: cred.provider };
     }
 }

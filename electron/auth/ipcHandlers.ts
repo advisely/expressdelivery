@@ -53,6 +53,12 @@ function decodeIdTokenClaims(idToken: string): IdTokenClaims {
         const parsed = JSON.parse(payload) as IdTokenClaims;
         return parsed ?? {};
     } catch {
+        // Best-effort decode. A malformed id_token returns an empty claims
+        // object and the caller surfaces a generic "OAuth provider did not
+        // return an email claim" error to the renderer. Logging is
+        // intentionally suppressed here because the raw id_token bytes
+        // would be tempting to include in the log line and we never want
+        // token material in app.log.
         return {};
     }
 }
@@ -84,6 +90,18 @@ function safeErrorMessage(err: unknown, cap = 300): string {
     const raw = err instanceof Error ? err.message : String(err);
     // Strip control chars and cap length — no stack traces escape to renderer.
     return raw.replace(/[\r\n\0]/g, ' ').slice(0, cap);
+}
+
+// Mirrors tokenManager.ts redactAccount() — kept inline because it is two
+// lines and exporting from tokenManager would create a circular dependency
+// (tokenManager already imports from ../db which imports from main.ts which
+// calls registerAuthIpcHandlers from this file). Show first 2 + last 2 chars
+// so log entries can still be correlated across handlers without exposing
+// the full UUID to the log file. UUIDs are internal-only (not PII), but
+// keeping the redaction symmetric across the OAuth subsystem is cheap.
+function redactAccountId(accountId: string): string {
+    if (accountId.length <= 4) return '***';
+    return `${accountId.slice(0, 2)}***${accountId.slice(-2)}`;
 }
 
 export function registerAuthIpcHandlers(): void {
@@ -171,7 +189,7 @@ export function registerAuthIpcHandlers(): void {
             });
             insertAccountAndTokens();
 
-            logDebug(`[OAUTH] auth:start-oauth-flow success: account ${accountId} provider=${tokenProvider}`);
+            logDebug(`[OAUTH] auth:start-oauth-flow success: account ${redactAccountId(accountId)} provider=${tokenProvider}`);
             return { success: true, accountId, classifiedProvider };
         } catch (err) {
             clearActiveFlow();
@@ -284,14 +302,14 @@ export function registerAuthIpcHandlers(): void {
             applyReauth();
 
             logDebug(
-                `[OAUTH] auth:start-reauth-flow success for account ${params.accountId} ` +
+                `[OAUTH] auth:start-reauth-flow success for account ${redactAccountId(params.accountId)} ` +
                 `provider=${tokenProvider} legacyOutlookMigration=${isLegacyOutlookPassword}`
             );
             return { success: true };
         } catch (err) {
             clearActiveFlow();
             const msg = safeErrorMessage(err, 500);
-            logDebug(`[OAUTH] auth:start-reauth-flow error for ${params.accountId}: ${msg}`);
+            logDebug(`[OAUTH] auth:start-reauth-flow error for ${redactAccountId(params.accountId)}: ${msg}`);
             return { success: false, error: safeErrorMessage(err) };
         }
     });
