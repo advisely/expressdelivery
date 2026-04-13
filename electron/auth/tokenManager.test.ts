@@ -34,7 +34,11 @@ vi.mock('../oauth/clientConfig', () => ({
 // ---------------------------------------------------------------------------
 // Import under test — AFTER vi.mock declarations.
 // ---------------------------------------------------------------------------
-import { getAuthTokenManager } from './tokenManager';
+import {
+    getAuthTokenManager,
+    PermanentAuthError,
+    TransientAuthError,
+} from './tokenManager';
 
 // ---------------------------------------------------------------------------
 // DB helpers (imported from db.ts — Tasks 2-4 complete).
@@ -447,19 +451,350 @@ describe('AuthTokenManager.getValidAccessToken — per-account dedup mutex (D5.3
 
         const mgr = getAuthTokenManager();
 
-        // First call fails (transient) — map entry is cleared in .finally().
-        await expect(mgr.getValidAccessToken('acc-google-1')).rejects.toThrow('network timeout');
+        // First call fails (transient) — wraps in TransientAuthError.
+        await expect(mgr.getValidAccessToken('acc-google-1')).rejects.toBeInstanceOf(TransientAuthError);
 
-        // Second call succeeds — the map entry was cleared so a fresh refresh is attempted.
+        // Second call succeeds — the map entry was cleared in .finally() after the first failure.
         const result = await mgr.getValidAccessToken('acc-google-1');
         expect(result.accessToken).toBe('retry-at');
         expect(mockGoogleRefresh).toHaveBeenCalledTimes(2);
     });
 });
 
+// ===========================================================================
+// Task 10 — error classification, invalidateToken, persistInitialTokens
+// ===========================================================================
+
+describe('AuthTokenManager error classification (D5.10)', () => {
+    let db: DatabaseType;
+
+    beforeEach(() => {
+        db = makeDb();
+        mockGoogleRefresh.mockReset();
+        mockMicrosoftRefresh.mockReset();
+        const mgr = getAuthTokenManager();
+        mgr.shutdown();
+        mgr.init(db);
+
+        insertOAuthCredential(db, {
+            accountId: 'acc-google-1',
+            provider: 'google',
+            accessTokenEncrypted: encodeToken('err-expired-at'),
+            refreshTokenEncrypted: encodeToken('err-rt'),
+            expiresAt: PAST,
+        });
+    });
+
+    it('throws PermanentAuthError on invalid_grant and sets auth_state to reauth_required', async () => {
+        const providerErr = Object.assign(new Error('Token has been expired or revoked'), {
+            error: 'invalid_grant',
+        });
+        mockGoogleRefresh.mockRejectedValueOnce(providerErr);
+
+        const mgr = getAuthTokenManager();
+        await expect(mgr.getValidAccessToken('acc-google-1')).rejects.toBeInstanceOf(PermanentAuthError);
+
+        const row = db.prepare("SELECT auth_state FROM accounts WHERE id = 'acc-google-1'")
+            .get() as { auth_state: string };
+        expect(row.auth_state).toBe('reauth_required');
+    });
+
+    it('PermanentAuthError carries the correct code and accountId', async () => {
+        const providerErr = Object.assign(new Error('unauthorized'), {
+            error: 'unauthorized_client',
+        });
+        mockGoogleRefresh.mockRejectedValueOnce(providerErr);
+
+        const mgr = getAuthTokenManager();
+        let caught: unknown;
+        try {
+            await mgr.getValidAccessToken('acc-google-1');
+        } catch (e) {
+            caught = e;
+        }
+
+        expect(caught).toBeInstanceOf(PermanentAuthError);
+        const pae = caught as PermanentAuthError;
+        expect(pae.code).toBe('unauthorized_client');
+        expect(pae.accountId).toBe('acc-google-1');
+    });
+
+    it('throws PermanentAuthError on invalid_client and sets auth_state to reauth_required', async () => {
+        const providerErr = Object.assign(new Error('invalid client'), {
+            error: 'invalid_client',
+        });
+        mockGoogleRefresh.mockRejectedValueOnce(providerErr);
+
+        const mgr = getAuthTokenManager();
+        await expect(mgr.getValidAccessToken('acc-google-1')).rejects.toBeInstanceOf(PermanentAuthError);
+
+        const row = db.prepare("SELECT auth_state FROM accounts WHERE id = 'acc-google-1'")
+            .get() as { auth_state: string };
+        expect(row.auth_state).toBe('reauth_required');
+    });
+
+    it('throws TransientAuthError on network timeout — auth_state is unchanged', async () => {
+        const networkErr = Object.assign(new Error('fetch failed: ETIMEDOUT'), {
+            code: 'ETIMEDOUT',
+        });
+        mockGoogleRefresh.mockRejectedValueOnce(networkErr);
+
+        const mgr = getAuthTokenManager();
+        await expect(mgr.getValidAccessToken('acc-google-1')).rejects.toBeInstanceOf(TransientAuthError);
+
+        const row = db.prepare("SELECT auth_state FROM accounts WHERE id = 'acc-google-1'")
+            .get() as { auth_state: string };
+        expect(row.auth_state).toBe('ok');
+    });
+
+    it('throws TransientAuthError on provider HTTP 5xx — auth_state is unchanged', async () => {
+        const serverErr = Object.assign(new Error('Google token endpoint 503'), {
+            error: 'server_error',
+            status: 503,
+        });
+        mockGoogleRefresh.mockRejectedValueOnce(serverErr);
+
+        const mgr = getAuthTokenManager();
+        await expect(mgr.getValidAccessToken('acc-google-1')).rejects.toBeInstanceOf(TransientAuthError);
+
+        const row = db.prepare("SELECT auth_state FROM accounts WHERE id = 'acc-google-1'")
+            .get() as { auth_state: string };
+        expect(row.auth_state).toBe('ok');
+    });
+
+    it('TransientAuthError wraps the original cause and carries the accountId', async () => {
+        const originalErr = Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' });
+        mockGoogleRefresh.mockRejectedValueOnce(originalErr);
+
+        const mgr = getAuthTokenManager();
+        let caught: unknown;
+        try {
+            await mgr.getValidAccessToken('acc-google-1');
+        } catch (e) {
+            caught = e;
+        }
+
+        expect(caught).toBeInstanceOf(TransientAuthError);
+        const tae = caught as TransientAuthError;
+        expect(tae.cause).toBe(originalErr);
+        expect(tae.accountId).toBe('acc-google-1');
+    });
+
+    it('Microsoft permanent error (invalid_grant via MSAL) sets reauth_required', async () => {
+        insertOAuthCredential(db, {
+            accountId: 'acc-ms-personal-1',
+            provider: 'microsoft_personal',
+            accessTokenEncrypted: encodeToken('ms-expired'),
+            refreshTokenEncrypted: encodeToken('ms-rt'),
+            expiresAt: PAST,
+        });
+
+        const msalErr = Object.assign(new Error('AADSTS70008: token expired'), {
+            error: 'invalid_grant',
+        });
+        mockMicrosoftRefresh.mockRejectedValueOnce(msalErr);
+
+        const mgr = getAuthTokenManager();
+        await expect(mgr.getValidAccessToken('acc-ms-personal-1')).rejects.toBeInstanceOf(PermanentAuthError);
+
+        const row = db.prepare("SELECT auth_state FROM accounts WHERE id = 'acc-ms-personal-1'")
+            .get() as { auth_state: string };
+        expect(row.auth_state).toBe('reauth_required');
+    });
+});
+
+describe('AuthTokenManager.invalidateToken (D5.2)', () => {
+    let db: DatabaseType;
+
+    beforeEach(() => {
+        db = makeDb();
+        mockGoogleRefresh.mockReset();
+        const mgr = getAuthTokenManager();
+        mgr.shutdown();
+        mgr.init(db);
+    });
+
+    it('sets access_token_encrypted to empty and expires_at to 0', async () => {
+        insertOAuthCredential(db, {
+            accountId: 'acc-google-1',
+            provider: 'google',
+            accessTokenEncrypted: encodeToken('valid-at'),
+            refreshTokenEncrypted: encodeToken('rt'),
+            expiresAt: FUTURE,
+        });
+
+        const mgr = getAuthTokenManager();
+        await mgr.invalidateToken('acc-google-1');
+
+        const row = getOAuthCredential(db, 'acc-google-1');
+        expect(row!.expiresAt).toBe(0);
+    });
+
+    it('forces a refresh on the next getValidAccessToken call after invalidation', async () => {
+        insertOAuthCredential(db, {
+            accountId: 'acc-google-1',
+            provider: 'google',
+            accessTokenEncrypted: encodeToken('will-be-invalidated'),
+            refreshTokenEncrypted: encodeToken('rt'),
+            expiresAt: FUTURE,  // token is currently fresh
+        });
+
+        mockGoogleRefresh.mockResolvedValueOnce({
+            accessToken: 'post-invalidation-at',
+            expiresAt: FUTURE,
+        });
+
+        const mgr = getAuthTokenManager();
+        // Confirm it's fresh before invalidation.
+        const before = await mgr.getValidAccessToken('acc-google-1');
+        expect(before.accessToken).toBe('will-be-invalidated');
+        expect(mockGoogleRefresh).not.toHaveBeenCalled();
+
+        // Invalidate.
+        await mgr.invalidateToken('acc-google-1');
+
+        // Next call must refresh because expires_at = 0 < now + 60s.
+        const after = await mgr.getValidAccessToken('acc-google-1');
+        expect(mockGoogleRefresh).toHaveBeenCalledOnce();
+        expect(after.accessToken).toBe('post-invalidation-at');
+    });
+
+    it('does not throw when called on an account with no credential row', async () => {
+        // invalidateToken is called from the on-401 retry path which may race
+        // with a concurrent account deletion. It must be a no-op in that case.
+        const mgr = getAuthTokenManager();
+        await expect(mgr.invalidateToken('acc-google-1')).resolves.not.toThrow();
+    });
+});
+
+describe('AuthTokenManager.persistInitialTokens (D5.11)', () => {
+    let db: DatabaseType;
+
+    beforeEach(() => {
+        db = makeDb();
+        mockGoogleRefresh.mockReset();
+        const mgr = getAuthTokenManager();
+        mgr.shutdown();
+        mgr.init(db);
+    });
+
+    it('inserts a new oauth_credentials row with encrypted tokens', () => {
+        const mgr = getAuthTokenManager();
+        mgr.persistInitialTokens('acc-google-1', 'google', {
+            accessToken: 'initial-at',
+            refreshToken: 'initial-rt',
+            expiresAt: FUTURE,
+            scope: 'https://mail.google.com/',
+            tokenType: 'Bearer',
+        });
+
+        const row = getOAuthCredential(db, 'acc-google-1');
+        expect(row).not.toBeNull();
+        expect(decodeToken(row!.accessTokenEncrypted)).toBe('initial-at');
+        expect(decodeToken(row!.refreshTokenEncrypted)).toBe('initial-rt');
+        expect(row!.expiresAt).toBe(FUTURE);
+        expect(row!.provider).toBe('google');
+        expect(row!.scope).toBe('https://mail.google.com/');
+        expect(row!.tokenType).toBe('Bearer');
+    });
+
+    it('stores microsoft_personal provider classification', () => {
+        const mgr = getAuthTokenManager();
+        mgr.persistInitialTokens('acc-ms-personal-1', 'microsoft_personal', {
+            accessToken: 'ms-initial-at',
+            refreshToken: 'ms-initial-rt',
+            expiresAt: FUTURE,
+        });
+
+        const row = getOAuthCredential(db, 'acc-ms-personal-1');
+        expect(row!.provider).toBe('microsoft_personal');
+        expect(decodeToken(row!.accessTokenEncrypted)).toBe('ms-initial-at');
+        expect(decodeToken(row!.refreshTokenEncrypted)).toBe('ms-initial-rt');
+    });
+
+    it('stores microsoft_business provider classification', () => {
+        const mgr = getAuthTokenManager();
+        mgr.persistInitialTokens('acc-ms-business-1', 'microsoft_business', {
+            accessToken: 'biz-at',
+            refreshToken: 'biz-rt',
+            expiresAt: FUTURE,
+        });
+
+        const row = getOAuthCredential(db, 'acc-ms-business-1');
+        expect(row!.provider).toBe('microsoft_business');
+    });
+
+    it('upserts when called a second time (in-place re-auth flow)', () => {
+        const mgr = getAuthTokenManager();
+        mgr.persistInitialTokens('acc-google-1', 'google', {
+            accessToken: 'first-at',
+            refreshToken: 'first-rt',
+            expiresAt: FUTURE,
+        });
+
+        // Simulate re-auth: call again with new tokens.
+        mgr.persistInitialTokens('acc-google-1', 'google', {
+            accessToken: 'reauth-at',
+            refreshToken: 'reauth-rt',
+            expiresAt: FUTURE + 3600 * 1000,
+        });
+
+        const row = getOAuthCredential(db, 'acc-google-1');
+        expect(decodeToken(row!.accessTokenEncrypted)).toBe('reauth-at');
+        expect(decodeToken(row!.refreshTokenEncrypted)).toBe('reauth-rt');
+    });
+
+    it('persisted tokens are immediately usable via getValidAccessToken (no refresh)', async () => {
+        const mgr = getAuthTokenManager();
+        mgr.persistInitialTokens('acc-google-1', 'google', {
+            accessToken: 'fresh-persisted-at',
+            refreshToken: 'rt',
+            expiresAt: FUTURE,
+        });
+
+        const result = await mgr.getValidAccessToken('acc-google-1');
+        expect(result.accessToken).toBe('fresh-persisted-at');
+        expect(result.provider).toBe('google');
+        expect(mockGoogleRefresh).not.toHaveBeenCalled();
+    });
+});
+
+describe('AuthTokenManager.getDecryptedRefreshToken (Task 17 consumer)', () => {
+    // Added proactively for Task 17 (Google revocation flow). Returns the
+    // decrypted refresh_token for a given accountId. Throws when no row exists.
+    let db: DatabaseType;
+
+    beforeEach(() => {
+        db = makeDb();
+        const mgr = getAuthTokenManager();
+        mgr.shutdown();
+        mgr.init(db);
+    });
+
+    it('returns the decrypted refresh token for an existing oauth row', async () => {
+        insertOAuthCredential(db, {
+            accountId: 'acc-google-1',
+            provider: 'google',
+            accessTokenEncrypted: encodeToken('at'),
+            refreshTokenEncrypted: encodeToken('plain-refresh-token'),
+            expiresAt: FUTURE,
+        });
+
+        const mgr = getAuthTokenManager();
+        const rt = await mgr.getDecryptedRefreshToken('acc-google-1');
+        expect(rt).toBe('plain-refresh-token');
+    });
+
+    it('throws when no credential row exists', async () => {
+        const mgr = getAuthTokenManager();
+        await expect(mgr.getDecryptedRefreshToken('acc-google-1'))
+            .rejects.toThrow(/acc-google-1/);
+    });
+});
+
 // ---------------------------------------------------------------------------
 // Local token encoding — mirrors the base64-of-utf8 convention used by
-// tokenManager.ts under the src/setupTests.ts safeStorage identity stub.
+// tokenManager.ts under the tests/setup.ts safeStorage identity stub.
 // ---------------------------------------------------------------------------
 
 function encodeToken(plain: string): string {
