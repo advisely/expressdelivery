@@ -525,6 +525,84 @@
     color: var(--text-primary);
 }
 
+.oauth-wrap {
+    margin: 8px 0 12px;
+}
+
+.oauth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 14px 0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(var(--border-color), 0.6);
+}
+
+.reauth-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    margin: 8px 0 14px;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.reauth-banner-danger {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+.reauth-title {
+    flex: 1;
+    line-height: 1.4;
+}
+
+.reauth-cta {
+    padding: 7px 14px;
+    border-radius: 8px;
+    background: rgba(var(--accent-color-rgb), 0.15);
+    border: 1px solid rgba(var(--accent-color-rgb), 0.5);
+    color: rgba(var(--accent-color-rgb), 1);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.reauth-cta:hover:not(:disabled) {
+    background: rgba(var(--accent-color-rgb), 0.25);
+}
+
+.reauth-cta:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.signed-in-via {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(var(--surface-color), 0.6);
+    border: 1px dashed rgba(var(--border-color), 0.8);
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
 /* Appearance Tab */
 .setting-group {
     margin-bottom: 24px;

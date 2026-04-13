@@ -21,6 +21,7 @@ import { getProviderIcon } from '../lib/providerIcons';
 import styles from './SettingsModal.module.css';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ProviderHelpPanel } from './ProviderHelpPanel';
+import { OAuthSignInButton, type OAuthSignInResult } from './OAuthSignInButton';
 
 const THEME_ICONS: Record<ThemeName, ElementType> = {
     light: Sun,
@@ -76,6 +77,12 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     const [formSaving, setFormSaving] = useState(false);
     const [showServerFields, setShowServerFields] = useState(false);
     const [testStatus, setTestStatus] = useState<TestStatus>('idle');
+    const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
+    // Auth state for the currently-edited account (Task 22). Populated via
+    // auth:get-state on enterEditMode and cleared on resetForm. Drives the
+    // re-auth banner + "Signed in via …" password replacement.
+    const [editingAuthState, setEditingAuthState] = useState<'ok' | 'recommended_reauth' | 'reauth_required' | null>(null);
+    const [editingAuthType, setEditingAuthType] = useState<'password' | 'oauth' | null>(null);
 
     const accounts = useEmailStore(s => s.accounts);
     const addAccount = useEmailStore(s => s.addAccount);
@@ -347,6 +354,77 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setIsAddingAccount(false);
         setEditingAccountId(null);
         setTestStatus('idle');
+        setMismatchWarning(null);
+        setEditingAuthState(null);
+        setEditingAuthType(null);
+    };
+
+    // OAuth success handler used by both add and edit flows (Tasks 21-22).
+    // For an add, the main process inserts the account row and returns its id;
+    // for a re-auth, the existing row is updated in place. Either way, we
+    // refresh accounts:list from the DB to pick up the persisted auth_type /
+    // auth_state columns, and push the result into the zustand store.
+    const handleOAuthSuccess = async (result: OAuthSignInResult) => {
+        if (result.classifiedProvider && selectedPreset) {
+            const pickedBusiness = selectedPreset.id === 'outlook-business';
+            const pickedPersonal = selectedPreset.id === 'outlook-personal';
+            const gotBusiness = result.classifiedProvider === 'microsoft_business';
+            const gotPersonal = result.classifiedProvider === 'microsoft_personal';
+            if (pickedPersonal && gotBusiness) {
+                setMismatchWarning(t('oauth.mismatch.personalSelectedBusinessDetected'));
+            } else if (pickedBusiness && gotPersonal) {
+                setMismatchWarning(t('oauth.mismatch.businessSelectedPersonalDetected'));
+            }
+        }
+        const list = await ipcInvoke<Account[]>('accounts:list');
+        const inserted = Array.isArray(list)
+            ? list.find(a => a.id === result.accountId)
+            : null;
+        if (inserted) {
+            if (editingAccountId) {
+                updateAccount(inserted);
+            } else {
+                addAccount(inserted);
+            }
+        }
+        resetForm();
+    };
+
+    const handleOAuthError = (err: string) => {
+        setFormError(t('oauth.reauth.failed') + (err ? `: ${err}` : ''));
+    };
+
+    // Trigger a re-auth flow for the account currently being edited. Used by
+    // the Task 22 "Sign in again" banner for oauth accounts in degraded state
+    // and by the legacy-outlook warning banner (which converts a password row
+    // to oauth in place via the main-process reauth handler).
+    const handleStartReauth = async () => {
+        if (!editingAccountId) return;
+        setFormSaving(true);
+        setFormError(null);
+        try {
+            const result = await ipcInvoke<{ success: boolean; error?: string }>(
+                'auth:start-reauth-flow',
+                { accountId: editingAccountId },
+            );
+            if (!result || !result.success) {
+                setFormError(t('oauth.reauth.failed') + (result?.error ? `: ${result.error}` : ''));
+                return;
+            }
+            // Refresh list so auth_state flips back to 'ok' after a successful
+            // reauth (the main handler updates the row before resolving).
+            const list = await ipcInvoke<Account[]>('accounts:list');
+            const refreshed = Array.isArray(list)
+                ? list.find(a => a.id === editingAccountId)
+                : null;
+            if (refreshed) {
+                updateAccount(refreshed);
+                setEditingAuthState(refreshed.auth_state ?? 'ok');
+                setEditingAuthType(refreshed.auth_type ?? 'password');
+            }
+        } finally {
+            setFormSaving(false);
+        }
     };
 
     const resetTestStatus = () => { setTestStatus('idle'); };
@@ -514,6 +592,19 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         setFormSignature(account.signature_html ?? '');
         setFormError(null);
         setTestStatus('idle');
+        setMismatchWarning(null);
+        // Seed auth_type/auth_state from the already-projected account row
+        // (accounts:list now includes both columns). Task 16's auth:get-state
+        // handler provides a fresh tri-state query in case the column is
+        // stale from the last sync — fire-and-forget update.
+        setEditingAuthType(account.auth_type ?? 'password');
+        setEditingAuthState(account.auth_state ?? 'ok');
+        void (async () => {
+            const state = await ipcInvoke<{ state?: 'ok' | 'recommended_reauth' | 'reauth_required' }>(
+                'auth:get-state', { accountId: account.id },
+            );
+            if (state?.state) setEditingAuthState(state.state);
+        })();
         // Map legacy 'outlook' stored value to OUTLOOK_LEGACY_PRESET so the
         // help panel renders the legacy warning banner; unknown providers
         // fall through to the custom preset.
@@ -890,15 +981,22 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
 
                                     {isOAuth2Gated ? (
                                         <>
-                                            {selectedPreset?.comingSoonMessageKey && (
-                                                <div
-                                                    className={styles['coming-soon-message']}
-                                                    role="status"
-                                                    aria-live="polite"
-                                                >
-                                                    {t(selectedPreset.comingSoonMessageKey)}
+                                            {mismatchWarning && (
+                                                <div className={styles['form-error']} role="alert">
+                                                    {mismatchWarning}
                                                 </div>
                                             )}
+                                            <div
+                                                className={styles['oauth-wrap']}
+                                                role="status"
+                                                aria-live="polite"
+                                            >
+                                                <OAuthSignInButton
+                                                    provider="microsoft"
+                                                    onSuccess={handleOAuthSuccess}
+                                                    onError={handleOAuthError}
+                                                />
+                                            </div>
                                             <div className={styles['form-actions']}>
                                                 <div className={styles['form-spacer']} />
                                                 <button className={styles['secondary-btn']} onClick={resetForm}>{t('settings.cancel')}</button>
@@ -913,6 +1011,55 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                         </>
                                     ) : (
                                         <>
+                                            {/* Task 21: Gmail OAuth button on add flow (password-supported presets
+                                                still accept app passwords as a fallback below the divider). */}
+                                            {!isEditing && selectedPreset?.id === 'gmail' && (
+                                                <>
+                                                    <div className={styles['oauth-wrap']}>
+                                                        <OAuthSignInButton
+                                                            provider="google"
+                                                            onSuccess={handleOAuthSuccess}
+                                                            onError={handleOAuthError}
+                                                        />
+                                                    </div>
+                                                    <div className={styles['oauth-divider']} role="separator">
+                                                        <span>{t('oauth.divider.orUseAppPassword')}</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                            {/* Task 22: reauth banners. Shown only on edit flow. Legacy outlook
+                                                (auth_type='password', provider='outlook') always shows the
+                                                migration warning. OAuth accounts show reauth banner when state
+                                                is recommended_reauth or reauth_required. */}
+                                            {isEditing && editingAuthType === 'password' && editingOriginalProvider === 'outlook' && (
+                                                <div className={styles['reauth-banner']} role="alert">
+                                                    <div className={styles['reauth-title']}>{t('oauth.reauth.legacyOutlookWarning')}</div>
+                                                    <button
+                                                        type="button"
+                                                        className={styles['reauth-cta']}
+                                                        onClick={handleStartReauth}
+                                                        disabled={formSaving}
+                                                    >
+                                                        {t('oauth.reauth.cta')}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {isEditing && editingAuthType === 'oauth' && (editingAuthState === 'reauth_required' || editingAuthState === 'recommended_reauth') && (
+                                                <div
+                                                    className={`${styles['reauth-banner']} ${editingAuthState === 'reauth_required' ? styles['reauth-banner-danger'] : ''}`}
+                                                    role="alert"
+                                                >
+                                                    <div className={styles['reauth-title']}>{t('oauth.reauth.bannerTitle')}</div>
+                                                    <button
+                                                        type="button"
+                                                        className={styles['reauth-cta']}
+                                                        onClick={handleStartReauth}
+                                                        disabled={formSaving}
+                                                    >
+                                                        {t('oauth.reauth.cta')}
+                                                    </button>
+                                                </div>
+                                            )}
                                             <div className={styles['form-group']}>
                                                 <label className={styles['form-label']} htmlFor="settings-email">{t('settings.email')}</label>
                                                 <input
@@ -949,27 +1096,41 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
                                                 />
                                             </div>
         
-                                            <div className={styles['form-group']}>
-                                                <label className={styles['form-label']} htmlFor="settings-password">{t('settings.password')}</label>
-                                                <div className={styles['password-wrapper']}>
-                                                    <input
-                                                        id="settings-password"
-                                                        type={showPassword ? 'text' : 'password'}
-                                                        className={styles['form-input']}
-                                                        placeholder={isEditing ? t('settings.passwordKeep') : t('settings.passwordNew')}
-                                                        value={formPassword}
-                                                        onChange={e => { setFormPassword(e.target.value); resetTestStatus(); }}
-                                                    />
-                                                    <button
-                                                        className={styles['password-toggle']}
-                                                        onClick={() => setShowPassword(!showPassword)}
-                                                        type="button"
-                                                        aria-label={showPassword ? t('settings.hidePassword') : t('settings.showPassword')}
+                                            {/* Task 22: hide password field for oauth accounts in edit mode.
+                                                Oauth accounts authenticate via refresh token, not password. */}
+                                            {isEditing && editingAuthType === 'oauth' ? (
+                                                <div className={styles['form-group']}>
+                                                    <label className={styles['form-label']}>{t('settings.password')}</label>
+                                                    <div
+                                                        className={styles['signed-in-via']}
+                                                        data-testid="signed-in-via"
                                                     >
-                                                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                                    </button>
+                                                        {t('oauth.edit.signedInVia', { provider: providerLabel(editingOriginalProvider ?? selectedPreset?.id ?? '') })}
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            ) : (
+                                                <div className={styles['form-group']}>
+                                                    <label className={styles['form-label']} htmlFor="settings-password">{t('settings.password')}</label>
+                                                    <div className={styles['password-wrapper']}>
+                                                        <input
+                                                            id="settings-password"
+                                                            type={showPassword ? 'text' : 'password'}
+                                                            className={styles['form-input']}
+                                                            placeholder={isEditing ? t('settings.passwordKeep') : t('settings.passwordNew')}
+                                                            value={formPassword}
+                                                            onChange={e => { setFormPassword(e.target.value); resetTestStatus(); }}
+                                                        />
+                                                        <button
+                                                            className={styles['password-toggle']}
+                                                            onClick={() => setShowPassword(!showPassword)}
+                                                            type="button"
+                                                            aria-label={showPassword ? t('settings.hidePassword') : t('settings.showPassword')}
+                                                        >
+                                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
         
                                             {(showServerFields || selectedPreset) && (
                                                 <div className={styles['server-fields']}>
