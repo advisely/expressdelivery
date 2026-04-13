@@ -150,6 +150,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'mcp:set-port',
   'mcp:toggle',
   'mcp:get-tools',
+  // External link opener (exact-URL allowlisted in main process)
+  'shell:open-external',
   // Phase 12.5: Window controls + app info (frameless window)
   'window:minimize',
   'window:maximize',

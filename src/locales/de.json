@@ -368,7 +368,8 @@
     "port": "Port",
     "optional": "(optional)",
     "showPassword": "Passwort anzeigen",
-    "hidePassword": "Passwort verbergen"
+    "hidePassword": "Passwort verbergen",
+    "useCustomInstead": "Stattdessen Andere / Benutzerdefiniert verwenden"
   },
   "toast": {
     "scheduledSent": "Geplante E-Mail gesendet",
@@ -531,5 +532,59 @@
     "toolsTitle": "Verfügbare Tools",
     "noTools": "Keine Tools verfügbar",
     "toggleFailed": "MCP-Server konnte nicht umgeschaltet werden"
+  },
+  "providerHelp": {
+    "common": {
+      "showSteps": "Schritte anzeigen",
+      "hideSteps": "Schritte ausblenden",
+      "openHelpPage": "Offizielle Seite öffnen",
+      "oauth2NotSupported": "OAuth2-Anmeldung wird von dieser App noch nicht unterstützt.",
+      "useCustomInstead": "Verwenden Sie Andere / Benutzerdefiniert nur, wenn Ihre Organisation passwortbasiertes IMAP/SMTP noch erlaubt."
+    },
+    "gmail": {
+      "shortNote": "Gmail akzeptiert App-Passwörter für persönliche Konten mit aktivierter Bestätigung in zwei Schritten. OAuth2-Anmeldung ist der langfristig bevorzugte Weg und ist für ein zukünftiges Update geplant.",
+      "steps": [
+        "Melden Sie sich unter myaccount.google.com in Ihrem Google-Konto an",
+        "Öffnen Sie Sicherheit und aktivieren Sie die Bestätigung in zwei Schritten, falls noch nicht aktiv",
+        "Öffnen Sie unter Sicherheit den Bereich App-Passwörter",
+        "Erstellen Sie ein neues App-Passwort mit dem Namen „ExpressDelivery“",
+        "Kopieren Sie das 16-stellige Passwort und fügen Sie es hier im Passwortfeld ein"
+      ]
+    },
+    "outlookPersonal": {
+      "warning": "Microsoft entfernt im April 2026 die passwortbasierte SMTP-Anmeldung für persönliche Outlook.com-Konten. Neue Konten können nicht mit einem Passwort hinzugefügt werden.",
+      "shortNote": "Persönliche Outlook.com-Konten erfordern eine OAuth2-Anmeldung, die diese App noch nicht unterstützt.",
+      "comingSoonMessage": "Neue Outlook.com-Konten können noch nicht hinzugefügt werden. OAuth2-Anmeldung ist für ein zukünftiges Update geplant. Verwenden Sie Andere / Benutzerdefiniert nur, wenn Ihre Organisation passwortbasiertes IMAP/SMTP noch erlaubt."
+    },
+    "outlookBusiness": {
+      "shortNote": "Microsoft 365-Konten (Arbeit/Schule) erfordern OAuth2 / Modern Auth, das diese App noch nicht unterstützt.",
+      "comingSoonMessage": "Neue Microsoft 365-Konten können noch nicht hinzugefügt werden. OAuth2-Anmeldung ist für ein zukünftiges Update geplant. Verwenden Sie Andere / Benutzerdefiniert nur, wenn Ihre Organisation passwortbasiertes IMAP/SMTP noch erlaubt."
+    },
+    "outlookLegacy": {
+      "warning": "Outlook-Konten erfordern jetzt eine OAuth2-Anmeldung. Dieses Konto wurde vor dieser Änderung hinzugefügt und funktioniert möglicherweise ab dem 30. April 2026 nicht mehr.",
+      "shortNote": "Dies ist ein vorhandenes Outlook-Konto mit Standardauthentifizierung. Sie können die Einstellungen weiterhin bearbeiten, aber neue Outlook-Konten müssen auf OAuth2-Unterstützung warten."
+    },
+    "yahoo": {
+      "shortNote": "Yahoo benötigt ein generiertes App-Passwort. Ihr normales Yahoo-Passwort funktioniert hier nicht.",
+      "steps": [
+        "Melden Sie sich auf der Yahoo-Kontosicherheitsseite unter login.yahoo.com/account/security an",
+        "Aktivieren Sie die Bestätigung in zwei Schritten, falls noch nicht aktiv",
+        "Wählen Sie „App-Passwort generieren“ (oder „App-Passwörter verwalten“)",
+        "Benennen Sie die App „ExpressDelivery“ und klicken Sie auf Generieren",
+        "Kopieren Sie das generierte Passwort und fügen Sie es hier im Passwortfeld ein"
+      ]
+    },
+    "icloud": {
+      "shortNote": "iCloud benötigt ein app-spezifisches Passwort. Ihr normales Apple-Account-Passwort funktioniert hier nicht.",
+      "steps": [
+        "Melden Sie sich unter account.apple.com in Ihrem Apple-Account an",
+        "Wählen Sie unter Anmelden und Sicherheit die Option App-spezifische Passwörter",
+        "Klicken Sie auf App-spezifisches Passwort generieren und benennen Sie es „ExpressDelivery“",
+        "Kopieren Sie das generierte Passwort und fügen Sie es hier im Passwortfeld ein"
+      ]
+    },
+    "custom": {
+      "shortNote": "Geben Sie die IMAP- und SMTP-Einstellungen Ihres E-Mail-Anbieters ein. Die meisten Anbieter, die passwortbasiertes IMAP/SMTP noch unterstützen, funktionieren hier."
+    }
   }
 }

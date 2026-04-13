@@ -368,7 +368,8 @@
     "port": "Puerto",
     "optional": "(opcional)",
     "showPassword": "Mostrar contraseña",
-    "hidePassword": "Ocultar contraseña"
+    "hidePassword": "Ocultar contraseña",
+    "useCustomInstead": "Usar Otro / Personalizado en su lugar"
   },
   "toast": {
     "scheduledSent": "Correo programado enviado",
@@ -531,5 +532,59 @@
     "toolsTitle": "Herramientas disponibles",
     "noTools": "No hay herramientas disponibles",
     "toggleFailed": "Error al cambiar el servidor MCP"
+  },
+  "providerHelp": {
+    "common": {
+      "showSteps": "Mostrar pasos",
+      "hideSteps": "Ocultar pasos",
+      "openHelpPage": "Abrir página oficial",
+      "oauth2NotSupported": "El inicio de sesión OAuth2 aún no es compatible con esta aplicación.",
+      "useCustomInstead": "Use Otro / Personalizado solo si su organización todavía permite IMAP/SMTP con contraseña."
+    },
+    "gmail": {
+      "shortNote": "Gmail acepta contraseñas de aplicación para cuentas personales con la verificación en dos pasos activada. OAuth2 es el método preferido a largo plazo y está previsto para una actualización futura.",
+      "steps": [
+        "Inicie sesión en su Cuenta de Google en myaccount.google.com",
+        "Abra Seguridad y active la verificación en dos pasos si aún no está activa",
+        "En Seguridad, abra Contraseñas de aplicación",
+        "Genere una nueva contraseña de aplicación con el nombre 'ExpressDelivery'",
+        "Copie la contraseña de 16 caracteres y péguela en el campo de contraseña aquí"
+      ]
+    },
+    "outlookPersonal": {
+      "warning": "Microsoft está eliminando el SMTP con contraseña en las cuentas personales de Outlook.com en abril de 2026. Las cuentas nuevas no pueden agregarse con contraseña.",
+      "shortNote": "Las cuentas personales de Outlook.com requieren inicio de sesión OAuth2, que esta aplicación aún no admite.",
+      "comingSoonMessage": "Las nuevas cuentas de Outlook.com todavía no pueden agregarse. El inicio de sesión OAuth2 está previsto para una actualización futura. Use Otro / Personalizado solo si su organización todavía permite IMAP/SMTP con contraseña."
+    },
+    "outlookBusiness": {
+      "shortNote": "Las cuentas de Microsoft 365 (trabajo o escuela) requieren OAuth2 / Autenticación moderna, que esta aplicación aún no admite.",
+      "comingSoonMessage": "Las nuevas cuentas de Microsoft 365 todavía no pueden agregarse. El inicio de sesión OAuth2 está previsto para una actualización futura. Use Otro / Personalizado solo si su organización todavía permite IMAP/SMTP con contraseña."
+    },
+    "outlookLegacy": {
+      "warning": "Las cuentas de Outlook ahora requieren inicio de sesión OAuth2. Esta cuenta se agregó antes de ese cambio y puede dejar de funcionar a partir del 30 de abril de 2026.",
+      "shortNote": "Esta es una cuenta de Outlook existente con autenticación básica. Aún puede editar sus ajustes, pero las cuentas nuevas de Outlook deben esperar al soporte de OAuth2."
+    },
+    "yahoo": {
+      "shortNote": "Yahoo requiere una contraseña de aplicación generada. Su contraseña habitual de Yahoo no funcionará aquí.",
+      "steps": [
+        "Inicie sesión en la página de Seguridad de la cuenta de Yahoo en login.yahoo.com/account/security",
+        "Active la verificación en dos pasos si aún no está activa",
+        "Seleccione 'Generar contraseña de aplicación' (o 'Administrar contraseñas de aplicación')",
+        "Nombre la aplicación 'ExpressDelivery' y haga clic en Generar",
+        "Copie la contraseña generada y péguela en el campo de contraseña aquí"
+      ]
+    },
+    "icloud": {
+      "shortNote": "iCloud requiere una contraseña específica para la aplicación. Su contraseña habitual de Apple no funcionará aquí.",
+      "steps": [
+        "Inicie sesión en su Cuenta Apple en account.apple.com",
+        "En Inicio de sesión y seguridad, seleccione Contraseñas específicas de la aplicación",
+        "Haga clic en Generar una contraseña específica de la aplicación y nómbrela 'ExpressDelivery'",
+        "Copie la contraseña generada y péguela en el campo de contraseña aquí"
+      ]
+    },
+    "custom": {
+      "shortNote": "Introduzca los ajustes de IMAP y SMTP que le proporcione su proveedor de correo. La mayoría de los proveedores que aún admiten IMAP/SMTP con contraseña funcionarán aquí."
+    }
   }
 }

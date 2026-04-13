@@ -368,7 +368,8 @@
     "port": "Port",
     "optional": "(optionnel)",
     "showPassword": "Afficher le mot de passe",
-    "hidePassword": "Masquer le mot de passe"
+    "hidePassword": "Masquer le mot de passe",
+    "useCustomInstead": "Utiliser Autre / Personnalisé à la place"
   },
   "toast": {
     "scheduledSent": "E-mail planifié envoyé",
@@ -531,5 +532,59 @@
     "toolsTitle": "Outils disponibles",
     "noTools": "Aucun outil disponible",
     "toggleFailed": "Impossible de basculer le serveur MCP"
+  },
+  "providerHelp": {
+    "common": {
+      "showSteps": "Afficher les étapes",
+      "hideSteps": "Masquer les étapes",
+      "openHelpPage": "Ouvrir la page officielle",
+      "oauth2NotSupported": "La connexion OAuth2 n'est pas encore prise en charge par cette application.",
+      "useCustomInstead": "N'utilisez Autre / Personnalisé que si votre organisation autorise encore l'IMAP/SMTP par mot de passe."
+    },
+    "gmail": {
+      "shortNote": "Gmail accepte les mots de passe d'application pour les comptes personnels avec la validation en deux étapes activée. OAuth2 est la méthode préférée à long terme et est prévu pour une future mise à jour.",
+      "steps": [
+        "Connectez-vous à votre compte Google sur myaccount.google.com",
+        "Ouvrez Sécurité, puis activez la validation en deux étapes si ce n'est pas déjà fait",
+        "Sous Sécurité, ouvrez Mots de passe d'application",
+        "Générez un nouveau mot de passe d'application nommé « ExpressDelivery »",
+        "Copiez le mot de passe à 16 caractères et collez-le dans le champ mot de passe ici"
+      ]
+    },
+    "outlookPersonal": {
+      "warning": "Microsoft supprime le SMTP par mot de passe sur les comptes Outlook.com personnels en avril 2026. Les nouveaux comptes ne peuvent pas être ajoutés avec un mot de passe.",
+      "shortNote": "Les comptes Outlook.com personnels nécessitent une connexion OAuth2, qui n'est pas encore prise en charge par cette application.",
+      "comingSoonMessage": "Les nouveaux comptes Outlook.com ne peuvent pas encore être ajoutés. La connexion OAuth2 est prévue pour une future mise à jour. N'utilisez Autre / Personnalisé que si votre organisation autorise encore l'IMAP/SMTP par mot de passe."
+    },
+    "outlookBusiness": {
+      "shortNote": "Les comptes Microsoft 365 (professionnel ou scolaire) nécessitent OAuth2 / Authentification moderne, qui n'est pas encore prise en charge par cette application.",
+      "comingSoonMessage": "Les nouveaux comptes Microsoft 365 ne peuvent pas encore être ajoutés. La connexion OAuth2 est prévue pour une future mise à jour. N'utilisez Autre / Personnalisé que si votre organisation autorise encore l'IMAP/SMTP par mot de passe."
+    },
+    "outlookLegacy": {
+      "warning": "Les comptes Outlook nécessitent désormais une connexion OAuth2. Ce compte a été ajouté avant ce changement et pourrait cesser de fonctionner à partir du 30 avril 2026.",
+      "shortNote": "Ce compte Outlook existant utilise l'authentification de base. Vous pouvez toujours modifier ses paramètres, mais les nouveaux comptes Outlook doivent attendre la prise en charge OAuth2."
+    },
+    "yahoo": {
+      "shortNote": "Yahoo exige un mot de passe d'application généré. Votre mot de passe Yahoo habituel ne fonctionnera pas ici.",
+      "steps": [
+        "Connectez-vous à la page Sécurité du compte Yahoo sur login.yahoo.com/account/security",
+        "Activez la validation en deux étapes si ce n'est pas déjà fait",
+        "Sélectionnez « Générer un mot de passe d'application » (ou « Gérer les mots de passe d'application »)",
+        "Nommez l'application « ExpressDelivery » et cliquez sur Générer",
+        "Copiez le mot de passe généré et collez-le dans le champ mot de passe ici"
+      ]
+    },
+    "icloud": {
+      "shortNote": "iCloud exige un mot de passe spécifique à l'application. Votre mot de passe Apple habituel ne fonctionnera pas ici.",
+      "steps": [
+        "Connectez-vous à votre compte Apple sur account.apple.com",
+        "Dans Connexion et sécurité, sélectionnez Mots de passe spécifiques à l'application",
+        "Cliquez sur Générer un mot de passe spécifique à l'application et nommez-le « ExpressDelivery »",
+        "Copiez le mot de passe généré et collez-le dans le champ mot de passe ici"
+      ]
+    },
+    "custom": {
+      "shortNote": "Entrez les paramètres IMAP et SMTP fournis par votre fournisseur de messagerie. La plupart des fournisseurs qui prennent encore en charge l'IMAP/SMTP par mot de passe fonctionneront ici."
+    }
   }
 }

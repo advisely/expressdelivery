@@ -461,6 +461,19 @@
     box-sizing: border-box;
 }
 
+.ob-coming-soon-message {
+    width: 100%;
+    padding: 14px 16px;
+    margin: 8px 0 16px;
+    border-radius: 10px;
+    background: rgba(var(--color-accent), 0.06);
+    border: 1px solid rgba(var(--color-accent), 0.2);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    box-sizing: border-box;
+}
+
 .ob-password-wrap {
     position: relative;
 }

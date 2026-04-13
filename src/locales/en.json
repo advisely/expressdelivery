@@ -368,7 +368,8 @@
     "port": "Port",
     "optional": "(optional)",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "useCustomInstead": "Use Other / Custom instead"
   },
   "toast": {
     "scheduledSent": "Scheduled email sent successfully",
@@ -531,5 +532,59 @@
     "toolsTitle": "Available Tools",
     "noTools": "No tools available",
     "toggleFailed": "Failed to toggle MCP server"
+  },
+  "providerHelp": {
+    "common": {
+      "showSteps": "Show steps",
+      "hideSteps": "Hide steps",
+      "openHelpPage": "Open official page",
+      "oauth2NotSupported": "OAuth2 sign-in is not supported yet in this app.",
+      "useCustomInstead": "Use Other / Custom only if your organization still allows password-based IMAP/SMTP."
+    },
+    "gmail": {
+      "shortNote": "Gmail accepts App Passwords for personal accounts with 2-Step Verification enabled. OAuth2 sign-in is the preferred long-term path and is planned for a future update.",
+      "steps": [
+        "Sign in to your Google Account at myaccount.google.com",
+        "Open Security, then turn on 2-Step Verification if it is not already on",
+        "Under Security, open App passwords (or search for it)",
+        "Generate a new app password labeled 'ExpressDelivery'",
+        "Copy the 16-character password and paste it into the password field here"
+      ]
+    },
+    "outlookPersonal": {
+      "warning": "Microsoft is removing password-based SMTP on personal Outlook.com accounts in April 2026. New accounts cannot be added with a password.",
+      "shortNote": "Outlook.com personal accounts require OAuth2 sign-in, which this app does not support yet.",
+      "comingSoonMessage": "New Outlook.com accounts cannot be added yet. OAuth2 sign-in is planned for a future update. Use Other / Custom only if your organization still allows password-based IMAP/SMTP."
+    },
+    "outlookBusiness": {
+      "shortNote": "Microsoft 365 (Work/School) accounts require OAuth2 / Modern Auth, which this app does not support yet.",
+      "comingSoonMessage": "New Microsoft 365 accounts cannot be added yet. OAuth2 sign-in is planned for a future update. Use Other / Custom only if your organization still allows password-based IMAP/SMTP."
+    },
+    "outlookLegacy": {
+      "warning": "Outlook accounts now require OAuth2 sign-in. This account was added before that change and may stop working on or after April 30, 2026.",
+      "shortNote": "This is an existing Outlook account using Basic Authentication. You can still edit its settings, but new Outlook accounts must wait for OAuth2 support."
+    },
+    "yahoo": {
+      "shortNote": "Yahoo requires a generated app password. Your regular Yahoo account password will not work here.",
+      "steps": [
+        "Sign in to your Yahoo Account Security page at login.yahoo.com/account/security",
+        "Turn on 2-step verification if it is not already on",
+        "Select 'Generate app password' (or 'Manage app passwords')",
+        "Name the app 'ExpressDelivery' and click Generate",
+        "Copy the generated password and paste it into the password field here"
+      ]
+    },
+    "icloud": {
+      "shortNote": "iCloud requires an app-specific password. Your regular Apple Account password will not work here.",
+      "steps": [
+        "Sign in to your Apple Account at account.apple.com",
+        "In Sign-In and Security, select App-Specific Passwords",
+        "Click Generate an App-Specific Password and name it 'ExpressDelivery'",
+        "Copy the generated password and paste it into the password field here"
+      ]
+    },
+    "custom": {
+      "shortNote": "Enter the IMAP and SMTP settings provided by your email host. Most providers that still support password-based IMAP/SMTP will work here."
+    }
   }
 }
