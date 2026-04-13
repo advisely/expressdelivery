@@ -9,6 +9,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.16.1] - 2026-04-13
+
+### Added
+- `role="status"` and `aria-live="polite"` on the OAuth2-gated Outlook disabled state in both `OnboardingScreen` and `SettingsModal` so assistive tech announces the disabled state when it appears
+- `providerHelp.common.panelAriaLabel` i18n key in all 4 locales (en/fr/es/de) — the `ProviderHelpPanel` aria-label now routes through `t()` with `{{provider}}` interpolation instead of a hardcoded English template literal
+- 5 new tests: explicit `aria-expanded` assertions on the `ProviderHelpPanel` disclosure button, pivot-to-server test locking in the `selectProvider + setStep('server')` batching when "Use Custom Instead" is clicked, aria-label i18n routing test, CR/LF/NUL stripping test, and length-cap test on the new `sanitizeForLog` helper
+
+### Fixed
+- Log injection defense in `electron/shellOpen.ts`: new `sanitizeForLog()` helper strips CR/LF/NUL and caps length before interpolating untrusted values into `logDebug` output, matching the existing `log:error` IPC pattern (CWE-117)
+- `SettingsModal.selectCustomFallback` defensive `if (custom)` guard now documented as unreachable per the silent-failure rule
+- Three remaining ASCII `'ExpressDelivery'` quotes in Spanish locale replaced with typographic `«ExpressDelivery»` for consistency with Spanish conventions
+
+### Security
+- Dependency audit: all 13 transitive vulnerabilities (6 high, 5 moderate, 2 low) resolved to 0 via `npm audit fix` (no `--force`). Every vulnerable package had a patched release within existing semver ranges; only `package-lock.json` changed. Notable upgrades:
+  - `electron` 41.0.3 → 41.2.0 — use-after-free in offscreen shared texture, `clipboard.readImage()` crash on malformed data, named `window.open` scope bypass. NODE_MODULE_VERSION 145 preserved so `better-sqlite3` did not require an ABI rebuild
+  - `nodemailer` 8.0.1 → 8.0.5 — SMTP command injection via `envelope.size` and CRLF in EHLO/HELO transport name (the existing `stripCRLF` in `electron/utils.ts` was already defense-in-depth)
+  - `vite` 7.3.1 → 7.3.2 — path traversal in optimized deps `.map` handling, `server.fs.deny` bypass via queries, arbitrary file read via dev-server WebSocket (dev-server only, not bundled in production)
+  - `hono` 4.12.8 → 4.12.12 and `@hono/node-server` 1.19.11 → 1.19.14 — `serveStatic` middleware bypass via repeated slashes (MCP server does not serve static files)
+  - `@xmldom/xmldom` 0.8.11 → 0.8.12 — XML injection via unsafe CDATA serialization
+  - `path-to-regexp` 8.3.0 → 8.4.2 — ReDoS via sequential optional groups and multiple wildcards
+  - `picomatch` 4.0.3 → 4.0.4 — method injection in POSIX character classes, ReDoS via extglob quantifiers
+  - `imapflow` 1.2.10 → 1.3.1 and `mailparser` 3.9.3 → 3.9.8 (via nodemailer)
+  - `lodash`, `flatted`, `brace-expansion` patched for prototype pollution and DoS
+
+---
+
+## [1.16.0] - 2026-04-12
+
+Phase 1 — Provider auth guidance overhaul. Replaces the outdated password-only account setup with provider-specific guidance for the reality of April 2026, anticipating Microsoft's removal of Basic Auth SMTP on personal Outlook.com accounts by April 30, 2026.
+
+### Added
+- New reusable `ProviderHelpPanel` component rendered in both `OnboardingScreen` and `SettingsModal` (add + edit flows), displaying a short note describing the auth model, a collapsible ordered list of step-by-step instructions, and an "Open official page" button that links to the provider's own documentation
+- `shell:open-external` IPC handler in `electron/shellOpen.ts` backed by an exact-URL allowlist (5 entries) so the "Open official page" button can only open pre-approved provider help pages — not arbitrary URLs
+- `ProviderPreset` interface extended with new fields: `authModel` (`password-supported` | `oauth2-required` | `password` | `legacy`), `shortNoteKey`, `stepsKey`, `helpUrl`, `warningKey`, `comingSoonMessageKey`
+- `getPresetForAccount()` resolver that maps stored `provider` column values (including legacy `'outlook'`) to the correct preset at read time, enabling the split without a database migration
+- Gmail, Yahoo, and iCloud each ship with 4-5 numbered app-password setup steps in all 4 locales (en/fr/es/de)
+- New `providerHelp.*` i18n namespace with ~19 leaf keys in each of the 4 locales (+54 lines per locale)
+- Complete test coverage for the new surface: `providerPresets.test.ts` (13 tests), `shellOpen.test.ts` (6 tests), `ProviderHelpPanel.test.tsx` (9 tests), plus integration tests added to `OnboardingScreen.test.tsx` (+3) and `SettingsModal.test.tsx` (+4). Baseline grew from 779 tests across 32 files to 814 tests across 35 files
+
+### Changed
+- The old single `outlook` preset split into `outlook-personal` (`smtp-mail.outlook.com:587`) and `outlook-business` (`smtp.office365.com:587`), both rendering a disabled "coming soon" state on add flows with a "Use Other / Custom instead" escape hatch because OAuth2 sign-in is not yet implemented
+- `SettingsModal` edit flow introduces `editingOriginalProvider` state so that editing an account with stored `provider='outlook'` preserves the original column value through save, preventing unnecessary database churn and keeping the account recognizable by future provider-aware code paths
+- `providerIcons.tsx` extended with icon map entries for `outlook-personal`, `outlook-business`, and `outlook-legacy` so all three preset IDs render the Outlook brand logo in the UI
+- Legacy accounts with stored `provider='outlook'` now map to an invisible `OUTLOOK_LEGACY_PRESET` that renders an amber warning banner ("may stop working on or after April 30, 2026") in `SettingsModal`, while remaining fully editable
+
+### Security
+- `shell:open-external` IPC channel uses an exact-match allowlist (`ALLOWED_HELP_URLS: ReadonlySet<string>`) keyed by the 5 provider help URLs declared in `providerPresets.ts`. Any URL not matching exactly — including URLs with trailing whitespace, different schemes, or path variations — is rejected before reaching `shell.openExternal`
+
+### Notes
+- No database migration was required — all preset changes are resolver-based (`getPresetForAccount`)
+- No OAuth2 implementation — Phase 2 (future release) will add OAuth2 for Gmail and Microsoft while keeping app-password flows for Yahoo and iCloud
+- Quality pipeline green: ESLint `--max-warnings 0`, `tsc --noEmit` clean, 814 tests across 35 files, Semgrep SAST zero findings on Phase 1 files, Windows build produced `release/1.16.0/win-unpacked/ExpressDelivery.exe`
+
+---
+
 ## [1.15.9] - 2026-04-05
 
 ### Fixed
