@@ -57,6 +57,9 @@ const CustomMailIcon: FC<IconProps> = ({ size = 24 }) => (
 export const PROVIDER_ICONS: Record<string, FC<IconProps>> = {
     gmail: GmailIcon,
     outlook: OutlookIcon,
+    'outlook-personal': OutlookIcon,
+    'outlook-business': OutlookIcon,
+    'outlook-legacy': OutlookIcon,
     yahoo: YahooIcon,
     icloud: ICloudIcon,
     custom: CustomMailIcon,
