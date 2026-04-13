@@ -43,6 +43,9 @@ export interface EmailFull extends EmailSummary {
     spam_score?: number | null
 }
 
+export type AuthType = 'password' | 'oauth'
+export type AuthState = 'ok' | 'recommended_reauth' | 'reauth_required'
+
 export interface Account {
     id: string
     email: string
@@ -54,6 +57,8 @@ export interface Account {
     smtp_port: number | null
     signature_html: string | null
     created_at?: string
+    auth_type?: AuthType
+    auth_state?: AuthState
 }
 
 export interface Folder {
