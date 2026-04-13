@@ -587,5 +587,64 @@
     "custom": {
       "shortNote": "Geben Sie die IMAP- und SMTP-Einstellungen Ihres E-Mail-Anbieters ein. Die meisten Anbieter, die passwortbasiertes IMAP/SMTP noch unterstützen, funktionieren hier."
     }
+  },
+  "providerPresets": {
+    "outlookPersonal": {
+      "oauthSteps": [
+        "Klicken Sie oben auf „Mit Microsoft anmelden“",
+        "Ein sicheres Browserfenster wird auf accounts.microsoft.com geöffnet",
+        "Melden Sie sich mit Ihrem persönlichen Outlook.com- oder Hotmail-Konto an",
+        "Überprüfen Sie die angeforderten Berechtigungen und klicken Sie auf Akzeptieren",
+        "Der Browser kehrt automatisch zu ExpressDelivery zurück"
+      ]
+    },
+    "outlookBusiness": {
+      "oauthSteps": [
+        "Klicken Sie oben auf „Mit Microsoft anmelden“",
+        "Ein sicheres Browserfenster wird auf login.microsoftonline.com geöffnet",
+        "Melden Sie sich mit Ihrem Geschäfts- oder Schulkonto an",
+        "Falls Ihr Tenant eine Administratorzustimmung erfordert, bitten Sie Ihren IT-Administrator, ExpressDelivery einmal für die gesamte Organisation zu genehmigen",
+        "Akzeptieren Sie die angeforderten Berechtigungen, um die Anmeldung abzuschließen"
+      ]
+    }
+  },
+  "oauth": {
+    "button": {
+      "google": "Mit Google anmelden",
+      "microsoft": "Mit Microsoft anmelden",
+      "signingIn": "Anmeldung läuft…"
+    },
+    "divider": {
+      "orUseAppPassword": "oder ein App-Passwort verwenden"
+    },
+    "mismatch": {
+      "personalSelectedBusinessDetected": "Sie haben Outlook.com (Privat) ausgewählt, sich aber mit einem Geschäfts- oder Schulkonto angemeldet. Trotzdem fortfahren oder abbrechen und stattdessen Microsoft 365 (Geschäft/Schule) wählen.",
+      "businessSelectedPersonalDetected": "Sie haben Microsoft 365 (Geschäft/Schule) ausgewählt, sich aber mit einem persönlichen Outlook.com-Konto angemeldet. Trotzdem fortfahren oder abbrechen und stattdessen Outlook.com (Privat) wählen.",
+      "cancel": "Abbrechen",
+      "proceedAnyway": "Trotzdem fortfahren"
+    },
+    "reauth": {
+      "bannerTitle": "Erneut anmelden, damit dieses Konto weiterhin funktioniert",
+      "legacyOutlookWarning": "Microsoft entfernt den passwortbasierten Zugriff auf Outlook.com. Melden Sie sich erneut mit Ihrem Microsoft-Konto an, um dieses Konto zu modernisieren, bevor es nicht mehr funktioniert.",
+      "cta": "Erneut anmelden",
+      "failed": "Anmeldung fehlgeschlagen",
+      "badge": {
+        "needed": "Anmeldung erforderlich",
+        "recommended": "Erneute Anmeldung empfohlen"
+      },
+      "contextMenuItem": "Erneut anmelden"
+    },
+    "edit": {
+      "signedInVia": "Angemeldet über {{provider}}"
+    },
+    "providerHelp": {
+      "bannerTitle": "Schnellere Anmeldung verfügbar",
+      "gmailOAuthNote": "Klicken Sie oben auf „Mit Google anmelden“ für die schnellste Einrichtung — kein App-Passwort erforderlich.",
+      "outlookPersonalOAuthNote": "Klicken Sie oben auf „Mit Microsoft anmelden“ für die schnellste Einrichtung — kein App-Passwort erforderlich.",
+      "outlookBusinessOAuthNote": "Klicken Sie oben auf „Mit Microsoft anmelden“ für die schnellste Einrichtung — kein App-Passwort erforderlich.",
+      "outlookPersonalShortNote": "Persönliche Outlook.com-Konten erfordern jetzt eine Microsoft-Anmeldung. Klicken Sie oben auf die Schaltfläche, um zu beginnen.",
+      "outlookBusinessShortNote": "Microsoft 365-Konten (Geschäft und Schule) verwenden die Microsoft-Anmeldung. Klicken Sie oben auf die Schaltfläche, um zu beginnen.",
+      "legacyReauthWarning": "Microsoft entfernt passwortbasiertes SMTP. Melden Sie sich erneut an, um Ihr Konto zu modernisieren, bevor es nicht mehr funktioniert."
+    }
   }
 }

@@ -587,5 +587,64 @@
     "custom": {
       "shortNote": "Entrez les paramètres IMAP et SMTP fournis par votre fournisseur de messagerie. La plupart des fournisseurs qui prennent encore en charge l'IMAP/SMTP par mot de passe fonctionneront ici."
     }
+  },
+  "providerPresets": {
+    "outlookPersonal": {
+      "oauthSteps": [
+        "Cliquez sur « Se connecter avec Microsoft » ci-dessus",
+        "Une fenêtre de navigateur sécurisée s'ouvrira sur accounts.microsoft.com",
+        "Connectez-vous avec votre compte personnel Outlook.com ou Hotmail",
+        "Examinez les autorisations demandées et cliquez sur Accepter",
+        "Le navigateur reviendra automatiquement à ExpressDelivery"
+      ]
+    },
+    "outlookBusiness": {
+      "oauthSteps": [
+        "Cliquez sur « Se connecter avec Microsoft » ci-dessus",
+        "Une fenêtre de navigateur sécurisée s'ouvrira sur login.microsoftonline.com",
+        "Connectez-vous avec votre compte professionnel ou scolaire",
+        "Si votre tenant exige le consentement de l'administrateur, demandez à votre administrateur informatique d'approuver ExpressDelivery une fois pour toute l'organisation",
+        "Acceptez les autorisations demandées pour terminer la connexion"
+      ]
+    }
+  },
+  "oauth": {
+    "button": {
+      "google": "Se connecter avec Google",
+      "microsoft": "Se connecter avec Microsoft",
+      "signingIn": "Connexion en cours…"
+    },
+    "divider": {
+      "orUseAppPassword": "ou utiliser un mot de passe d'application"
+    },
+    "mismatch": {
+      "personalSelectedBusinessDetected": "Vous avez sélectionné Outlook.com (Personnel) mais vous vous êtes connecté avec un compte professionnel ou scolaire. Continuez quand même, ou annulez et choisissez plutôt Microsoft 365 (Travail/École).",
+      "businessSelectedPersonalDetected": "Vous avez sélectionné Microsoft 365 (Travail/École) mais vous vous êtes connecté avec un compte personnel Outlook.com. Continuez quand même, ou annulez et choisissez plutôt Outlook.com (Personnel).",
+      "cancel": "Annuler",
+      "proceedAnyway": "Continuer quand même"
+    },
+    "reauth": {
+      "bannerTitle": "Reconnectez-vous pour que ce compte continue de fonctionner",
+      "legacyOutlookWarning": "Microsoft supprime l'accès par mot de passe à Outlook.com. Reconnectez-vous avec votre compte Microsoft pour moderniser ce compte avant qu'il ne cesse de fonctionner.",
+      "cta": "Se reconnecter",
+      "failed": "Échec de la connexion",
+      "badge": {
+        "needed": "Connexion requise",
+        "recommended": "Reconnexion recommandée"
+      },
+      "contextMenuItem": "Se reconnecter"
+    },
+    "edit": {
+      "signedInVia": "Connecté via {{provider}}"
+    },
+    "providerHelp": {
+      "bannerTitle": "Connexion plus rapide disponible",
+      "gmailOAuthNote": "Cliquez sur « Se connecter avec Google » ci-dessus pour une configuration plus rapide — aucun mot de passe d'application requis.",
+      "outlookPersonalOAuthNote": "Cliquez sur « Se connecter avec Microsoft » ci-dessus pour une configuration plus rapide — aucun mot de passe d'application requis.",
+      "outlookBusinessOAuthNote": "Cliquez sur « Se connecter avec Microsoft » ci-dessus pour une configuration plus rapide — aucun mot de passe d'application requis.",
+      "outlookPersonalShortNote": "Les comptes personnels Outlook.com nécessitent désormais une connexion Microsoft. Cliquez sur le bouton ci-dessus pour commencer.",
+      "outlookBusinessShortNote": "Les comptes Microsoft 365 (professionnels et scolaires) utilisent la connexion Microsoft. Cliquez sur le bouton ci-dessus pour commencer.",
+      "legacyReauthWarning": "Microsoft supprime SMTP par mot de passe. Reconnectez-vous pour moderniser votre compte avant qu'il ne cesse de fonctionner."
+    }
   }
 }

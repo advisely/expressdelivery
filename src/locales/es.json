@@ -587,5 +587,64 @@
     "custom": {
       "shortNote": "Introduzca los ajustes de IMAP y SMTP que le proporcione su proveedor de correo. La mayoría de los proveedores que aún admiten IMAP/SMTP con contraseña funcionarán aquí."
     }
+  },
+  "providerPresets": {
+    "outlookPersonal": {
+      "oauthSteps": [
+        "Haga clic en «Iniciar sesión con Microsoft» arriba",
+        "Se abrirá una ventana segura del navegador en accounts.microsoft.com",
+        "Inicie sesión con su cuenta personal de Outlook.com o Hotmail",
+        "Revise los permisos solicitados y haga clic en Aceptar",
+        "El navegador volverá automáticamente a «ExpressDelivery»"
+      ]
+    },
+    "outlookBusiness": {
+      "oauthSteps": [
+        "Haga clic en «Iniciar sesión con Microsoft» arriba",
+        "Se abrirá una ventana segura del navegador en login.microsoftonline.com",
+        "Inicie sesión con su cuenta profesional o educativa",
+        "Si su tenant requiere consentimiento del administrador, pida a su administrador de TI que apruebe «ExpressDelivery» una vez para toda la organización",
+        "Acepte los permisos solicitados para completar el inicio de sesión"
+      ]
+    }
+  },
+  "oauth": {
+    "button": {
+      "google": "Iniciar sesión con Google",
+      "microsoft": "Iniciar sesión con Microsoft",
+      "signingIn": "Iniciando sesión…"
+    },
+    "divider": {
+      "orUseAppPassword": "o use una contraseña de aplicación"
+    },
+    "mismatch": {
+      "personalSelectedBusinessDetected": "Seleccionó Outlook.com (Personal) pero inició sesión con una cuenta profesional o educativa. Continúe de todas formas o cancele y elija Microsoft 365 (Trabajo/Escuela) en su lugar.",
+      "businessSelectedPersonalDetected": "Seleccionó Microsoft 365 (Trabajo/Escuela) pero inició sesión con una cuenta personal de Outlook.com. Continúe de todas formas o cancele y elija Outlook.com (Personal) en su lugar.",
+      "cancel": "Cancelar",
+      "proceedAnyway": "Continuar de todas formas"
+    },
+    "reauth": {
+      "bannerTitle": "Inicie sesión de nuevo para mantener esta cuenta operativa",
+      "legacyOutlookWarning": "Microsoft está eliminando el acceso por contraseña a Outlook.com. Inicie sesión de nuevo con su cuenta de Microsoft para modernizar esta cuenta antes de que deje de funcionar.",
+      "cta": "Iniciar sesión de nuevo",
+      "failed": "Error al iniciar sesión",
+      "badge": {
+        "needed": "Inicio de sesión necesario",
+        "recommended": "Se recomienda iniciar sesión de nuevo"
+      },
+      "contextMenuItem": "Iniciar sesión de nuevo"
+    },
+    "edit": {
+      "signedInVia": "Conectado mediante {{provider}}"
+    },
+    "providerHelp": {
+      "bannerTitle": "Inicio de sesión más rápido disponible",
+      "gmailOAuthNote": "Haga clic en «Iniciar sesión con Google» arriba para una configuración más rápida — sin necesidad de contraseña de aplicación.",
+      "outlookPersonalOAuthNote": "Haga clic en «Iniciar sesión con Microsoft» arriba para una configuración más rápida — sin necesidad de contraseña de aplicación.",
+      "outlookBusinessOAuthNote": "Haga clic en «Iniciar sesión con Microsoft» arriba para una configuración más rápida — sin necesidad de contraseña de aplicación.",
+      "outlookPersonalShortNote": "Las cuentas personales de Outlook.com ahora requieren inicio de sesión con Microsoft. Haga clic en el botón de arriba para comenzar.",
+      "outlookBusinessShortNote": "Las cuentas de Microsoft 365 (profesionales y educativas) usan el inicio de sesión con Microsoft. Haga clic en el botón de arriba para comenzar.",
+      "legacyReauthWarning": "Microsoft está eliminando el SMTP basado en contraseñas. Inicie sesión de nuevo para modernizar su cuenta antes de que deje de funcionar."
+    }
   }
 }

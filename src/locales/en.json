@@ -587,5 +587,64 @@
     "custom": {
       "shortNote": "Enter the IMAP and SMTP settings provided by your email host. Most providers that still support password-based IMAP/SMTP will work here."
     }
+  },
+  "providerPresets": {
+    "outlookPersonal": {
+      "oauthSteps": [
+        "Click 'Sign in with Microsoft' above",
+        "A secure browser window will open on accounts.microsoft.com",
+        "Sign in with your personal Outlook.com or Hotmail account",
+        "Review the requested permissions and click Accept",
+        "The browser will redirect back to ExpressDelivery automatically"
+      ]
+    },
+    "outlookBusiness": {
+      "oauthSteps": [
+        "Click 'Sign in with Microsoft' above",
+        "A secure browser window will open on login.microsoftonline.com",
+        "Sign in with your work or school account",
+        "If your tenant requires admin consent, ask your IT administrator to approve ExpressDelivery once for the whole organization",
+        "Accept the requested permissions to complete sign-in"
+      ]
+    }
+  },
+  "oauth": {
+    "button": {
+      "google": "Sign in with Google",
+      "microsoft": "Sign in with Microsoft",
+      "signingIn": "Signing in…"
+    },
+    "divider": {
+      "orUseAppPassword": "or use an app password"
+    },
+    "mismatch": {
+      "personalSelectedBusinessDetected": "You selected Outlook.com (Personal) but signed in with a work or school account. Continue anyway, or cancel and pick Microsoft 365 (Work/School) instead.",
+      "businessSelectedPersonalDetected": "You selected Microsoft 365 (Work/School) but signed in with a personal Outlook.com account. Continue anyway, or cancel and pick Outlook.com (Personal) instead.",
+      "cancel": "Cancel",
+      "proceedAnyway": "Proceed anyway"
+    },
+    "reauth": {
+      "bannerTitle": "Sign in again to keep this account working",
+      "legacyOutlookWarning": "Microsoft is removing password-based access to Outlook.com. Sign in again with your Microsoft account to modernize this account before it stops working.",
+      "cta": "Sign in again",
+      "failed": "Sign-in failed",
+      "badge": {
+        "needed": "Sign-in required",
+        "recommended": "Sign in again recommended"
+      },
+      "contextMenuItem": "Sign in again"
+    },
+    "edit": {
+      "signedInVia": "Signed in via {{provider}}"
+    },
+    "providerHelp": {
+      "bannerTitle": "Faster sign-in available",
+      "gmailOAuthNote": "Click 'Sign in with Google' above for fastest setup — no app password needed.",
+      "outlookPersonalOAuthNote": "Click 'Sign in with Microsoft' above for fastest setup — no app password needed.",
+      "outlookBusinessOAuthNote": "Click 'Sign in with Microsoft' above for fastest setup — no app password needed.",
+      "outlookPersonalShortNote": "Personal Outlook.com accounts now require Microsoft sign-in. Click the button above to get started.",
+      "outlookBusinessShortNote": "Microsoft 365 work and school accounts use Microsoft sign-in. Click the button above to get started.",
+      "legacyReauthWarning": "Microsoft is removing password-based SMTP. Sign in again to modernize your account before it stops working."
+    }
   }
 }
