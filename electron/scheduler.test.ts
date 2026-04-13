@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mocks — vi.hoisted() ensures these are available inside vi.mock factories
 // ---------------------------------------------------------------------------
 
-const { mockDbAll, mockDbGet, mockDbRun, mockTransaction, mockSendEmail } = vi.hoisted(() => ({
+const { mockDbAll, mockDbGet, mockDbRun, mockTransaction, mockSendMail } = vi.hoisted(() => ({
     mockDbAll: vi.fn().mockReturnValue([]),
     mockDbGet: vi.fn().mockReturnValue(null),
     mockDbRun: vi.fn().mockReturnValue({ changes: 1 }),
@@ -12,7 +12,11 @@ const { mockDbAll, mockDbGet, mockDbRun, mockTransaction, mockSendEmail } = vi.h
         const wrapper = () => fn();
         return wrapper;
     }),
-    mockSendEmail: vi.fn().mockResolvedValue({ success: true, messageId: '<test@smtp>' }),
+    mockSendMail: vi.fn().mockResolvedValue({
+        messageId: '<test@smtp>',
+        accepted: ['to@test.com'],
+        rejected: [],
+    }),
 }));
 
 vi.mock('./db.js', () => ({
@@ -26,8 +30,8 @@ vi.mock('./db.js', () => ({
     })),
 }));
 
-vi.mock('./smtp.js', () => ({
-    smtpEngine: { sendEmail: mockSendEmail },
+vi.mock('./sendMail.js', () => ({
+    sendMail: mockSendMail,
 }));
 
 vi.mock('./logger.js', () => ({
@@ -69,7 +73,11 @@ describe('SchedulerEngine', () => {
         mockDbAll.mockReturnValue([]);
         mockDbGet.mockReturnValue(null);
         mockDbRun.mockReturnValue({ changes: 1 });
-        mockSendEmail.mockResolvedValue({ success: true, messageId: '<test@smtp>' });
+        mockSendMail.mockResolvedValue({
+            messageId: '<test@smtp>',
+            accepted: ['to@test.com'],
+            rejected: [],
+        });
         scheduler = new SchedulerEngine();
     });
 
@@ -219,7 +227,7 @@ describe('SchedulerEngine', () => {
             retry_count: 0,
         };
 
-        it('sends due email via smtpEngine and marks as sent', async () => {
+        it('sends due email via sendMail dispatcher and marks as sent', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
 
@@ -230,10 +238,15 @@ describe('SchedulerEngine', () => {
 
             await startAndTick(scheduler);
 
-            expect(mockSendEmail).toHaveBeenCalledWith(
-                'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
-                undefined, undefined, undefined
-            );
+            expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
+                accountId: 'a1',
+                to: ['to@test.com'],
+                subject: 'Test Subject',
+                html: '<p>Hello</p>',
+                cc: undefined,
+                bcc: undefined,
+                attachments: undefined,
+            }));
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', true);
         });
 
@@ -249,17 +262,22 @@ describe('SchedulerEngine', () => {
 
             await startAndTick(scheduler);
 
-            expect(mockSendEmail).toHaveBeenCalledWith(
-                'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
-                ['cc1@t.com', 'cc2@t.com'], ['bcc@t.com'], undefined
-            );
+            expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
+                accountId: 'a1',
+                to: ['to@test.com'],
+                cc: ['cc1@t.com', 'cc2@t.com'],
+                bcc: ['bcc@t.com'],
+            }));
         });
 
-        it('parses attachments_json correctly', async () => {
+        it('parses attachments_json correctly and converts base64 to Buffer', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
 
-            const att = [{ filename: 'f.pdf', content: 'base64data' }];
+            // scheduler reads SendAttachment[] (base64 content strings) from JSON
+            // and passes them to sendMail as Buffer-wrapped attachments.
+            const rawContent = 'base64data';
+            const att = [{ filename: 'f.pdf', content: rawContent, contentType: 'application/pdf' }];
             const rowWithAtt = { ...scheduledRow, attachments_json: JSON.stringify(att) };
             mockDbAll
                 .mockReturnValueOnce([])
@@ -268,10 +286,14 @@ describe('SchedulerEngine', () => {
 
             await startAndTick(scheduler);
 
-            expect(mockSendEmail).toHaveBeenCalledWith(
-                'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
-                undefined, undefined, att
-            );
+            const call = mockSendMail.mock.calls[0][0] as {
+                attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
+            };
+            expect(call.attachments).toHaveLength(1);
+            expect(call.attachments![0].filename).toBe('f.pdf');
+            expect(call.attachments![0].contentType).toBe('application/pdf');
+            expect(Buffer.isBuffer(call.attachments![0].content)).toBe(true);
+            expect(call.attachments![0].content.toString()).toBe(Buffer.from(rawContent, 'base64').toString());
         });
 
         it('handles malformed attachments_json gracefully', async () => {
@@ -287,10 +309,11 @@ describe('SchedulerEngine', () => {
             await startAndTick(scheduler);
 
             // Still sends (attachments = undefined)
-            expect(mockSendEmail).toHaveBeenCalledWith(
-                'a1', ['to@test.com'], 'Test Subject', '<p>Hello</p>',
-                undefined, undefined, undefined
-            );
+            expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
+                accountId: 'a1',
+                to: ['to@test.com'],
+                attachments: undefined,
+            }));
         });
 
         it('deletes associated draft on success', async () => {
@@ -310,10 +333,10 @@ describe('SchedulerEngine', () => {
             expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', true);
         });
 
-        it('calls handleSendFailure when SMTP returns false', async () => {
+        it('calls handleSendFailure when sendMail returns no accepted recipients', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockResolvedValue({ success: false });
+            mockSendMail.mockResolvedValue({ accepted: [], rejected: ['to@test.com'] });
 
             const rowHighRetry = { ...scheduledRow, retry_count: 2 }; // MAX_RETRIES = 3, so retry_count+1 = 3 >= 3
             mockDbAll
@@ -323,13 +346,13 @@ describe('SchedulerEngine', () => {
 
             await startAndTick(scheduler);
 
-            expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'SMTP send returned false');
+            expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'send returned no accepted recipients');
         });
 
-        it('calls handleSendFailure when SMTP throws', async () => {
+        it('calls handleSendFailure when sendMail throws', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockRejectedValue(new Error('Connection refused'));
+            mockSendMail.mockRejectedValue(new Error('Connection refused'));
 
             const rowHighRetry = { ...scheduledRow, retry_count: 2 };
             mockDbAll
@@ -347,9 +370,9 @@ describe('SchedulerEngine', () => {
             scheduler.setCallbacks(cbs);
 
             const order: string[] = [];
-            mockSendEmail.mockImplementation(async (_a: string, to: string[]) => {
-                order.push(to[0]);
-                return true;
+            mockSendMail.mockImplementation(async (params: { to: string[] }) => {
+                order.push(params.to[0]);
+                return { accepted: params.to, rejected: [], messageId: '<x>' };
             });
 
             const row1 = { ...scheduledRow, id: 'sch1', to_email: 'first@test.com' };
@@ -366,7 +389,7 @@ describe('SchedulerEngine', () => {
 
         it('is a no-op when no scheduled sends are due', async () => {
             await startAndTick(scheduler);
-            expect(mockSendEmail).not.toHaveBeenCalled();
+            expect(mockSendMail).not.toHaveBeenCalled();
         });
     });
 
@@ -384,7 +407,7 @@ describe('SchedulerEngine', () => {
         it('resets to pending with incremented retry when under MAX_RETRIES', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockResolvedValue({ success: false });
+            mockSendMail.mockResolvedValue({ accepted: [], rejected: ['to@t.com'] });
 
             // retry_count = 0, so retry_count + 1 = 1 < 3 → stays pending
             mockDbAll
@@ -401,7 +424,7 @@ describe('SchedulerEngine', () => {
         it('marks as failed at MAX_RETRIES and calls callback', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockResolvedValue({ success: false });
+            mockSendMail.mockResolvedValue({ accepted: [], rejected: ['to@t.com'] });
 
             // retry_count = 2, so retry_count + 1 = 3 >= 3 → permanent failure
             mockDbAll
@@ -411,13 +434,13 @@ describe('SchedulerEngine', () => {
 
             await startAndTick(scheduler);
 
-            expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'SMTP send returned false');
+            expect(cbs.onScheduledSendResult).toHaveBeenCalledWith('sch1', false, 'send returned no accepted recipients');
         });
 
         it('stores error message on permanent failure', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockRejectedValue(new Error('Auth failed'));
+            mockSendMail.mockRejectedValue(new Error('Auth failed'));
 
             mockDbAll
                 .mockReturnValueOnce([])
@@ -432,7 +455,7 @@ describe('SchedulerEngine', () => {
         it('increments retry count for non-Error throws', async () => {
             const cbs = createCallbacks();
             scheduler.setCallbacks(cbs);
-            mockSendEmail.mockRejectedValue('string error');
+            mockSendMail.mockRejectedValue('string error');
 
             mockDbAll
                 .mockReturnValueOnce([])

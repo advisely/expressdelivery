@@ -50,7 +50,8 @@ app.on('child-process-gone', (_event, details) => {
 import { initDatabase, getDatabase, closeDatabase } from './db.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
-import { smtpEngine } from './smtp.js'
+import { sendMail } from './sendMail.js'
+import type { SendMailParams } from './sendMail.js'
 import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query, stripCRLF } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
@@ -931,12 +932,21 @@ function registerIpcHandlers() {
       return { filename: sanitizedName, content: att.content, contentType: getMimeType(sanitizedName) };
     });
 
-    const sendResult = await smtpEngine.sendEmail(
-      params.accountId, sanitizedTo, stripCRLF(params.subject), params.html,
-      sanitizeList(params.cc), sanitizeList(params.bcc),
-      attachments
-    );
-    const success = sendResult.success;
+    const sendParams: SendMailParams = {
+      accountId: params.accountId,
+      to: sanitizedTo,
+      subject: stripCRLF(params.subject),
+      html: params.html,
+      cc: sanitizeList(params.cc),
+      bcc: sanitizeList(params.bcc),
+      attachments: attachments?.map(att => ({
+        filename: att.filename,
+        content: Buffer.from(att.content, 'base64'),
+        contentType: att.contentType,
+      })),
+    };
+    const sendResult = await sendMail(sendParams);
+    const success = sendResult.accepted.length > 0;
     if (success) {
       // Save a copy to the Sent folder via IMAP APPEND
       const account = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(params.accountId) as { email: string; display_name: string | null } | undefined;
