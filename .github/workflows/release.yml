@@ -29,7 +29,44 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # Phase 2 OAuth2: refuse to build a release without the OAuth client
+      # IDs/secrets — without them the OAuth sign-in flows for Gmail and
+      # Microsoft will compile but fail at runtime with an opaque error.
+      # This step fails the workflow EARLY so the failure is loud, not silent.
+      - name: Verify OAuth secrets are present
+        shell: bash
+        env:
+          OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
+        run: |
+          missing=0
+          if [ -z "$OAUTH_GOOGLE_CLIENT_ID" ]; then
+            echo "::error::OAUTH_GOOGLE_CLIENT_ID secret is missing"
+            missing=1
+          fi
+          if [ -z "$OAUTH_GOOGLE_CLIENT_SECRET" ]; then
+            echo "::error::OAUTH_GOOGLE_CLIENT_SECRET secret is missing"
+            missing=1
+          fi
+          if [ -z "$OAUTH_MICROSOFT_CLIENT_ID" ]; then
+            echo "::error::OAUTH_MICROSOFT_CLIENT_ID secret is missing"
+            missing=1
+          fi
+          if [ "$missing" -eq 1 ]; then
+            echo "::error::One or more required OAuth secrets are missing — refusing to build a release without OAuth credentials. Configure them in repository Settings → Secrets and variables → Actions before retrying."
+            exit 1
+          fi
+          echo "All OAuth secrets present."
+
       - name: Build Electron app
+        env:
+          # Phase 2 OAuth2: Vite inlines VITE_* env vars at build time.
+          # These three are read by electron/oauth/clientConfig.ts via import.meta.env
+          # and are required for the Gmail + Microsoft sign-in flows to work.
+          VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
         run: |
           npx tsc
           npx vite build
@@ -53,6 +90,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # OAuth secrets re-injected for the package step in case any
+          # post-build hook re-runs vite (defense in depth).
+          VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
 
       - name: Verify code signature
         if: env.CSC_LINK != ''
@@ -88,7 +130,38 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # Phase 2 OAuth2: same secret pre-flight check as the Windows job.
+      - name: Verify OAuth secrets are present
+        shell: bash
+        env:
+          OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
+        run: |
+          missing=0
+          if [ -z "$OAUTH_GOOGLE_CLIENT_ID" ]; then
+            echo "::error::OAUTH_GOOGLE_CLIENT_ID secret is missing"
+            missing=1
+          fi
+          if [ -z "$OAUTH_GOOGLE_CLIENT_SECRET" ]; then
+            echo "::error::OAUTH_GOOGLE_CLIENT_SECRET secret is missing"
+            missing=1
+          fi
+          if [ -z "$OAUTH_MICROSOFT_CLIENT_ID" ]; then
+            echo "::error::OAUTH_MICROSOFT_CLIENT_ID secret is missing"
+            missing=1
+          fi
+          if [ "$missing" -eq 1 ]; then
+            echo "::error::One or more required OAuth secrets are missing — refusing to build a release without OAuth credentials. Configure them in repository Settings → Secrets and variables → Actions before retrying."
+            exit 1
+          fi
+          echo "All OAuth secrets present."
+
       - name: Build Electron app
+        env:
+          VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
         run: |
           npx tsc
           npx vite build
@@ -108,3 +181,6 @@ jobs:
         run: npx electron-builder --linux --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
