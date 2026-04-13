@@ -206,6 +206,65 @@
   color: rgb(var(--color-accent));
 }
 
+/* Task 23: reauth badge indicators next to account labels */
+.reauth-badge {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.reauth-badge-danger {
+  background: rgb(239, 68, 68);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+  animation: reauth-pulse 2s ease-in-out infinite;
+}
+
+.reauth-badge-warning {
+  background: rgb(245, 158, 11);
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.5);
+}
+
+@keyframes reauth-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reauth-badge-danger {
+    animation: none;
+  }
+}
+
+.account-picker-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.reauth-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: rgb(239, 68, 68);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.reauth-menu-item:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
 /* Collapse/expand toggle button */
 .collapse-btn {
   display: flex;
