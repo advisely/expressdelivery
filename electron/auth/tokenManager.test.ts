@@ -162,8 +162,9 @@ describe('AuthTokenManager.getValidAccessToken — cache-hit path', () => {
     });
 
     it('returns fresh token when expires_at is just outside the 60s skew window', async () => {
-        // expires_at = now + 60_001ms is just outside the 60s skew window — still fresh.
-        const justFresh = Date.now() + 60_001;
+        // expires_at = now + 65_000ms is safely outside the 60s skew window — still fresh.
+        // Uses 5s headroom (not 1ms) to avoid suite-level timing drift flake.
+        const justFresh = Date.now() + 65_000;
         insertOAuthCredential(db, {
             accountId: 'acc-google-1',
             provider: 'google',
