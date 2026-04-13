@@ -794,12 +794,13 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
     };
 
     const isEditing = editingAccountId !== null;
-    // OAuth2-only providers cannot be added via password — the add flow is
-    // gated and we surface a coming-soon message + custom-fallback button
-    // instead of the credential form. Editing an existing oauth2-required
-    // row (should not happen in practice) is intentionally NOT gated so the
-    // user retains the ability to modify or remove the account.
-    const isOAuth2Gated = !editingAccountId && selectedPreset?.authModel === 'oauth2-required';
+    // OAuth2-supported presets (outlook-personal, outlook-business) render an
+    // OAuth sign-in button + escape hatch on the add flow instead of the
+    // credentials form. Editing an existing OAuth account is intentionally NOT
+    // gated so the user retains the ability to modify or remove the account.
+    // (Phase 1 used 'oauth2-required' for a true disabled state. Phase 2
+    // renamed it to 'oauth2-supported' once OAuth2 was actually implemented.)
+    const isOAuth2Gated = !editingAccountId && selectedPreset?.authModel === 'oauth2-supported';
     const hasPassword = formPassword.trim().length > 0;
 
     // Render gate: only mount tab content after it has been visited at least once

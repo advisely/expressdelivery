@@ -1,13 +1,30 @@
 import { useState, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info, AlertTriangle, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { Info, AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Sparkles } from 'lucide-react';
 import { ipcInvoke } from '../lib/ipc';
-import type { ProviderPreset } from '../lib/providerPresets';
+import type { ProviderPreset, ProviderId } from '../lib/providerPresets';
 import styles from './ProviderHelpPanel.module.css';
 
 interface ProviderHelpPanelProps {
     preset: ProviderPreset;
 }
+
+// Providers that surface a "Sign in with…" OAuth button in the host
+// (Onboarding / SettingsModal). For these, ProviderHelpPanel renders a
+// subtle accent banner above the step list pointing the user at the
+// faster OAuth path. Gmail keeps the app-password fallback below the
+// divider; outlook-personal/business no longer accept passwords.
+const OAUTH_BANNER_PROVIDER_IDS: ReadonlySet<ProviderId> = new Set<ProviderId>([
+    'gmail',
+    'outlook-personal',
+    'outlook-business',
+]);
+
+const OAUTH_BANNER_NOTE_KEY: Record<string, string> = {
+    'gmail': 'oauth.providerHelp.gmailOAuthNote',
+    'outlook-personal': 'oauth.providerHelp.outlookPersonalOAuthNote',
+    'outlook-business': 'oauth.providerHelp.outlookBusinessOAuthNote',
+};
 
 /**
  * Reusable authentication-guidance panel rendered alongside provider selection.
@@ -38,6 +55,9 @@ export const ProviderHelpPanel: FC<ProviderHelpPanelProps> = ({ preset }) => {
         await ipcInvoke('shell:open-external', { url: preset.helpUrl });
     };
 
+    const showOAuthBanner = OAUTH_BANNER_PROVIDER_IDS.has(preset.id);
+    const oauthNoteKey = showOAuthBanner ? OAUTH_BANNER_NOTE_KEY[preset.id] : null;
+
     return (
         <section
             className={styles['panel']}
@@ -47,6 +67,18 @@ export const ProviderHelpPanel: FC<ProviderHelpPanelProps> = ({ preset }) => {
                 <div className={styles['warning']} role="alert">
                     <AlertTriangle size={16} className={styles['warning-icon']} aria-hidden="true" />
                     <span>{t(preset.warningKey)}</span>
+                </div>
+            )}
+
+            {showOAuthBanner && oauthNoteKey && (
+                <div className={styles['oauth-banner']}>
+                    <Sparkles size={16} className={styles['oauth-banner-icon']} aria-hidden="true" />
+                    <div className={styles['oauth-banner-content']}>
+                        <span className={styles['oauth-banner-title']}>
+                            {t('oauth.providerHelp.bannerTitle')}
+                        </span>
+                        <span>{t(oauthNoteKey)}</span>
+                    </div>
                 </div>
             )}
 

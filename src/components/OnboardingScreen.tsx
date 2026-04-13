@@ -272,7 +272,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
 
                         <ProviderHelpPanel preset={selectedPreset} />
 
-                        {selectedPreset.authModel === 'oauth2-required' ? (
+                        {selectedPreset.authModel === 'oauth2-supported' ? (
                             <>
                                 {error && (
                                     <div key={errorKey} className={styles['ob-error']} role="alert">

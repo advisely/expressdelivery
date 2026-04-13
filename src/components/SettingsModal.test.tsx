@@ -599,8 +599,9 @@ describe('SettingsModal Integration Tests', () => {
             fireEvent.click(screen.getByText('settings.addAccount'));
             fireEvent.click(screen.getByText('Outlook.com (Personal)'));
 
-            // Warning banner from ProviderHelpPanel
-            expect(screen.getByText('providerHelp.outlookPersonal.warning')).toBeInTheDocument();
+            // Phase 2: warning banner removed; ProviderHelpPanel now renders
+            // an OAuth banner with the personal-specific note above the steps.
+            expect(screen.getByText('oauth.providerHelp.outlookPersonalOAuthNote')).toBeInTheDocument();
             // OAuth button region — exposed as role="status" / aria-live="polite"
             const status = screen.getByRole('status');
             expect(status).toHaveAttribute('aria-live', 'polite');
@@ -668,10 +669,11 @@ describe('SettingsModal Integration Tests', () => {
             // Click the row to enter edit mode
             await user.click(screen.getByText('legacy@outlook.com'));
 
-            // Warning banner from ProviderHelpPanel with role="alert"
+            // Warning banner from ProviderHelpPanel with role="alert".
+            // Phase 2: warning text key changed to legacyReauthWarning.
             const alerts = screen.getAllByRole('alert');
             const legacyWarning = alerts.find(el =>
-                el.textContent?.includes('providerHelp.outlookLegacy.warning')
+                el.textContent?.includes('oauth.providerHelp.legacyReauthWarning')
             );
             expect(legacyWarning).toBeDefined();
 

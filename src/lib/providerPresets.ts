@@ -10,6 +10,7 @@ export type ProviderId =
 export type AuthModel =
     | 'password-supported'
     | 'oauth2-required'
+    | 'oauth2-supported'
     | 'password'
     | 'legacy';
 
@@ -61,12 +62,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
         imapPort: 993,
         smtpHost: 'smtp-mail.outlook.com',
         smtpPort: 587,
-        authModel: 'oauth2-required',
-        shortNoteKey: 'providerHelp.outlookPersonal.shortNote',
-        stepsKey: null,
+        // Phase 2: was 'oauth2-required' (disabled state in Phase 1).
+        // Now OAuth2 is implemented, so the preset surfaces a live sign-in
+        // button in OnboardingScreen + SettingsModal via OAuthSignInButton.
+        authModel: 'oauth2-supported',
+        shortNoteKey: 'oauth.providerHelp.outlookPersonalShortNote',
+        stepsKey: 'providerPresets.outlookPersonal.oauthSteps',
         helpUrl: 'https://support.microsoft.com/en-us/office/pop-imap-and-smtp-settings-for-outlook-com-d088b986-291d-42b8-9564-9c414e2aa040',
-        warningKey: 'providerHelp.outlookPersonal.warning',
-        comingSoonMessageKey: 'providerHelp.outlookPersonal.comingSoonMessage',
+        warningKey: null,
+        comingSoonMessageKey: null,
     },
     {
         id: 'outlook-business',
@@ -75,12 +79,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
         imapPort: 993,
         smtpHost: 'smtp.office365.com',
         smtpPort: 587,
-        authModel: 'oauth2-required',
-        shortNoteKey: 'providerHelp.outlookBusiness.shortNote',
-        stepsKey: null,
+        // Phase 2: same migration as outlook-personal — OAuth2 now live.
+        authModel: 'oauth2-supported',
+        shortNoteKey: 'oauth.providerHelp.outlookBusinessShortNote',
+        stepsKey: 'providerPresets.outlookBusiness.oauthSteps',
         helpUrl: 'https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth',
         warningKey: null,
-        comingSoonMessageKey: 'providerHelp.outlookBusiness.comingSoonMessage',
+        comingSoonMessageKey: null,
     },
     {
         id: 'yahoo',
@@ -140,7 +145,10 @@ export const OUTLOOK_LEGACY_PRESET: ProviderPreset = {
     shortNoteKey: 'providerHelp.outlookLegacy.shortNote',
     stepsKey: null,
     helpUrl: null,
-    warningKey: 'providerHelp.outlookLegacy.warning',
+    // Phase 2: warning text now points at the migration-to-OAuth message
+    // ("Microsoft is removing password-based SMTP. Sign in again to modernize…")
+    // rendered inside ProviderHelpPanel for the invisible legacy preset.
+    warningKey: 'oauth.providerHelp.legacyReauthWarning',
     comingSoonMessageKey: null,
 };
 

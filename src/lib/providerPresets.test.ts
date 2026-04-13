@@ -40,20 +40,38 @@ describe('providerPresets', () => {
         expect(gmail.authModel).toBe('password-supported');
     });
 
-    it('outlook-personal uses smtp-mail.outlook.com and oauth2-required', () => {
+    it('outlook-personal uses smtp-mail.outlook.com and oauth2-supported (Phase 2)', () => {
         const p = PROVIDER_PRESETS.find(preset => preset.id === 'outlook-personal')!;
         expect(p.imapHost).toBe('outlook.office365.com');
         expect(p.smtpHost).toBe('smtp-mail.outlook.com');
         expect(p.smtpPort).toBe(587);
-        expect(p.authModel).toBe('oauth2-required');
-        expect(p.warningKey).not.toBeNull();
+        // Phase 2: was 'oauth2-required' (Phase 1 disabled state). Now that
+        // OAuth2 is implemented, the preset is 'oauth2-supported' and the host
+        // surfaces a live OAuthSignInButton instead of a coming-soon block.
+        expect(p.authModel).toBe('oauth2-supported');
+        // No more disabled warning — replaced by the OAuth banner inside
+        // ProviderHelpPanel (driven by preset.id, not warningKey).
+        expect(p.warningKey).toBeNull();
+        // Phase 2 introduces oauth-specific step lists per preset.
+        expect(p.stepsKey).toBe('providerPresets.outlookPersonal.oauthSteps');
+        expect(p.shortNoteKey).toBe('oauth.providerHelp.outlookPersonalShortNote');
     });
 
-    it('outlook-business uses smtp.office365.com and oauth2-required', () => {
+    it('outlook-business uses smtp.office365.com and oauth2-supported (Phase 2)', () => {
         const p = PROVIDER_PRESETS.find(preset => preset.id === 'outlook-business')!;
         expect(p.smtpHost).toBe('smtp.office365.com');
         expect(p.smtpPort).toBe(587);
-        expect(p.authModel).toBe('oauth2-required');
+        expect(p.authModel).toBe('oauth2-supported');
+        expect(p.warningKey).toBeNull();
+        expect(p.stepsKey).toBe('providerPresets.outlookBusiness.oauthSteps');
+        expect(p.shortNoteKey).toBe('oauth.providerHelp.outlookBusinessShortNote');
+    });
+
+    it('outlook-legacy preset points at the new oauth migration warning key', () => {
+        // Phase 2: warning text shifts from "Microsoft is removing Basic Auth"
+        // (Phase 1 ambient warning) to the actionable "Sign in again to
+        // modernize your account" copy that now sits next to the reauth CTA.
+        expect(OUTLOOK_LEGACY_PRESET.warningKey).toBe('oauth.providerHelp.legacyReauthWarning');
     });
 
     it('yahoo and icloud are password-supported', () => {
