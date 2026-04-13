@@ -1,10 +1,11 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { getDatabase } from './db.js';
+import { getDatabase, getOAuthCredential } from './db.js';
 import { decryptData } from './crypto.js';
 import { logDebug } from './logger.js';
 import { applyRulesToEmail } from './ruleEngine.js';
 import { parseAuthResults, getSenderVerification } from './authResults.js';
+import { getAuthTokenManager, PermanentAuthError } from './auth/tokenManager.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
 
@@ -335,11 +336,82 @@ export class AccountSyncController {
     }
 }
 
+/**
+ * Per-connection auth choice used by `buildImapClient`. Either plaintext
+ * password (legacy) or an OAuth2 access token that ImapFlow passes through its
+ * SASL XOAUTH2 codepath (D8.1, D8.3).
+ */
+type ImapAuthChoice =
+    | { kind: 'password'; user: string; pass: string }
+    | { kind: 'oauth2'; user: string; accessToken: string };
+
+interface ImapAccountRow {
+    id: string;
+    email: string;
+    password_encrypted: string | null;
+    provider: string | null;
+    imap_host: string | null;
+    imap_port: number | null;
+}
+
+/**
+ * Resolve the auth material for an account — OAuth2 access token if the
+ * account has an `oauth_credentials` row, otherwise the legacy decrypted
+ * password. PermanentAuthError / TransientAuthError from `getValidAccessToken`
+ * propagate unchanged so the caller can fire the needs-reauth callback.
+ * (D8.1, D8.3, D8.4)
+ */
+async function resolveImapAuth(accountId: string, account: ImapAccountRow): Promise<ImapAuthChoice> {
+    const db = getDatabase();
+    const cred = getOAuthCredential(db, accountId);
+    if (cred !== null) {
+        const token = await getAuthTokenManager().getValidAccessToken(accountId);
+        return { kind: 'oauth2', user: account.email, accessToken: token.accessToken };
+    }
+    if (!account.password_encrypted) throw new Error('No password stored for account');
+    const password = decryptData(Buffer.from(account.password_encrypted, 'base64'));
+    return { kind: 'password', user: account.email, pass: password };
+}
+
+/** Construct a not-yet-connected ImapFlow client for `account` + `authChoice`. */
+function buildImapClient(account: ImapAccountRow, authChoice: ImapAuthChoice): ImapFlow {
+    const host = account.imap_host ||
+        (account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com');
+    const port = account.imap_port || 993;
+    const auth = authChoice.kind === 'password'
+        ? { user: authChoice.user, pass: authChoice.pass }
+        : { user: authChoice.user, accessToken: authChoice.accessToken };
+    return new ImapFlow({
+        host,
+        port,
+        secure: port === 993,
+        auth,
+        logger: false,
+    });
+}
+
+/**
+ * True if `err` looks like an IMAP AUTHENTICATIONFAILED / NO response — the
+ * trigger for the OAuth2 on-401 retry per D8.3. ImapFlow sets
+ * `err.authenticationFailed = true` on login/authenticate failures.
+ */
+function isAuthenticationFailed(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { authenticationFailed?: boolean; serverResponseCode?: string; message?: string };
+    if (e.authenticationFailed === true) return true;
+    if (e.serverResponseCode === 'AUTHENTICATIONFAILED') return true;
+    return false;
+}
+
 export class ImapEngine {
     /** Per-account controllers — the single source of truth for connection state. */
     controllers: Map<string, AccountSyncController> = new Map();
     private newEmailCallback: ((accountId: string, folderId: string, count: number) => void) | null = null;
     private statusCallback: ((accountId: string, status: string, timestamp: number | null) => void) | null = null;
+    /** Fired when the token manager returns PermanentAuthError (refresh token
+     *  revoked/invalid). main.ts wires this to BrowserWindow.webContents.send
+     *  so the renderer can surface a "Sign in again" toast. */
+    private needsReauthCallback: ((payload: { accountId: string }) => void) | null = null;
 
     // ─── Callback wiring ───────────────────────────────────────────────────────
 
@@ -355,6 +427,77 @@ export class ImapEngine {
         this.statusCallback = cb;
         for (const ctrl of this.controllers.values()) {
             ctrl.setStatusCallback(cb);
+        }
+    }
+
+    setNeedsReauthCallback(cb: (payload: { accountId: string }) => void): void {
+        this.needsReauthCallback = cb;
+    }
+
+    /**
+     * Connect an ImapFlow client for `accountId` with OAuth2 on-401 retry (D8.3).
+     * - Legacy password accounts: single attempt, propagates errors.
+     * - OAuth2 accounts: first attempt uses cached-or-refreshed token. On
+     *   `AUTHENTICATIONFAILED` (stale access token that the token manager's
+     *   JIT pre-flight didn't catch), we invalidate the token, refetch, and
+     *   retry ONCE. Second auth failure propagates to the reconnect-backoff
+     *   path, same as any other error.
+     * - PermanentAuthError from the token manager (invalid_grant etc.): fires
+     *   the `needs-reauth` callback and rethrows. Callers MUST NOT schedule
+     *   a reconnect after this — the account's `auth_state` is already
+     *   `reauth_required` and the user has to click "Sign in again".
+     */
+    private async connectImapForAccount(
+        accountId: string,
+        account: ImapAccountRow,
+    ): Promise<ImapFlow> {
+        let authChoice: ImapAuthChoice;
+        try {
+            authChoice = await resolveImapAuth(accountId, account);
+        } catch (err) {
+            if (err instanceof PermanentAuthError) {
+                logDebug(`[IMAP:${accountId}] PermanentAuthError on token fetch: ${err.code}`);
+                this.needsReauthCallback?.({ accountId });
+            }
+            throw err;
+        }
+
+        const client = buildImapClient(account, authChoice);
+        try {
+            await client.connect();
+            return client;
+        } catch (err) {
+            // Legacy password path or non-auth error: propagate unchanged.
+            if (authChoice.kind !== 'oauth2' || !isAuthenticationFailed(err)) {
+                try { client.close(); } catch { /* already closed */ }
+                throw err;
+            }
+
+            // OAuth2 XOAUTH2 auth failure on first attempt: invalidate cached
+            // token + retry once with a fresh client (D8.3).
+            logDebug(`[IMAP:${accountId}] XOAUTH2 auth failed on first attempt — invalidating + retrying`);
+            try { client.close(); } catch { /* already closed */ }
+            await getAuthTokenManager().invalidateToken(accountId);
+
+            let retryChoice: ImapAuthChoice;
+            try {
+                retryChoice = await resolveImapAuth(accountId, account);
+            } catch (refreshErr) {
+                if (refreshErr instanceof PermanentAuthError) {
+                    logDebug(`[IMAP:${accountId}] PermanentAuthError on retry refresh: ${refreshErr.code}`);
+                    this.needsReauthCallback?.({ accountId });
+                }
+                throw refreshErr;
+            }
+
+            const retryClient = buildImapClient(account, retryChoice);
+            try {
+                await retryClient.connect();
+                return retryClient;
+            } catch (retryErr) {
+                try { retryClient.close(); } catch { /* already closed */ }
+                throw retryErr;
+            }
         }
     }
 
@@ -460,7 +603,14 @@ export class ImapEngine {
         } catch (err) {
             ctrl.status = 'error';
             ctrl.emitStatus();
-            logDebug(`[IMAP:${accountId}] startAccount failed: ${err instanceof Error ? err.message : String(err)}`);
+            const msg = err instanceof Error ? err.message : String(err);
+            logDebug(`[IMAP:${accountId}] startAccount failed: ${msg}`);
+            // PermanentAuthError: the refresh token is dead. auth_state is
+            // 'reauth_required' in the DB; the needs-reauth callback has
+            // already been fired in connectImapForAccount. DO NOT schedule
+            // reconnect — infinite failed retries serve no purpose and
+            // waste rate-limit budget (D8.4).
+            if (err instanceof PermanentAuthError) return;
             ctrl.scheduleReconnect();
         }
     }
@@ -469,27 +619,21 @@ export class ImapEngine {
     private async connectAccountToController(ctrl: AccountSyncController): Promise<void> {
         const accountId = ctrl.accountId;
         const db = getDatabase();
-        const account = db.prepare(
+        const row = db.prepare(
             'SELECT id, email, password_encrypted, provider, imap_host, imap_port FROM accounts WHERE id = ?'
-        ).get(accountId) as Record<string, unknown>;
+        ).get(accountId) as Record<string, unknown> | undefined;
 
-        if (!account) throw new Error('Account not found');
-        if (!account.password_encrypted) throw new Error('No password stored for account');
+        if (!row) throw new Error('Account not found');
+        const account: ImapAccountRow = {
+            id: row.id as string,
+            email: row.email as string,
+            password_encrypted: (row.password_encrypted as string | null) ?? null,
+            provider: (row.provider as string | null) ?? null,
+            imap_host: (row.imap_host as string | null) ?? null,
+            imap_port: (row.imap_port as number | null) ?? null,
+        };
 
-        const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
-        const host = (account.imap_host as string) ||
-            (account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com');
-        const port = (account.imap_port as number) || 993;
-
-        const client = new ImapFlow({
-            host,
-            port,
-            secure: port === 993,
-            auth: { user: account.email as string, pass: password },
-            logger: false,
-        });
-
-        await client.connect();
+        const client = await this.connectImapForAccount(accountId, account);
         ctrl.client = client;
 
         // On unexpected close: trigger health-based reconnect via the controller
@@ -515,29 +659,30 @@ export class ImapEngine {
      *  Preserves the old boolean return contract. Prefer startAccount() for new code. */
     async connectAccount(accountId: string): Promise<boolean> {
         const db = getDatabase();
-        const account = db.prepare(
+        const row = db.prepare(
             'SELECT id, email, password_encrypted, provider, imap_host, imap_port FROM accounts WHERE id = ?'
-        ).get(accountId) as Record<string, unknown>;
+        ).get(accountId) as Record<string, unknown> | undefined;
 
-        if (!account) throw new Error('Account not found');
-        if (!account.password_encrypted) throw new Error('No password stored for account');
+        if (!row) throw new Error('Account not found');
+        const account: ImapAccountRow = {
+            id: row.id as string,
+            email: row.email as string,
+            password_encrypted: (row.password_encrypted as string | null) ?? null,
+            provider: (row.provider as string | null) ?? null,
+            imap_host: (row.imap_host as string | null) ?? null,
+            imap_port: (row.imap_port as number | null) ?? null,
+        };
 
-        const password = decryptData(Buffer.from(account.password_encrypted as string, 'base64'));
-        const host = (account.imap_host as string) ||
-            (account.provider === 'gmail' ? 'imap.gmail.com' : 'imap.example.com');
-        const port = (account.imap_port as number) || 993;
-
-        const client = new ImapFlow({
-            host,
-            port,
-            secure: port === 993,
-            auth: { user: account.email as string, pass: password },
-            logger: false,
-        });
+        let client: ImapFlow;
+        try {
+            client = await this.connectImapForAccount(accountId, account);
+        } catch (error) {
+            // PermanentAuthError already fired the needs-reauth callback.
+            logDebug(`Failed to connect to IMAP for ${accountId}: ${error instanceof Error ? error.message : String(error)}`);
+            return false;
+        }
 
         try {
-            await client.connect();
-
             // Upsert controller for this account
             let ctrl = this.controllers.get(accountId);
             if (!ctrl) {
