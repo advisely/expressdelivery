@@ -36,8 +36,8 @@ The Phase 2 implementation is meaningfully larger than Phase 1: new schema (one 
 - New `electron/graphSend.ts` module implementing `POST /me/sendMail` via raw `fetch()` for personal Outlook accounts
 - Modified `electron/smtp.ts` with an XOAUTH2 branch in its auth setup
 - Modified `electron/imap.ts` (`AccountSyncController`) to fetch tokens via `AuthTokenManager` for OAuth accounts and pass them to IMAPFlow
-- New SQLite schema (`oauth_credentials` table + `accounts.auth_type` + `accounts.auth_state` columns) via migration 13
-- Data migration (migration 14) marking existing `provider='outlook'` accounts as `auth_state = 'recommended_reauth'` without touching their stored basic-auth credentials
+- New SQLite schema (`oauth_credentials` table + `accounts.auth_type` + `accounts.auth_state` columns) via migration 16
+- Data migration (migration 17) marking existing `provider='outlook'` accounts as `auth_state = 'recommended_reauth'` without touching their stored basic-auth credentials
 - New OnboardingScreen credentials step layout: OAuth sign-in button + (for Gmail only) existing app-password form below
 - New SettingsModal account add/edit flows mirroring the OnboardingScreen layout
 - New sidebar reauth indicators (yellow for `recommended_reauth`, red for `reauth_required`) with three entry points to the re-auth flow
@@ -87,8 +87,8 @@ This spec is the result of a brainstorming session that locked ~50 explicit deci
 
 ### 3.4 Token storage (Q4)
 
-- **D4.1** — Token storage uses a separate `oauth_credentials` table joined to `accounts` via FK CASCADE (the "B-lite" shape from the brainstorm). Reasoning: clear separation, no overloading of `password_enc`, room for future provider-specific metadata, JOIN cost is negligible for desktop scale.
-- **D4.2** — `accounts.password_enc` continues to mean exactly what it did pre-Phase-2: an encrypted password for password-mode accounts. Never repurposed for OAuth tokens.
+- **D4.1** — Token storage uses a separate `oauth_credentials` table joined to `accounts` via FK CASCADE (the "B-lite" shape from the brainstorm). Reasoning: clear separation, no overloading of `password_encrypted`, room for future provider-specific metadata, JOIN cost is negligible for desktop scale.
+- **D4.2** — `accounts.password_encrypted` continues to mean exactly what it did pre-Phase-2: a base64-encoded `safeStorage`-encrypted password for password-mode accounts. Never repurposed for OAuth tokens.
 - **D4.3** — `accounts.auth_type` discriminator added with values `'password' | 'oauth2'`. Default `'password'` for migration compatibility.
 - **D4.4** — `accounts.auth_state` added with values `'ok' | 'recommended_reauth' | 'reauth_required'`. Default `'ok'`. Stored on `accounts` (NOT on `oauth_credentials`) so legacy password-mode accounts can carry the proactive migration warning state without needing a partial OAuth credential row. See §4 for full schema.
 - **D4.5** — `oauth_credentials` table includes `provider_account_email TEXT NULL` as a forward-compat field for matching tokens to provider identity (cheap to add now, painful to add later).
@@ -98,7 +98,7 @@ This spec is the result of a brainstorming session that locked ~50 explicit deci
 - **D5.1** — Refresh strategy: JIT pre-flight check (`expires_at <= now + 60_000`) + on-401 reactive retry. No background timer.
 - **D5.2** — `AuthTokenManager` is a singleton service in main process. Public API: `getValidAccessToken(accountId, options?)` and `invalidateToken(accountId, reason?)`. Optional sugar `withFreshToken(accountId, fn)` is implementation-discretionary, not mandatory.
 - **D5.3** — Per-account refresh dedup via `Map<number, Promise<TokenResult>>`. Second concurrent caller for the same account awaits the first caller's in-flight promise instead of triggering a duplicate refresh.
-- **D5.4** — **Only overwrite stored refresh token if provider returned a new one.** Google rotates refresh tokens occasionally; Microsoft does not; Yahoo varies. The provider adapter returns `refreshToken?: string` (optional). The manager only writes the new value if defined.
+- **D5.4** — **Only overwrite stored refresh token if provider returned a new one.** Google rotates refresh tokens occasionally; Microsoft does not. The provider adapter returns `refreshToken?: string` (optional). The manager only writes the new value if defined.
 - **D5.5** — Atomic persistence after successful refresh (single SQLite UPDATE wrapped in a transaction).
 - **D5.6** — Ownership boundaries: `AuthTokenManager` OWNS reading/writing `oauth_credentials`, refresh decisions, provider adapter dispatch, in-flight dedup, forced invalidation. It does NOT OWN IMAP reconnect logic, SMTP retry policy, or Graph request construction. Those stay in `AccountSyncController` / `smtp.ts` / `graphSend.ts`.
 - **D5.7** — Provider files (`electron/oauth/google.ts`, `electron/oauth/microsoft.ts`) are stateless pure adapters. Signature: `refreshAccessToken(refreshToken, clientConfig, metadata?) → Promise<{accessToken, refreshToken?, expiresAt, scope?, tokenType?}>`. Tests can run these in isolation against intercepted HTTP.
@@ -130,9 +130,9 @@ This spec is the result of a brainstorming session that locked ~50 explicit deci
 ### 3.8 Legacy outlook account migration (Q8)
 
 - **D8.1** — Migration state model: `accounts.auth_state TEXT NOT NULL DEFAULT 'ok'` with values `'ok' | 'recommended_reauth' | 'reauth_required'`. Three states, not four. Same yellow state for both personal and business legacy outlook accounts; provider-specific copy differentiates the message. Sidebar indicator priority order (highest to lowest): `reauth_required` (red) → existing sync error (red) → existing stale-sync (amber) → `recommended_reauth` (yellow) → existing fresh-sync (green). Yellow only displaces the green "fresh" state — a stale sync (amber) is a more urgent signal because the user can't currently receive mail at all, while `recommended_reauth` is a "should re-auth soon" advisory. See §9.3 for the rendering rules.
-- **D8.2** — In-place re-auth is mandatory and non-negotiable. Single SQLite transaction that preserves `accounts.id` and ALL FK-related rows (`emails`, `folders`, `drafts`, `tags`, `email_tags`, `mail_rules`, `contacts`, `attachments`, `snoozed_emails`, `scheduled_sends`, `reminders`). Transaction contents and ordering: insert `oauth_credentials` row, update `accounts.auth_type = 'oauth2'`, update `accounts.provider` per silent reconciliation (D6.8), update `accounts.auth_state = 'ok'`, set `accounts.password_enc = NULL`, commit. **The `password_enc = NULL` step happens LAST**, after OAuth tokens are successfully persisted. If the OAuth flow fails mid-transaction, rollback leaves the legacy basic auth password intact.
+- **D8.2** — In-place re-auth is mandatory and non-negotiable. Single SQLite transaction that preserves `accounts.id` and ALL FK-related rows (`emails`, `folders`, `drafts`, `tags`, `email_tags`, `mail_rules`, `contacts`, `attachments`, `snoozed_emails`, `scheduled_sends`, `reminders`). Transaction contents and ordering: insert `oauth_credentials` row, update `accounts.auth_type = 'oauth2'`, update `accounts.provider` per silent reconciliation (D6.8), update `accounts.auth_state = 'ok'`, set `accounts.password_encrypted = NULL`, commit. **The `password_encrypted = NULL` step happens LAST**, after OAuth tokens are successfully persisted. If the OAuth flow fails mid-transaction, rollback leaves the legacy basic auth password intact.
 - **D8.3** — Ambiguous-domain edge case: classification is non-destructive. Email matching `/@(outlook|hotmail|live|msn)\.com$/i` gets personal CTA copy; otherwise business/ambiguous gets generic Microsoft reauth copy. No hard-fail on domain heuristic. Real classification settles via `id_token.tid` after OAuth completes.
-- **D8.4** — Migration 14: adds `accounts.auth_state` column, sets `auth_state = 'recommended_reauth'` for all rows where `provider = 'outlook'`, does NOT touch `password_enc`, does NOT touch `auth_type`, does NOT create `oauth_credentials` rows.
+- **D8.4** — Migration 17 (the data migration; the column add lives in migration 16): sets `auth_state = 'recommended_reauth'` for all rows where `provider = 'outlook'`, does NOT touch `password_encrypted`, does NOT touch `auth_type`, does NOT create `oauth_credentials` rows.
 - **D8.5** — Phase 1's `OUTLOOK_LEGACY_PRESET` and the `getPresetForAccount` resolver remain intact in Phase 2. Legacy `provider='outlook'` accounts continue to resolve to `OUTLOOK_LEGACY_PRESET` for the SettingsModal edit flow's preset display (icon, label, host fields) until the user completes in-place re-auth. After successful re-auth per D8.2, `accounts.provider` is updated to `outlook-personal` or `outlook-business` (silent reconciliation per D6.8) and the resolver naturally returns the new preset on subsequent reads. Some users may never re-auth their business outlook accounts (basic auth may continue to work for them indefinitely), so `OUTLOOK_LEGACY_PRESET` cannot be removed in Phase 2 — it stays as the backwards-compat anchor for any legacy row that lingers in `provider='outlook'` state.
 
 ### 3.9 Test strategy (Q9)
@@ -155,11 +155,18 @@ This spec is the result of a brainstorming session that locked ~50 explicit deci
 
 ### 3.11 Edge cases (Q11)
 
-- **D11.1** (E1) — Token revocation on account delete: best-effort, time-bounded (5-second timeout). Call `POST https://oauth2.googleapis.com/revoke?token=<refresh_token>` for Google and the Microsoft equivalent. Wrap in try/catch with explicit timeout. Revocation failure does NOT block the local DB delete. Failures logged via `logDebug()`.
+- **D11.1** (E1) — Token revocation on account delete: best-effort, time-bounded (5-second timeout per provider call), provider-asymmetric:
+  - **Google** has a clean per-token revoke endpoint: `POST https://oauth2.googleapis.com/revoke?token=<refresh_token>`. Phase 2 calls this on account delete. Wrapped in try/catch with explicit 5s timeout. Revocation failure does NOT block the local DB delete.
+  - **Microsoft** does NOT have a clean per-token revoke endpoint. The closest API is `POST https://graph.microsoft.com/v1.0/me/revokeSignInSessions`, which is **nuclear** — it revokes ALL refresh tokens for that user across every app, not just ours. We will NOT call it. Instead, on Microsoft account delete, Phase 2 simply deletes the local `oauth_credentials` row and lets the refresh token age out naturally on Microsoft's side (refresh tokens have a default lifetime of 90 days for inactive use). The implementer should leave a code comment in the delete handler explaining why no Microsoft revoke call is made.
+  - All revocation outcomes (success, failure, skipped-for-microsoft) are logged via `logDebug()` with `[OAUTH]` prefix per D11.10.
 - **D11.2** (E2) — OAuth flow user-cancellation handling: 60-second loopback listener timeout. Timeout and user-abort are treated as **non-error UX states** (no scary toast — informational message "Sign in cancelled or timed out") but still logged with `[OAUTH]` for diagnostics.
 - **D11.3** (E3) — Concurrent OAuth flow handling: singleton in-flight flow per app instance via `let activeOAuthFlow: { provider, accountId, abortController } | null = null` in the manager. Second click is rejected via toast "Another sign-in is in progress"; the new "Sign in" button is disabled while a flow is active.
 - **D11.4** (E4) — Re-auth email mismatch: hard reject. Read `id_token.email` (or `preferred_username` for Microsoft) and compare against `accounts.email`. If mismatch, abort the in-place re-auth, surface clear error toast naming both addresses, roll back any token writes, leave the legacy account in `recommended_reauth` state. Adding the second account separately via "Add account" remains supported.
-- **D11.5** (E5) — Initial signup credentials step layout for OAuth providers has no email field. The `Sign in with Google/Microsoft` button is the only input. After successful OAuth, `accounts.email` is populated from the `id_token.email` claim. The existing email field stays for app-password mode (Gmail with app password).
+- **D11.5** (E5) — Initial signup credentials step email-field rules differ by provider, because Gmail keeps its dual-path layout per D7.2 while Microsoft is OAuth-only:
+  - **Microsoft (Outlook Personal / Outlook Business)** — OAuth-only; the credentials step has **no email field**. The `Sign in with Microsoft` button is the only input. `accounts.email` is populated from the `id_token.email` (or `preferred_username`) claim after OAuth completion.
+  - **Gmail** — Dual-path; the credentials step keeps the existing email + password form visible below the "Sign in with Google" button + "Or use an app password" divider per D7.2. The email field is part of the app-password fallback flow only. When the user clicks "Sign in with Google", the email field input is ignored (if any) and `accounts.email` is populated from the `id_token.email` claim. When the user fills in the form and submits the password-mode flow, the email field value is used as `accounts.email` directly.
+  - **Universal rule for OAuth completion paths**: `accounts.email` always comes from the provider identity (`id_token.email`), never from a pre-entered form field, regardless of which provider.
+- **D11.5b** — Account creation timing for OAuth signup: the new `accounts` row is created **only after successful OAuth completion**, never provisionally before the system browser launches. Phase 2 does NOT pre-allocate an account row with a placeholder `accounts.id` and then update it after the OAuth flow returns. The full OAuth flow (browser launch → consent → callback → token exchange → id_token classification per D6.7 → silent reconciliation per D6.8) runs first, and the resulting `accounts` row + `oauth_credentials` row are inserted in a single transaction at the end. Cancellation, timeout, or error during any step leaves the database completely untouched. This avoids orphaned partial accounts and simplifies cancellation semantics. The `accounts.id` is generated server-side (in the IPC handler) immediately before the insert, not at flow start time. Re-auth flows (D8.2) are different — they update an existing row in-place rather than creating a new one.
 - **D11.6** (E6) — Google refresh token rotation: covered by D5.4 (only overwrite if returned) + D5.10 (permanent failure transitions to reauth_required). No additional logic needed.
 - **D11.7** (E7) — Microsoft scopes requested at signup (no incremental consent prompts):
   - `https://outlook.office.com/IMAP.AccessAsUser.All` (IMAP receive)
@@ -176,7 +183,16 @@ This spec is the result of a brainstorming session that locked ~50 explicit deci
 
 ## 4. Data Model
 
-### 4.1 New columns on `accounts` (added by migration 13)
+**Verified facts about the existing schema (verified against `electron/db.ts` at v1.16.1):**
+
+- `accounts.id` is `TEXT PRIMARY KEY`, not `INTEGER`. All FK columns referencing it use `TEXT`.
+- The encrypted password column is named `password_encrypted`, not `password_enc`. It is `TEXT`, storing base64-encoded bytes from `safeStorage.encryptString().toString('base64')`. The decrypt pattern in `main.ts:329` is `decryptData(Buffer.from(row.password_encrypted, 'base64'))`.
+- `CURRENT_SCHEMA_VERSION` at v1.16.1 is **15**, not 12. Phase 2 must bump to **17** after applying both new migrations.
+- The next free migration numbers are **16** and **17**, not 13 and 14.
+
+These corrections were caught during spec review and are embedded throughout the rest of the spec.
+
+### 4.1 New columns on `accounts` (added by migration 16)
 
 ```sql
 ALTER TABLE accounts ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password';
@@ -186,17 +202,21 @@ ALTER TABLE accounts ADD COLUMN auth_state TEXT NOT NULL DEFAULT 'ok';
 - `auth_type`: `'password' | 'oauth2'`. Discriminates which credential lookup path to use. Default `'password'` preserves existing v1.16.x rows in their current mode.
 - `auth_state`: `'ok' | 'recommended_reauth' | 'reauth_required'`. Default `'ok'`. Drives sidebar badge color and re-auth CTA visibility.
 
-### 4.2 New `oauth_credentials` table (added by migration 13)
+### 4.2 New `oauth_credentials` table (added by migration 16)
 
 ```sql
 CREATE TABLE oauth_credentials (
-    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     -- provider is logically constrained to one of: 'google', 'microsoft_personal',
     -- 'microsoft_business'. SQLite does not enforce enums; the constraint is
     -- enforced in the application code (electron/db.ts insertOAuthCredential).
     provider TEXT NOT NULL,
-    access_token_enc BLOB NOT NULL,            -- safeStorage-encrypted access token
-    refresh_token_enc BLOB NOT NULL,           -- safeStorage-encrypted refresh token
+    -- Tokens are stored as base64-encoded TEXT, matching the existing
+    -- accounts.password_encrypted convention. The encode pattern is
+    -- safeStorage.encryptString(token).toString('base64'). Decode is
+    -- decryptData(Buffer.from(row.access_token_encrypted, 'base64')).
+    access_token_encrypted TEXT NOT NULL,
+    refresh_token_encrypted TEXT NOT NULL,
     expires_at INTEGER NOT NULL,               -- epoch ms when access_token expires
     scope TEXT,                                -- granted scope string from token response
     token_type TEXT,                           -- usually 'Bearer'
@@ -212,16 +232,16 @@ CREATE TABLE oauth_credentials (
 CREATE INDEX idx_oauth_credentials_provider ON oauth_credentials(provider);
 ```
 
-- `account_id` is both PK and FK to `accounts(id)` with cascade delete. One row per account; deleting the account removes its OAuth credential row atomically.
+- `account_id` is both PK and FK to `accounts(id)` with cascade delete. **`TEXT`, not `INTEGER`** — matches the existing `accounts.id TEXT PRIMARY KEY`. One row per account; deleting the account removes its OAuth credential row atomically.
 - `provider` is the **classified** provider, not the user's preset selection. Read this field for send-path routing per D6.6.
-- `access_token_enc` and `refresh_token_enc` are encrypted via `electron.safeStorage` (same pattern as `accounts.password_enc`).
+- `access_token_encrypted` and `refresh_token_encrypted` are base64-encoded `TEXT` columns following the same `safeStorage` + base64 pattern as `accounts.password_encrypted`. Storing as TEXT (not BLOB) is the established convention in this codebase.
 - `expires_at` is epoch milliseconds. JIT pre-flight check is `expires_at <= Date.now() + 60_000`.
 - `provider_account_email` and `provider_account_id` are used for the re-auth email mismatch check (D11.4) and as a forward-compat hook for future per-provider-account features (D4.5).
 
-### 4.3 Migration 14 (data migration for legacy outlook accounts)
+### 4.3 Migration 17 (data migration for legacy outlook accounts)
 
 ```sql
--- Migration 14: mark legacy Outlook accounts as recommended_reauth without
+-- Migration 17: mark legacy Outlook accounts as recommended_reauth without
 -- touching their stored basic-auth credentials. The password stays valid and
 -- usable until either (a) Microsoft rejects it server-side and D5.10 transitions
 -- the account to 'reauth_required', or (b) the user clicks "Sign in again" and
@@ -232,11 +252,11 @@ UPDATE accounts
    AND auth_state = 'ok';
 ```
 
-This migration runs once at startup of v1.17.0 and is a no-op on subsequent runs. It does NOT touch `password_enc`, `auth_type`, or any other column. It does NOT create `oauth_credentials` rows for legacy accounts (those rows only exist after a successful OAuth flow).
+This migration runs once at startup of v1.17.0 and is a no-op on subsequent runs. It does NOT touch `password_encrypted`, `auth_type`, or any other column. It does NOT create `oauth_credentials` rows for legacy accounts (those rows only exist after a successful OAuth flow).
 
 ### 4.4 `CURRENT_SCHEMA_VERSION` bump
 
-`electron/db.ts` increments `CURRENT_SCHEMA_VERSION` from 12 to 13. The migration runner short-circuits at the new version per the existing pattern.
+`electron/db.ts` increments `CURRENT_SCHEMA_VERSION` from **15 to 17** (one migration adds schema, the second performs the data update; both new versions are applied sequentially by the existing migration runner). The runner short-circuits at the new version per the existing pattern.
 
 ## 5. `AuthTokenManager` Service
 
@@ -269,14 +289,14 @@ export interface AuthTokenManager {
      * Per-account refresh dedup ensures concurrent callers share the same
      * in-flight refresh promise.
      */
-    getValidAccessToken(accountId: number, options?: { forceRefresh?: boolean }): Promise<ValidTokenResult>;
+    getValidAccessToken(accountId: string, options?: { forceRefresh?: boolean }): Promise<ValidTokenResult>;
 
     /**
      * Marks the cached token for the given account as invalid. Next call to
      * getValidAccessToken will trigger a refresh. Used by the on-401 reactive
      * retry path in AccountSyncController and smtp.ts.
      */
-    invalidateToken(accountId: number, reason?: string): void;
+    invalidateToken(accountId: string, reason?: string): void;
 
     /**
      * Persists a fresh OAuth credential row, used by the initial OAuth signup
@@ -284,7 +304,7 @@ export interface AuthTokenManager {
      * transaction with the accounts row update per D8.2.
      */
     persistInitialTokens(params: {
-        accountId: number;
+        accountId: string;
         provider: 'google' | 'microsoft_personal' | 'microsoft_business';
         accessToken: string;
         refreshToken: string;
@@ -299,12 +319,14 @@ export interface AuthTokenManager {
 export const authTokenManager: AuthTokenManager;
 ```
 
+Note: `accountId` is `string` throughout because `accounts.id` is `TEXT PRIMARY KEY` in the existing schema. All Phase 2 code paths preserve this.
+
 ### 5.3 Per-account refresh dedup
 
 ```ts
-const inFlightRefreshes = new Map<number, Promise<ValidTokenResult>>();
+const inFlightRefreshes = new Map<string, Promise<ValidTokenResult>>();
 
-async function getValidAccessToken(accountId: number, options?): Promise<ValidTokenResult> {
+async function getValidAccessToken(accountId: string, options?): Promise<ValidTokenResult> {
     // Read current token from SQLite via getOAuthCredential(accountId)
     const cred = getOAuthCredential(accountId);
     if (!cred) throw new Error(`No OAuth credential for account ${accountId}`);
@@ -331,7 +353,7 @@ The `finally` cleanup ensures the map entry is removed even on refresh failure, 
 ### 5.4 Provider dispatch
 
 ```ts
-async function doRefresh(accountId: number, cred: OAuthCredential): Promise<ValidTokenResult> {
+async function doRefresh(accountId: string, cred: OAuthCredential): Promise<ValidTokenResult> {
     let result;
     try {
         if (cred.provider === 'google') {
@@ -523,7 +545,7 @@ The cached config is module-scoped so repeated calls don't re-validate. The cach
 
 ```ts
 export interface NormalizedDraft {
-    accountId: number;
+    accountId: string;
     to: string[];
     cc: string[];
     bcc: string[];
@@ -716,10 +738,10 @@ Extracted shared component used by both `OnboardingScreen` and `SettingsModal`. 
 ```tsx
 interface OAuthSignInButtonProps {
     provider: 'google' | 'microsoft';
-    onSuccess: (result: { accountId: number }) => void;
+    onSuccess: (result: { accountId: string }) => void;
     onError: (err: { code: string; message: string }) => void;
     /** Optional: existing account id for in-place re-auth (D8.2) */
-    existingAccountId?: number;
+    existingAccountId?: string;
     /** Disabled while another OAuth flow is in flight (D11.3) */
     disabled?: boolean;
 }
@@ -733,8 +755,8 @@ Internally calls IPC `auth:start-oauth-flow` (or `auth:start-reauth-flow` if `ex
 
 | Channel | Direction | Payload | Response | Purpose |
 |---|---|---|---|---|
-| `auth:start-oauth-flow` | renderer → main | `{ provider: 'google' \| 'microsoft', presetId: string }` | `{ success: boolean; accountId?: number; error?: string }` | Initial OAuth signup flow. Creates a new account row + oauth_credentials row on success. |
-| `auth:start-reauth-flow` | renderer → main | `{ accountId: number }` | `{ success: boolean; error?: string }` | In-place re-auth for an existing account. Preserves accounts.id. Wraps the entire token swap in a single transaction per D8.2. |
+| `auth:start-oauth-flow` | renderer → main | `{ provider: 'google' \| 'microsoft', presetId: string }` | `{ success: boolean; accountId?: string; error?: string }` | Initial OAuth signup flow. Creates a new account row + oauth_credentials row on success per D11.5b (only after OAuth completion, never provisional). |
+| `auth:start-reauth-flow` | renderer → main | `{ accountId: string }` | `{ success: boolean; error?: string }` | In-place re-auth for an existing account. Preserves accounts.id. Wraps the entire token swap in a single transaction per D8.2. |
 | `auth:cancel-flow` | renderer → main | `{}` | `{ success: boolean }` | Cancel the in-flight OAuth flow if any. Used when user closes the modal mid-flow. |
 | `auth:flow-status` | renderer → main | `{}` | `{ inFlight: boolean; provider?: string }` | Check whether an OAuth flow is currently in progress (for disabling other buttons per D11.3). |
 
@@ -968,7 +990,7 @@ Phase 2 should add roughly 100-150 new unit tests across the new files plus modi
 
 - **Loopback HTTP listener** during OAuth flows (60s window per flow, bound to `127.0.0.1:<random-port>`, rejects all requests except the expected callback path, rejects requests with mismatched `state` parameter). Mitigated by: short window, loopback-only binding, PKCE, state validation, single-use design (server shuts down after one valid callback).
 - **OAuth tokens in V8 heap** during refresh operations and IPC payload construction. Same risk as decrypted passwords in v1.16.x — inherent to JavaScript, no clean mitigation, mitigated by short-lived scope.
-- **Refresh tokens at rest** in `oauth_credentials.refresh_token_enc`. Encrypted via `safeStorage` (OS keychain). Same threat model as `accounts.password_enc` today.
+- **Refresh tokens at rest** in `oauth_credentials.refresh_token_encrypted`. Encrypted via `safeStorage` (OS keychain), base64-encoded as TEXT to match the `accounts.password_encrypted` convention. Same threat model as `accounts.password_encrypted` today.
 - **Microsoft Graph API endpoint** as a new outbound destination (HTTPS to `graph.microsoft.com`). No new inbound exposure.
 
 ### 14.2 Defenses already in place that continue to apply
