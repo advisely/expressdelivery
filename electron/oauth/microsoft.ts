@@ -107,6 +107,125 @@ export async function refreshAccessToken(
     }
 }
 
+// -----------------------------------------------------------------------------
+// Tenant classification (D6.7, D6.8)
+// -----------------------------------------------------------------------------
+//
+// Per D6.7 the authoritative classification for a Microsoft account comes
+// from the id_token's `tid` (tenant id) claim — NOT from domain sniffing
+// (hotmail.com / outlook.com / live.com). Domain sniffing is brittle
+// because:
+//   - Personal accounts CAN use custom domains (e.g. alias@me.com bound
+//     to a Microsoft personal account).
+//   - Business accounts CAN use consumer-looking domains when tenants
+//     migrate from M365 Home to M365 Business.
+// The personal-tenant magic GUID below is stable and documented in the
+// Microsoft identity platform reference.
+
+const MICROSOFT_PERSONAL_TID = '9188040d-6c67-4c5b-b112-36a304b66dad';
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type MicrosoftClassification = 'microsoft_personal' | 'microsoft_business';
+
+export function classifyMicrosoftAccount(tid: string): MicrosoftClassification {
+    if (!tid || !GUID_RE.test(tid)) {
+        throw new Error(`Invalid or missing id_token.tid claim: ${tid || '(empty)'}`);
+    }
+    return tid.toLowerCase() === MICROSOFT_PERSONAL_TID
+        ? 'microsoft_personal'
+        : 'microsoft_business';
+}
+
+// -----------------------------------------------------------------------------
+// Interactive flow (D3.1, D3.3, §6.2)
+// -----------------------------------------------------------------------------
+
+export interface MicrosoftIdTokenClaims {
+    tid: string;
+    email?: string;
+    preferred_username?: string;
+    sub?: string;
+}
+
+export interface MicrosoftInteractiveResult {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+    idToken: string;
+    idTokenClaims: MicrosoftIdTokenClaims;
+    classifiedProvider: MicrosoftClassification;
+    scope: string;
+    tokenType: string;
+}
+
+export interface MicrosoftInteractiveFlowParams {
+    clientConfig: MicrosoftOAuthClientConfig;
+    onAuthUrl: (url: string) => Promise<void>;
+    abortSignal: AbortSignal;
+}
+
+export async function startInteractiveFlow(
+    params: MicrosoftInteractiveFlowParams
+): Promise<MicrosoftInteractiveResult> {
+    const client = makeClient(params.clientConfig);
+
+    // MSAL handles the loopback server, PKCE, code exchange, and id_token
+    // parsing internally. We pass the openBrowser callback to wire system
+    // browser launch via shell.openExternal at the call site.
+    //
+    // The `as unknown as ...` cast is intentional per D5.9 (same rationale
+    // as refreshAccessToken above).
+    const result = await (
+        client as unknown as {
+            acquireTokenInteractive: (req: {
+                scopes: string[];
+                openBrowser: (url: string) => Promise<void>;
+                successTemplate?: string;
+                errorTemplate?: string;
+            }) => Promise<{
+                accessToken: string;
+                refreshToken?: string;
+                expiresOn: Date | null;
+                scopes: string[];
+                tokenType?: string;
+                idToken: string;
+                idTokenClaims: MicrosoftIdTokenClaims;
+            }>;
+        }
+    ).acquireTokenInteractive({
+        scopes: MICROSOFT_SCOPES,
+        openBrowser: params.onAuthUrl,
+        successTemplate:
+            '<h1>Sign in complete</h1><p>You can close this tab and return to ExpressDelivery.</p>',
+        errorTemplate:
+            '<h1>Sign in error</h1><p>Please return to ExpressDelivery and try again.</p>',
+    });
+
+    if (!result.refreshToken) {
+        // Microsoft only issues refresh tokens when offline_access was
+        // granted. If we don't have one, the account is unusable for
+        // long-lived background sync — fail hard rather than persisting a
+        // credential row that will go sour on the next refresh attempt.
+        throw new Error(
+            'Microsoft did not return a refresh token. Ensure offline_access scope is requested.'
+        );
+    }
+
+    const classifiedProvider = classifyMicrosoftAccount(result.idTokenClaims.tid);
+    const expiresAt = result.expiresOn ? result.expiresOn.getTime() : Date.now() + 3600 * 1000;
+
+    return {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt,
+        idToken: result.idToken,
+        idTokenClaims: result.idTokenClaims,
+        classifiedProvider,
+        scope: result.scopes.join(' '),
+        tokenType: result.tokenType || 'Bearer',
+    };
+}
+
 export async function revokeRefreshToken(refreshToken: string): Promise<void> {
     // No-op per D11.1. Microsoft does not provide a clean per-token revoke
     // endpoint. The closest is POST /me/revokeSignInSessions which is
