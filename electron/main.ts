@@ -48,6 +48,7 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 import { initDatabase, getDatabase, closeDatabase } from './db.js'
+import { maybeRevokeOAuthCredentials } from './auth/accountRevoke.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
 import { sendMail } from './sendMail.js'
@@ -281,7 +282,7 @@ function registerIpcHandlers() {
   // Combined startup handler: accounts + folders + inbox emails in one round-trip
   ipcMain.handle('startup:load', () => {
     const accounts = db.prepare(
-      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
+      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at, auth_type, auth_state FROM accounts'
     ).all() as Array<{ id: string }>;
     if (accounts.length === 0) return { accounts, folders: [], emails: [] };
     const firstAccountId = accounts[0].id;
@@ -312,8 +313,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('accounts:list', () => {
+    // Phase 2 OAuth2: project auth_type + auth_state so the renderer can
+    // distinguish OAuth accounts (auth_type='oauth2') from legacy password
+    // accounts and render the "Sign in again" CTA when auth_state is
+    // 'recommended_reauth' or 'reauth_required' (D9.5, D11.9).
     return db.prepare(
-      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
+      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at, auth_type, auth_state FROM accounts'
     ).all();
   });
 
@@ -407,6 +412,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('accounts:remove', async (_event, accountId: string) => {
+    // Phase 2 D11.1: best-effort refresh token revocation on account delete.
+    // Google has a real revoke endpoint; Microsoft's revokeSignInSessions is
+    // nuclear and intentionally a no-op. Revocation failures never block the
+    // delete — maybeRevokeOAuthCredentials never throws.
+    await maybeRevokeOAuthCredentials(db, accountId);
+
     try {
       await imapEngine.disconnectAccount(accountId);
     } catch (err) {
