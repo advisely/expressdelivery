@@ -12,6 +12,75 @@
 
 ---
 
+## Phase 1 Outcome — Shipped in v1.16.0 on 2026-04-12
+
+This plan has been executed end-to-end. Task definitions below are preserved as historical record; the sections that follow them are no longer actionable.
+
+### Done
+
+All 7 tasks from the plan, plus 2 review-driven fixes and 1 cross-cutting fix caught by the final full-branch review:
+
+| Commit | Summary |
+|---|---|
+| `55c23ed` | Task 1 — `ProviderPreset` interface + 6 visible presets + `OUTLOOK_LEGACY_PRESET` + `HELP_URLS` + `getPresetForAccount` (13 tests) |
+| `8ff57e0` | Task 2 — `electron/shellOpen.ts` pure handler + exact-URL allowlist + main.ts wiring + preload channel (6 tests) |
+| `6577b4b` | Task 3 — `providerHelp.*` strings in `en`, `fr`, `es`, `de` (+54 lines per locale, 19 leaf keys) |
+| `add9917` | Task 4 — `ProviderHelpPanel.tsx` + CSS module + 9 tests; narrow `vi.mock('react-i18next')` override to work around global `setupTests.ts` mock that ignored `returnObjects` |
+| `c64b8ba` | Task 5 — `OnboardingScreen.tsx` integration + `authModel === 'oauth2-required'` disabled state + "Use Other / Custom instead" CTA + `onboarding.useCustomInstead` in 4 locales (+3 tests, 11 total) |
+| `1e62f1f` | Task 6 — `SettingsModal.tsx` integration in add + edit flows; added `editingOriginalProvider` state to preserve stored `provider='outlook'` on save (not in original plan, caught by implementer as a latent DB-churn bug) (+4 tests, 27 total) |
+| `b7261f0` | Task 6 follow-up — re-indent ungated ternary branch for readability + extended legacy-outlook test to verify `accounts:update` IPC payload carries `provider: 'outlook'` (locks in `editingOriginalProvider` invariant) |
+| `afd2bc4` | Task 7 fix — remove two unused `@ts-expect-error` directives in `electron/shellOpen.test.ts` that passed Vitest but failed strict `tsc` in the full build |
+| `ec29817` | Post-Task-7 fix — `providerIcons.tsx` gained `outlook-personal`, `outlook-business`, `outlook-legacy` map entries (the per-task reviews missed this because they only saw one file at a time; final full-branch review caught it) |
+| `9183c98` | Version bump `1.15.9` → `1.16.0` |
+| `57d06a2` | Merge commit (`--no-ff`) to `main` |
+| `4cae5ae` | CLAUDE.md updated to Phase 16 status + v1.16.0 release note |
+
+Pipeline gates all green at release time:
+- ESLint `--max-warnings 0` — zero warnings
+- `tsc --noEmit` full-project — zero errors
+- Vitest — 35 files, 814 tests, 0 failures (up from 32 files / 779 tests baseline)
+- Semgrep SAST on the 5 Phase 1 production files — zero findings
+- `ts-prune` on Phase 1 scope — zero real findings (3 false-positive type-only exports)
+- `npm run build:win` — `release/1.16.0/win-unpacked/ExpressDelivery.exe` packaged, better-sqlite3 rebuilt for Electron ABI 145, host ABI 137 restored for Vitest
+
+GitHub Release triggered via `v1.16.0` tag push → `release.yml` run `24320992335`.
+
+### Delayed — scoped out of Phase 1, deferred to Phase 2+
+
+- **Real OAuth2 for Gmail and Microsoft** — requires browser-based authorization flow, PKCE, XOAUTH2 wiring in IMAPFlow and Nodemailer, `accounts.auth_type` + `accounts.refresh_token_enc` schema additions, Microsoft Graph API `/me/sendMail` fallback for personal Outlook.com. The `AuthModel` enum already includes `oauth2-required` and `isOAuth2Gated` is one line to flip once the real flow lands. See spec §13 "Out of scope for Phase 1."
+- **Intelligent legacy `outlook` account classification** — Phase 1 maps all stored `provider='outlook'` rows to `OUTLOOK_LEGACY_PRESET` without guessing whether they are personal or business. A future phase could reclassify based on stored SMTP host, domain heuristics, or OAuth re-enrollment consent. Not needed until OAuth2 ships.
+- **Provider quality pipeline step 9 — `documentation-specialist` pass** — CLAUDE.md was updated manually for v1.16.0 status but the dedicated agent run documented in CLAUDE.md's quality pipeline section was not invoked. Low value for this change since docs were updated inline; worth revisiting if a later phase adds larger docs deltas.
+
+### Staged — flagged during review, not implemented, ready for a follow-up commit
+
+Items flagged as Minor or Important during per-task reviews that were deferred because none blocked merge. Listed roughly by blast radius:
+
+1. **Log-injection sanitization in `electron/shellOpen.ts`** (Task 2 code review Minor #4) — the rejection log path includes the raw `url` value; a crafted CR/LF could forge log lines. Low severity because the log file is local-only and the allowlist makes exploitation impractical, but CLAUDE.md's established CR/LF sanitization pattern (see `log:error` IPC handler in `main.ts`) should be applied here for consistency. Fix: `String(url).replace(/[\r\n\x00]/g, '?').slice(0, 500)` before interpolation into the log message.
+2. **`role="status"` / `aria-live="polite"` on the disabled-state message** in `OnboardingScreen.tsx` and `SettingsModal.tsx` (Task 5 code review Minor #2, Task 6 code review Minor). Screen reader users do not get notified when the Outlook disabled state appears. One-line fix per surface.
+3. **Test strengthening: explicit `aria-expanded` assertion on `ProviderHelpPanel` disclosure button** (Task 4 code review Minor #6). Current test verifies list presence/absence via `queryByRole('list')` but not the attribute directly. Would catch a regression that decoupled `open` state from the `aria-expanded` prop. One-line addition.
+4. **Test strengthening: pivot-to-server test for "Use Custom Instead" button in `OnboardingScreen`** (Task 5 code review Minor #3). Would lock in the `selectProvider + setStep('server')` batching sequence.
+5. **`aria-label` for `ProviderHelpPanel` section is a hardcoded English template literal** (Task 4 spec review observation). `aria-label={`Help for ${preset.label}`}` should route through i18n. Screen reader semantics are still coherent because `preset.label` is a proper noun; low-priority polish.
+6. **`providerIcons.tsx` source-of-truth consolidation** — currently three separate places (`providerPresets.ts`, `providerIcons.tsx`, `OnboardingScreen.PROVIDER_ACCENTS`) each hold per-provider state keyed by id. The `ec29817` fix added all three split IDs to icons but left accents keyed by the same strings in two places. A future refactor could merge metadata (accent, icon, label) into the preset record itself. Not Phase 1 scope.
+7. **Sub-component extraction in `SettingsModal.tsx`** (Task 6 code review Minor). The oauth2-gated ternary branch pushes an already-large file further. Extracting `<OAuth2GatedFormActions />` and `<CredentialForm />` would improve readability; worth revisiting if Phase 2 OAuth2 adds more branching.
+8. **Spanish quotes typographic consistency** (Task 3 code quality Minor). `es.json` uses ASCII `'ExpressDelivery'` rather than `«ExpressDelivery»`. Not a bug; future typographic polish pass.
+9. **`selectCustomFallback` silent-guard documentation** (Task 6 code review Minor). The `if (custom)` check is defensive (unreachable today) but lacks a `// unreachable — PROVIDER_PRESETS always includes 'custom'` comment that would satisfy CLAUDE.md's silent-failure rule strictly.
+
+None of these block a future merge. They are individually small and collectively suitable for a single follow-up commit titled something like `polish: post-Phase-1 review nits (a11y, log sanitization, test tightening)`.
+
+### Remaining — forward-looking work
+
+- **Phase 2 OAuth2 spec** — not yet written. Scope includes: Google Cloud OAuth app registration with verification review for the restricted `https://mail.google.com/` scope (can take weeks), Microsoft Entra app registration, Electron BrowserWindow loopback redirect flow with PKCE, XOAUTH2 SASL wiring in IMAPFlow and Nodemailer, `accounts.auth_type` + encrypted `accounts.refresh_token_enc` schema additions (first real migration since this phase), token refresh loop in `AccountSyncController`, Graph API `/me/sendMail` fallback for personal Outlook.com (which is losing OAuth2 SMTP too).
+- **npm audit cleanup** — 13 pre-existing transitive vulnerabilities in `vite`/`picomatch`/`esbuild` (6 high, 5 moderate, 2 low). Dev-server only, no production attack surface (Vite is not bundled in the packaged Electron app), but worth a dedicated bump + regression check in a separate cleanup branch.
+- **Phase 1 user feedback loop** — once v1.16.0 reaches real users, watch for: (a) Yahoo setup success rate (the user's original pain point), (b) Outlook disabled-state confusion (whether "Use Custom Instead" is a strong enough escape hatch or if support requests spike), (c) any i18n complaints from `fr`/`es`/`de` native speakers on the machine-translated strings.
+
+---
+
+## Original Task Definitions (historical)
+
+The task definitions below describe the work as it was planned. They have been executed as recorded in the Done section above. Checkboxes are left unticked as a historical artifact; the authoritative state is the git log on `main` from commit `55c23ed` through `4cae5ae`.
+
+---
+
 ## Task 1: Extend `ProviderPreset` and presets (data layer)
 
 **Files:**
