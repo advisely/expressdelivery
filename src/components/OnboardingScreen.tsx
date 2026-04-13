@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { ipcInvoke } from '../lib/ipc';
 import { useEmailStore } from '../stores/emailStore';
 import { ProviderHelpPanel } from './ProviderHelpPanel';
+import { OAuthSignInButton, type OAuthSignInResult } from './OAuthSignInButton';
 import styles from './OnboardingScreen.module.css';
 
 interface OnboardingScreenProps {
@@ -43,6 +44,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
     const [errorKey, setErrorKey] = useState(0);
     const addAccount = useEmailStore(s => s.addAccount);
     const errorRef = useRef(0);
+    const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
 
     // Clear sensitive state on unmount
     useEffect(() => {
@@ -124,6 +126,45 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleOAuthSuccess = async (result: OAuthSignInResult) => {
+        // Microsoft tenant classification vs. user's preset choice — warn if mismatched.
+        // Gmail flows do not carry a classifiedProvider so this block is a no-op.
+        if (result.classifiedProvider && selectedPreset) {
+            const pickedBusiness = selectedPreset.id === 'outlook-business';
+            const pickedPersonal = selectedPreset.id === 'outlook-personal';
+            const gotBusiness = result.classifiedProvider === 'microsoft_business';
+            const gotPersonal = result.classifiedProvider === 'microsoft_personal';
+            if (pickedPersonal && gotBusiness) {
+                setMismatchWarning(t('oauth.mismatch.personalSelectedBusinessDetected'));
+            } else if (pickedBusiness && gotPersonal) {
+                setMismatchWarning(t('oauth.mismatch.businessSelectedPersonalDetected'));
+            }
+        }
+        // Refresh accounts list so the newly-inserted OAuth account appears.
+        const list = await ipcInvoke<Array<{
+            id: string;
+            email: string;
+            provider: string;
+            display_name: string | null;
+            imap_host: string | null;
+            imap_port: number | null;
+            smtp_host: string | null;
+            smtp_port: number | null;
+            signature_html: string | null;
+            auth_type?: 'password' | 'oauth';
+            auth_state?: 'ok' | 'recommended_reauth' | 'reauth_required';
+        }>>('accounts:list');
+        const inserted = Array.isArray(list) ? list.find(a => a.id === result.accountId) : null;
+        if (inserted) {
+            addAccount(inserted);
+        }
+        onAccountAdded();
+    };
+
+    const handleOAuthError = (err: string) => {
+        showError(t('oauth.reauth.failed') + (err ? `: ${err}` : ''));
     };
 
     const handleCredentialsNext = () => {
@@ -233,22 +274,34 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
 
                         {selectedPreset.authModel === 'oauth2-required' ? (
                             <>
-                                {selectedPreset.comingSoonMessageKey && (
-                                    <div
-                                        className={styles['ob-coming-soon-message']}
-                                        role="status"
-                                        aria-live="polite"
-                                    >
-                                        {t(selectedPreset.comingSoonMessageKey)}
+                                {error && (
+                                    <div key={errorKey} className={styles['ob-error']} role="alert">
+                                        {error}
                                     </div>
                                 )}
+                                {mismatchWarning && (
+                                    <div className={styles['ob-error']} role="alert">
+                                        {mismatchWarning}
+                                    </div>
+                                )}
+                                <div
+                                    className={styles['ob-oauth-wrap']}
+                                    role="status"
+                                    aria-live="polite"
+                                >
+                                    <OAuthSignInButton
+                                        provider="microsoft"
+                                        onSuccess={handleOAuthSuccess}
+                                        onError={handleOAuthError}
+                                    />
+                                </div>
                                 <div className={styles['ob-actions']}>
                                     <button className={styles['ob-secondary-btn']} onClick={() => setStep('provider')}>
                                         <ChevronLeft size={16} />
                                         <span>{t('onboarding.back')}</span>
                                     </button>
                                     <button
-                                        className={`${styles['ob-primary-btn']} ${styles['ob-shimmer-btn']}`}
+                                        className={styles['ob-secondary-btn']}
                                         onClick={() => {
                                             const customPreset = PROVIDER_PRESETS.find(p => p.id === 'custom');
                                             if (!customPreset) return;
@@ -268,6 +321,21 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onAccountAdd
                                     <div key={errorKey} className={styles['ob-error']} role="alert">
                                         {error}
                                     </div>
+                                )}
+
+                                {selectedPreset.id === 'gmail' && (
+                                    <>
+                                        <div className={styles['ob-oauth-wrap']}>
+                                            <OAuthSignInButton
+                                                provider="google"
+                                                onSuccess={handleOAuthSuccess}
+                                                onError={handleOAuthError}
+                                            />
+                                        </div>
+                                        <div className={styles['ob-oauth-divider']} role="separator">
+                                            <span>{t('oauth.divider.orUseAppPassword')}</span>
+                                        </div>
+                                    </>
                                 )}
 
                                 <div className={styles['ob-form-group']}>
