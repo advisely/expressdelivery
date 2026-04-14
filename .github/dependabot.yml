@@ -1,0 +1,66 @@
+# Dependabot config — https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Dependabot alerts (passive CVE notifications) must ALSO be enabled
+# separately at: Settings → Code security → Dependabot alerts.
+# This file only controls automated dependency version update PRs.
+
+version: 2
+
+updates:
+  # npm dependencies (root package.json)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: chore(deps)
+      prefix-development: chore(deps-dev)
+      include: scope
+    # Group minor + patch bumps into a single PR per week to avoid PR spam.
+    # Major bumps get individual PRs so they can be reviewed + tested in
+    # isolation (especially Electron / better-sqlite3 which have ABI impact).
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+        # Keep Electron and its ABI-sensitive neighbours out of the group so
+        # each bump gets the attention it deserves — better-sqlite3 rebuild,
+        # NODE_MODULE_VERSION verification, clean-build script re-run.
+        exclude-patterns:
+          - electron
+          - electron-builder
+          - electron-updater
+          - better-sqlite3
+          - "@azure/msal-node"
+    ignore:
+      # Pin Electron majors by hand — a major bump requires a clean-build
+      # dry run, ABI verification for better-sqlite3, and release notes.
+      # Let Dependabot surface minor/patch via the excluded-but-not-ignored
+      # pattern above.
+      - dependency-name: electron
+        update-types:
+          - version-update:semver-major
+
+  # GitHub Actions pinned SHAs
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci(deps)
+      include: scope
