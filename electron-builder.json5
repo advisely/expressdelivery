@@ -33,6 +33,13 @@
         "arch": [
           "x64"
         ]
+      },
+      {
+        // Portable ZIP — extract anywhere, run ExpressDelivery.exe, no install
+        "target": "zip",
+        "arch": [
+          "x64"
+        ]
       }
     ],
     "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
