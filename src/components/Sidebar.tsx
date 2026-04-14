@@ -60,7 +60,13 @@ const FOLDER_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#
 
 interface SidebarProps {
   onCompose: () => void;
-  onSettings: () => void;
+  /**
+   * Open the Settings modal. When `accountId` is supplied, the caller is
+   * deep-linking to the edit form for that account (used by the reauth
+   * CTA so the user lands on the account they need to fix, not the
+   * last-visited tab).
+   */
+  onSettings: (opts?: { accountId?: string }) => void;
   onToast?: (message: string, undo?: () => void, type?: ToastType, confirm?: { label: string; action: () => void }) => void;
 }
 
@@ -712,7 +718,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowAccountPicker(false);
-                        onSettings();
+                        onSettings({ accountId: acc.id });
                       }}
                       title={t('oauth.reauth.contextMenuItem')}
                       aria-label={t('oauth.reauth.contextMenuItem')}
@@ -1248,7 +1254,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             }}
           />
         )}
-        <button className={styles['nav-item']} onClick={onSettings} title={sidebarCollapsed ? t('sidebar.settings') : undefined}>
+        <button className={styles['nav-item']} onClick={() => onSettings()} title={sidebarCollapsed ? t('sidebar.settings') : undefined}>
           <Settings size={18} className={styles['nav-icon']} />
           {!sidebarCollapsed && <span className={styles['nav-label']}>{t('sidebar.settings')}</span>}
           {!sidebarCollapsed && appVersion && <span className={styles['version-label']}>v{appVersion}</span>}

@@ -66,10 +66,10 @@ vi.mock('lucide-react', () => ({
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
 
-function renderSettings(onClose = () => { }) {
+function renderSettings(onClose = () => { }, deepLink?: { accountId?: string }) {
     return render(
         <ThemeProvider>
-            <SettingsModal onClose={onClose} />
+            <SettingsModal onClose={onClose} deepLink={deepLink} />
         </ThemeProvider>
     );
 }
@@ -912,6 +912,58 @@ describe('SettingsModal Integration Tests', () => {
                 expect(call).toBeDefined();
                 expect(call![1]).toEqual({ accountId: 'acc-oauth' });
             });
+        });
+
+        it('deepLink={ accountId } opens the edit form for that account on mount', async () => {
+            // v1.17.1 polish: Sidebar "Sign in again" CTA deep-links here
+            // so the user lands on the right account edit form instead of
+            // the last-visited sub-tab.
+            useEmailStore.setState({
+                accounts: [
+                    {
+                        id: 'acc-primary',
+                        email: 'primary@example.com',
+                        provider: 'custom',
+                        display_name: 'Primary',
+                        imap_host: null, imap_port: null,
+                        smtp_host: null, smtp_port: null,
+                        signature_html: null,
+                        auth_type: 'password',
+                        auth_state: 'ok',
+                    },
+                    {
+                        id: 'acc-target',
+                        email: 'target@gmail.com',
+                        provider: 'gmail',
+                        display_name: 'Target',
+                        imap_host: 'imap.gmail.com', imap_port: 993,
+                        smtp_host: 'smtp.gmail.com', smtp_port: 465,
+                        signature_html: null,
+                        auth_type: 'oauth',
+                        auth_state: 'reauth_required',
+                    },
+                ],
+            });
+
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:get-state') return { state: 'reauth_required' };
+                return null;
+            });
+
+            renderSettings(() => { }, { accountId: 'acc-target' });
+
+            // The reauth banner only renders inside the edit form for the
+            // target account. Its presence confirms both: (a) the modal
+            // navigated to Email → Accounts (otherwise the edit form is
+            // not mounted), and (b) enterEditMode was called with the
+            // right account (otherwise editingAccountId is null and no
+            // banner renders).
+            await waitFor(() => {
+                expect(screen.getByText('oauth.reauth.bannerTitle')).toBeInTheDocument();
+            });
+            // Signed-in-via readout present confirms we're in the edit
+            // form for target@gmail.com (oauth), not primary (password).
+            expect(screen.getByTestId('signed-in-via')).toBeInTheDocument();
         });
     });
 });

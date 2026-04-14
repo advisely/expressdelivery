@@ -618,10 +618,8 @@
       "orUseAppPassword": "oder ein App-Passwort verwenden"
     },
     "mismatch": {
-      "personalSelectedBusinessDetected": "Sie haben Outlook.com (Privat) ausgewählt, sich aber mit einem Geschäfts- oder Schulkonto angemeldet. Trotzdem fortfahren oder abbrechen und stattdessen Microsoft 365 (Geschäft/Schule) wählen.",
-      "businessSelectedPersonalDetected": "Sie haben Microsoft 365 (Geschäft/Schule) ausgewählt, sich aber mit einem persönlichen Outlook.com-Konto angemeldet. Trotzdem fortfahren oder abbrechen und stattdessen Outlook.com (Privat) wählen.",
-      "cancel": "Abbrechen",
-      "proceedAnyway": "Trotzdem fortfahren"
+      "personalSelectedBusinessDetected": "Sie haben Outlook.com (Privat) ausgewählt, sich aber mit einem Geschäfts- oder Schulkonto angemeldet. Das Konto wurde hinzugefügt — wenn Sie lieber die Voreinstellung „Privat“ verwenden möchten, entfernen Sie es und fügen Sie es erneut hinzu.",
+      "businessSelectedPersonalDetected": "Sie haben Microsoft 365 (Geschäft/Schule) ausgewählt, sich aber mit einem persönlichen Outlook.com-Konto angemeldet. Das Konto wurde hinzugefügt — wenn Sie lieber die Voreinstellung „Geschäft/Schule“ verwenden möchten, entfernen Sie es und fügen Sie es erneut hinzu."
     },
     "reauth": {
       "bannerTitle": "Erneut anmelden, damit dieses Konto weiterhin funktioniert",

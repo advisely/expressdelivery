@@ -618,10 +618,8 @@
       "orUseAppPassword": "or use an app password"
     },
     "mismatch": {
-      "personalSelectedBusinessDetected": "You selected Outlook.com (Personal) but signed in with a work or school account. Continue anyway, or cancel and pick Microsoft 365 (Work/School) instead.",
-      "businessSelectedPersonalDetected": "You selected Microsoft 365 (Work/School) but signed in with a personal Outlook.com account. Continue anyway, or cancel and pick Outlook.com (Personal) instead.",
-      "cancel": "Cancel",
-      "proceedAnyway": "Proceed anyway"
+      "personalSelectedBusinessDetected": "You selected Outlook.com (Personal) but signed in with a work or school account. The account was added — if you want the Personal preset instead, remove it and add again.",
+      "businessSelectedPersonalDetected": "You selected Microsoft 365 (Work/School) but signed in with a personal Outlook.com account. The account was added — if you want the Work/School preset instead, remove it and add again."
     },
     "reauth": {
       "bannerTitle": "Sign in again to keep this account working",

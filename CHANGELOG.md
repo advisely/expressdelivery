@@ -9,6 +9,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.17.1] - 2026-04-13
+
+Phase 17.1 — polish follow-up to the v1.17.0 OAuth2 landing. Wires the three items deferred from Phase 2 execution: a Playwright seed hook so the Sidebar reauth badge has real E2E coverage, deep-link from the Sidebar "Sign in again" CTA to the correct account's edit form in Settings, and dead-key cleanup in the OAuth mismatch warning. Also widens the rateLimiter test refill window to eliminate a pre-existing Windows CI flake that was unrelated to Phase 2 but blocking merges.
+
+### Added
+- **E2E seed hook**: `ELECTRON_USER_DATA_DIR` env var now actually overrides the Electron userData path (was declared in the Playwright fixture but never consumed). Pairs with a new `EXPRESSDELIVERY_TEST_SEED_REAUTH` env var gated on `NODE_ENV=test` that inserts a synthetic Gmail OAuth account with a caller-supplied `auth_state` after `initDatabase()`. Enables the previously-skipped Console Health test "sidebar: reauth badge renders for an account in reauth_required state" — now asserts the red badge is visible via `page.getByLabel(/sign.?in.?(needed|required|again)/i)`.
+- **SettingsModal `deepLink` prop**: new `{ accountId?: string }` prop that, when supplied on mount, navigates the modal to Email → Accounts and calls `enterEditMode(account)` for the target account. Wired from `App.tsx` via a new `settingsDeepLink` state, fed by a new `onSettings(opts)` Sidebar prop signature. One-shot useEffect keyed on `deepLink?.accountId` so subsequent tab switches are not hijacked.
+- New SettingsModal test: `deepLink={ accountId } opens the edit form for that account on mount` asserts the reauth banner and `signed-in-via` readout both appear inside the target account's edit form without any prior click navigation.
+
+### Changed
+- **Sidebar "Sign in again" CTA** now deep-links to the account's edit form. Previously the CTA called `onSettings()` which opened SettingsModal on whatever sub-tab was last visited; now it calls `onSettings({ accountId: acc.id })` so the user lands directly on the form they need to fix. The nav-item Settings button (no context) still calls `onSettings()` with no args.
+- `SidebarProps.onSettings` signature: `() => void` → `(opts?: { accountId?: string }) => void`. Backwards-compatible because the arg is optional.
+- **OAuth mismatch warning copy** simplified in all 4 locales (en/fr/es/de). Removed the deferred `oauth.mismatch.cancel` and `oauth.mismatch.proceedAnyway` keys — they were populated in v1.17.0 based on a pre-implementation assumption about the mismatch UX that did not materialize (the warning is a status banner, not a dialog with buttons). The warning text now says "the account was added — remove and re-add if you want the other preset" instead of "continue or cancel".
+
+### Fixed
+- **Pre-existing Windows CI flake** in `electron/rateLimiter.test.ts`: `setTimeout(r, 20)` was insufficient for Windows' ~15ms timer granularity — a 30ms actual wait with `rate=100` gives 3 refilled tokens (floored to the 2-token cap) under ideal conditions, but suite-level timing drift could leave only 1.5 tokens (floored to 1) causing the second consumption assertion to fail. Widened to 60ms so the bucket refills 6 tokens (capped to 2) with comfortable margin even under drift. The test was originally added in v1.14.0 (Phase 14); not related to Phase 2 but surfaced on PR #2's Windows quality-gate.
+
+### Removed
+- Dead `tests/e2e/fixtures/seed-database.ts` helper — was declared in v1.14.0 but never imported anywhere. Replaced by the env-var seed hook in `electron/main.ts` which is schema-drift-proof (runs after `initDatabase()` so the real production schema is in place).
+
+### Test count
+- 1002 vitest tests across 45 files (+1 net: new SettingsModal `deepLink` test, flake fix did not add a new test)
+- 8 Console Health E2E tests enabled (was 7 + 1 skipped)
+
+### Notes
+- No schema changes, no new dependencies, no breaking API changes. Safe patch release.
+- v1.17.1 does not require re-running the OAuth client registration or rotating secrets — same `VITE_OAUTH_*` env vars as v1.17.0.
+
+---
+
 ## [1.17.0] - 2026-04-13
 
 Phase 2 — OAuth2 sign-in for Gmail, Outlook.com (Personal), and Microsoft 365 (Work/School). Replaces the Phase 1 "coming soon" gate on Outlook presets with a live, working OAuth flow built on RFC 8252 loopback (Google) and MSAL (Microsoft), and adds a Microsoft Graph send path for personal Outlook.com accounts so they keep working after Microsoft removes Basic Auth SMTP on April 30, 2026.

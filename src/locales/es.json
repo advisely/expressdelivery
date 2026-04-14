@@ -618,10 +618,8 @@
       "orUseAppPassword": "o use una contraseña de aplicación"
     },
     "mismatch": {
-      "personalSelectedBusinessDetected": "Seleccionó Outlook.com (Personal) pero inició sesión con una cuenta profesional o educativa. Continúe de todas formas o cancele y elija Microsoft 365 (Trabajo/Escuela) en su lugar.",
-      "businessSelectedPersonalDetected": "Seleccionó Microsoft 365 (Trabajo/Escuela) pero inició sesión con una cuenta personal de Outlook.com. Continúe de todas formas o cancele y elija Outlook.com (Personal) en su lugar.",
-      "cancel": "Cancelar",
-      "proceedAnyway": "Continuar de todas formas"
+      "personalSelectedBusinessDetected": "Seleccionó Outlook.com (Personal) pero inició sesión con una cuenta profesional o educativa. La cuenta se ha añadido — si prefiere el preajuste Personal, elimínela y vuelva a añadirla.",
+      "businessSelectedPersonalDetected": "Seleccionó Microsoft 365 (Trabajo/Escuela) pero inició sesión con una cuenta personal de Outlook.com. La cuenta se ha añadido — si prefiere el preajuste Trabajo/Escuela, elimínela y vuelva a añadirla."
     },
     "reauth": {
       "bannerTitle": "Inicie sesión de nuevo para mantener esta cuenta operativa",
