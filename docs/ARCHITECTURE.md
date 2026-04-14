@@ -1,7 +1,7 @@
 # ExpressDelivery — System Architecture
 
 Anti-loop reference and architecture guide for contributors and AI agents.
-Last updated: 2026-03-22 (v1.15.4).
+Last updated: 2026-04-13 (v1.17.1, Phase 17.1 — OAuth2 foundation + polish).
 
 ---
 
@@ -22,7 +22,7 @@ Last updated: 2026-03-22 (v1.15.4).
 
 ## 1. System Overview
 
-ExpressDelivery is an Electron 41 desktop email client built with React 19 and TypeScript 5.9 in strict mode. It speaks IMAP (via IMAPFlow) and SMTP (via Nodemailer), stores all state in a local SQLite database (better-sqlite3, WAL mode, FTS5 full-text search), and exposes an MCP (Model Context Protocol) server over SSE so that external AI agents can read, search, send, and categorize email. The UI is a three-pane React SPA rendered in the Chromium process; the main process (Node.js) owns all I/O and exposes approximately 107 typed IPC handlers through a sandboxed preload bridge. Security properties include bearer-token MCP auth, sandboxed iframes for HTML email, DOMPurify sanitization, safeStorage encryption for credentials, CRLF injection prevention, and a channel allowlist on the preload bridge.
+ExpressDelivery is an Electron 41 desktop email client built with React 19 and TypeScript 5.9 in strict mode. It speaks IMAP (via IMAPFlow, XOAUTH2-capable as of Phase 2), SMTP (via Nodemailer, XOAUTH2-capable), and Microsoft Graph (for personal Outlook.com accounts where Basic Auth SMTP is being removed April 30, 2026). All state lives in a local SQLite database (better-sqlite3, WAL mode, FTS5 full-text search, schema v17). The app exposes an MCP (Model Context Protocol) server over SSE so external AI agents can read, search, send, and categorize email. The UI is a three-pane React SPA rendered in the Chromium process; the main process (Node.js) owns all I/O and exposes approximately 116 typed IPC handlers through a sandboxed preload bridge (including 5 new `auth:*` channels for the OAuth2 flow). Security properties include RFC 8252 loopback redirect + PKCE S256 for Google OAuth, MSAL-managed OAuth for Microsoft, safeStorage-encrypted OAuth tokens in a dedicated `oauth_credentials` table, bearer-token MCP auth, sandboxed iframes for HTML email, DOMPurify sanitization, CRLF injection prevention, and a channel allowlist on the preload bridge.
 
 ---
 
@@ -31,19 +31,27 @@ ExpressDelivery is an Electron 41 desktop email client built with React 19 and T
 ```
 Electron Main Process (Node.js / ABI 145)
 |
-+-- electron/main.ts         ~107 IPC handlers, window, tray, crash handler (frameless, no menu)
-+-- electron/db.ts           SQLite via better-sqlite3 (WAL, foreign keys, FTS5, 12 migrations)
-+-- electron/imap.ts         Per-account AccountSyncController (connect, IDLE, sync, withImapTimeout, NOOP heartbeat, infinite reconnect with backoff+jitter, on-demand body)
-+-- electron/smtp.ts         Nodemailer (TLS/STARTTLS, CC/BCC, attachments, CRLF-safe)
++-- electron/main.ts         ~116 IPC handlers, window, tray, crash handler (frameless, no menu)
++-- electron/db.ts           SQLite via better-sqlite3 (WAL, foreign keys, FTS5, 17 migrations)
++-- electron/imap.ts         Per-account AccountSyncController (connect, OAuth2 XOAUTH2 + on-401 retry, sync, withImapTimeout, NOOP heartbeat, infinite reconnect with backoff+jitter, on-demand body)
++-- electron/smtp.ts         Nodemailer (TLS/STARTTLS, XOAUTH2 auth arg, CC/BCC, attachments, CRLF-safe, sendEmailWithOAuthRetry)
++-- electron/sendMail.ts     Send dispatcher — routes by oauth_credentials.provider to smtp XOAUTH2, smtp password, or Graph
++-- electron/graphSend.ts    Microsoft Graph POST /me/sendMail (for personal Outlook.com, Basic Auth SMTP kill April 2026)
++-- electron/auth/tokenManager.ts  AuthTokenManager singleton — JIT pre-flight refresh, per-account dedup mutex, error classification (PermanentAuthError/TransientAuthError)
++-- electron/auth/ipcHandlers.ts   5 auth:* IPC channels — start-oauth-flow, start-reauth-flow, cancel-flow, flow-status, get-state
++-- electron/auth/accountRevoke.ts Best-effort refresh_token revocation on accounts:remove
++-- electron/oauth/clientConfig.ts Lazy getters for VITE_OAUTH_GOOGLE_* and VITE_OAUTH_MICROSOFT_* (build-time injection)
++-- electron/oauth/google.ts      RFC 8252 loopback server + PKCE S256 + state CSRF (hand-rolled)
++-- electron/oauth/microsoft.ts   @azure/msal-node wrapper + id_token.tid classification (personal vs business)
 +-- electron/mcpServer.ts    Express 5 SSE server (multi-client Map, bearer auth, lazy init)
 +-- electron/mcpTools.ts     8 MCP tool handlers — buildToolRegistry() returns Map<string, ToolDef>
 +-- electron/scheduler.ts    30s polling (snooze wake, scheduled sends, reminder notifications)
-+-- electron/crypto.ts       safeStorage encryption/decryption wrapper
-+-- electron/menu.ts         Application menu bar builder (File/Edit/View/Message/Window/Help)
++-- electron/crypto.ts       safeStorage encryption/decryption wrapper (encryptData/decryptData)
++-- electron/shellOpen.ts    shell:open-external IPC with exact-URL allowlist (Phase 1)
 +-- electron/ruleEngine.ts   Mail rule matching and actions
 +-- electron/spamFilter.ts   Bayesian spam classifier (tokenize, train, classify)
 +-- electron/openRouterClient.ts  OpenRouter LLM API client (15s timeout, prompt sanitization)
-+-- electron/updater.ts      electron-updater wrapper (autoDownload: false)
++-- electron/updater.ts      electron-updater wrapper (autoDownload: false) + .expressdelivery file-based path
 +-- electron/emailExport.ts  EML single + MBOX folder export
 +-- electron/emailImport.ts  EML/MBOX import (1000 msg cap)
 +-- electron/contactPortability.ts  vCard 3.0 + CSV import/export
@@ -248,7 +256,7 @@ All FTS5 queries pass through `sanitizeFts5Query()` in `electron/utils.ts` befor
 
 ### 4.3 Migration System
 
-`setupSchema()` in `electron/db.ts` applies up to 12 schema migrations (as of v1.10.0). The migration runner checks the current `schema_version` in the `settings` table and short-circuits at `CURRENT_SCHEMA_VERSION` so already-migrated databases skip all processing. Each migration uses `IF NOT EXISTS` guards or column presence checks to be idempotent.
+`setupSchema()` in `electron/db.ts` applies up to 17 schema migrations (as of v1.17.0). The migration runner checks the current `schema_version` in the `settings` table and short-circuits at `CURRENT_SCHEMA_VERSION` so already-migrated databases skip all processing. Each migration uses `IF NOT EXISTS` guards or column presence checks to be idempotent. Migrations 16 + 17 (Phase 2) add the `oauth_credentials` table, `accounts.auth_type`, `accounts.auth_state`, and flip legacy `provider='outlook'` accounts to `auth_state='recommended_reauth'` without touching stored passwords.
 
 ---
 

@@ -579,7 +579,12 @@ export class ImapEngine {
             await this.connectAccountToController(ctrl);
             logDebug(`[IMAP:${accountId}] Connected in ${(performance.now() - startTime).toFixed(0)}ms`);
 
-            // List and sync folders; inbox first, then other folders non-blocking
+            // List folders and run the inbox initial sync in the foreground —
+            // the inbox is the only folder the user sees on first render, so
+            // we block until it's populated. Everything else (drafts, sent,
+            // archive, labels, and Yahoo's ~80 system folders) is deferred
+            // to a background task so startAccount can complete promptly
+            // and heartbeat can start keeping the connection alive.
             const folders = await this.listAndSyncFolders(accountId);
             logDebug(`[IMAP:${accountId}] Found ${folders.length} folders`);
             const inbox = folders.find(f => f.type === 'inbox');
@@ -587,19 +592,45 @@ export class ImapEngine {
                 const inboxSynced = await this.syncNewEmails(accountId, inbox.path.replace(/^\//, ''));
                 logDebug(`[IMAP:${accountId}] Inbox initial sync: ${inboxSynced} new emails`);
             }
-            for (const folder of folders) {
-                if (folder.type === 'inbox') continue;
-                try {
-                    await this.syncNewEmails(accountId, folder.path.replace(/^\//, ''));
-                } catch { /* non-inbox sync errors are non-blocking */ }
-            }
 
+            // Transition to connected BEFORE the non-inbox folder sync so:
+            //  1. UI sees a stable connected state (not stuck in "connecting")
+            //  2. Heartbeat starts NOOP-ing every 120s — prevents Yahoo from
+            //     dropping the idle connection during the background sync
+            //  3. The sync timers tick normally for ongoing inbox sync
+            //
+            // Previous behaviour awaited every non-inbox folder sequentially
+            // inside the try block. For Yahoo accounts with ~80 system
+            // folders that meant startAccount blocked for many minutes,
+            // leaving status='connecting', heartbeat not started, and the
+            // connection dropping → scheduleReconnect loop (observed bug).
             ctrl.resetOnSuccessfulConnect();
             ctrl.status = 'connected';
             ctrl.startHeartbeat();
             ctrl.startSyncTimers();
             ctrl.emitStatus();
             logDebug(`[IMAP:${accountId}] startAccount complete — timers started (inbox: ${15}s, folders: ${60}s, heartbeat: 120s)`);
+
+            // Background non-inbox initial sync. Errors are logged but never
+            // propagated — the normal folder sync timer (60s default) will
+            // retry any failures on the next tick. We intentionally run this
+            // AFTER the status transition so (a) the UI unblocks, (b) the
+            // heartbeat is protecting the connection, and (c) the sync timers
+            // can start their own work in parallel. IMAPFlow serialises
+            // concurrent mailboxOpen/fetch operations internally, so no lock
+            // contention.
+            void (async () => {
+                for (const folder of folders) {
+                    if (folder.type === 'inbox') continue;
+                    try {
+                        await this.syncNewEmails(accountId, folder.path.replace(/^\//, ''));
+                    } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        logDebug(`[IMAP:${accountId}] Background sync failed for ${folder.path}: ${msg}`);
+                    }
+                }
+                logDebug(`[IMAP:${accountId}] Background non-inbox sync complete (${folders.length - 1} folders)`);
+            })();
         } catch (err) {
             ctrl.status = 'error';
             ctrl.emitStatus();

@@ -1,6 +1,6 @@
 # ExpressDelivery - Package Registry
 
-Last updated: 2026-03-18
+Last updated: 2026-04-13 (v1.17.1, Phase 17.1 — OAuth2 for Gmail + Microsoft)
 
 ## Production Dependencies
 
@@ -32,7 +32,8 @@ Last updated: 2026-03-18
 | `i18next` | ^25.8.13 | Current | i18n core |
 | `mailparser` | ^3.9.3 | Current | MIME email parsing |
 | `electron-updater` | ^6.8.3 | Current | Auto-update from GitHub Releases |
-| `grammy` | ^1.41.1 | **New** | Telegram Bot API client (agentic channel) |
+| `grammy` | ^1.41.1 | Current | Telegram Bot API client (agentic channel) |
+| `@azure/msal-node` | ^5.1.2 | **New (v1.17.0)** | Microsoft OAuth2 — `PublicClientApplication` + `acquireTokenInteractive` / `acquireTokenByRefreshToken`. Used for Outlook.com Personal and Microsoft 365 Work/School sign-in. Handles loopback redirect internally. |
 
 ## Dev Dependencies
 
@@ -47,7 +48,8 @@ Last updated: 2026-03-18
 | `vite-plugin-electron-renderer` | ^0.14.6 | Current | Node.js polyfills for renderer |
 | `vitest` | ^4.0.18 | Current | Unit test runner |
 | `@vitest/coverage-v8` | ^4.0.18 | Current | Code coverage reporting |
-| `@playwright/test` | ^1.58.2 | **New** | E2E test runner (Electron integration) |
+| `@playwright/test` | ^1.58.2 | Current | E2E test runner (Electron integration) — 8 Console Health tests + reauth badge seed hook |
+| `nock` | ^14.0.12 | **New (v1.17.0)** | HTTP mocking for OAuth protocol tests — Google refresh/revoke + Graph sendMail. Intercepts native `fetch` via Node 18+ undici hook. |
 | `jsdom` | ^28.1.0 | Current | DOM environment for vitest |
 | `@testing-library/react` | ^16.3.2 | Current | React component testing |
 | `@testing-library/jest-dom` | ^6.9.1 | Current | DOM assertion matchers |
