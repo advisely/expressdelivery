@@ -12,10 +12,19 @@ const __dirname = path.dirname(__filename);
 type TestFixtures = {
   electronApp: ElectronApplication;
   page: Page;
+  /**
+   * When set, main.ts inserts a synthetic oauth account with this auth_state
+   * after initDatabase() runs. Test isolation is guaranteed by the fresh
+   * ELECTRON_USER_DATA_DIR per test run. Only 'reauth_required' and
+   * 'recommended_reauth' are meaningful — any other value is a no-op.
+   */
+  seedReauthAccount: string | undefined;
 };
 
 export const test = base.extend<TestFixtures>({
-  electronApp: async ({}, use) => {
+  seedReauthAccount: [undefined, { option: true }],
+
+  electronApp: async ({ seedReauthAccount }, use) => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-e2e-'));
 
     const appArgs = [path.join(__dirname, '../../../dist-electron/main.js')];
@@ -24,13 +33,18 @@ export const test = base.extend<TestFixtures>({
       appArgs.unshift('--no-sandbox', '--disable-gpu');
     }
 
+    const launchEnv: Record<string, string | undefined> = {
+      ...process.env,
+      ELECTRON_USER_DATA_DIR: userDataDir,
+      NODE_ENV: 'test',
+    };
+    if (seedReauthAccount) {
+      launchEnv.EXPRESSDELIVERY_TEST_SEED_REAUTH = seedReauthAccount;
+    }
+
     const electronApp = await electron.launch({
       args: appArgs,
-      env: {
-        ...process.env,
-        ELECTRON_USER_DATA_DIR: userDataDir,
-        NODE_ENV: 'test',
-      },
+      env: launchEnv,
     });
 
     // Capture process output for crash diagnostics

@@ -618,10 +618,8 @@
       "orUseAppPassword": "ou utiliser un mot de passe d'application"
     },
     "mismatch": {
-      "personalSelectedBusinessDetected": "Vous avez sélectionné Outlook.com (Personnel) mais vous vous êtes connecté avec un compte professionnel ou scolaire. Continuez quand même, ou annulez et choisissez plutôt Microsoft 365 (Travail/École).",
-      "businessSelectedPersonalDetected": "Vous avez sélectionné Microsoft 365 (Travail/École) mais vous vous êtes connecté avec un compte personnel Outlook.com. Continuez quand même, ou annulez et choisissez plutôt Outlook.com (Personnel).",
-      "cancel": "Annuler",
-      "proceedAnyway": "Continuer quand même"
+      "personalSelectedBusinessDetected": "Vous avez sélectionné Outlook.com (Personnel) mais vous vous êtes connecté avec un compte professionnel ou scolaire. Le compte a été ajouté — si vous préférez le préréglage Personnel, supprimez-le et ajoutez-le à nouveau.",
+      "businessSelectedPersonalDetected": "Vous avez sélectionné Microsoft 365 (Travail/École) mais vous vous êtes connecté avec un compte personnel Outlook.com. Le compte a été ajouté — si vous préférez le préréglage Travail/École, supprimez-le et ajoutez-le à nouveau."
     },
     "reauth": {
       "bannerTitle": "Reconnectez-vous pour que ce compte continue de fonctionner",

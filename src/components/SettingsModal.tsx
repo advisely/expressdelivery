@@ -52,9 +52,16 @@ type TestStatus = 'idle' | 'testing' | 'passed' | 'failed';
 
 interface SettingsModalProps {
     onClose: () => void;
+    /**
+     * Optional deep-link hint. When set to `{ accountId }`, the modal
+     * opens directly on the Email → Accounts sub-tab and enters edit mode
+     * for that account. Used by the Sidebar "Sign in again" CTA so the
+     * user lands on the right form instead of the last-visited tab.
+     */
+    deepLink?: { accountId?: string };
 }
 
-export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
+export const SettingsModal: FC<SettingsModalProps> = ({ onClose, deepLink }) => {
     const [isAddingAccount, setIsAddingAccount] = useState(false);
     const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
     // Preserves the stored provider value (e.g., legacy 'outlook') on the
@@ -312,6 +319,25 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose }) => {
         });
         return () => { cancelled = true; };
     }, [activeTab, mcpLoaded]);
+
+    // Deep-link handler: when opened with `{ accountId }`, navigate to
+    // Email → Accounts and enter edit mode for that account. One-shot
+    // effect keyed on deepLink so subsequent tab switches are not hijacked.
+    useEffect(() => {
+        if (!deepLink?.accountId) return;
+        const target = accounts.find((a) => a.id === deepLink.accountId);
+        if (!target) return;
+        setActiveCategory('email');
+        setActiveSubTab('accounts');
+        setVisitedTabs((prev) => {
+            if (prev.has('accounts')) return prev;
+            const next = new Set(prev);
+            next.add('accounts');
+            return next;
+        });
+        enterEditMode(target);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [deepLink?.accountId]);
 
     const handleSaveTemplate = async () => {
         if (!editingTemplate) return;

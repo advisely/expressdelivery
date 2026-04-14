@@ -77,6 +77,7 @@ function App() {
   const { t } = useTranslation();
   const [composeState, setComposeState] = useState<ComposeState | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsDeepLink, setSettingsDeepLink] = useState<{ accountId?: string } | undefined>(undefined);
   const { accounts, setAccounts, setFolders, selectAccount, selectFolder, setSelectedEmail, selectEmail, setEmails } = useEmailStore();
   const selectedAccountId = useEmailStore(s => s.selectedAccountId);
 
@@ -488,7 +489,10 @@ function App() {
         <div className="app-body">
           <Sidebar
             onCompose={() => setComposeState({ to: '', subject: '', body: '' })}
-            onSettings={() => setIsSettingsOpen(true)}
+            onSettings={(opts) => {
+              setSettingsDeepLink(opts);
+              setIsSettingsOpen(true);
+            }}
             onToast={showToast}
           />
           <div className="main-content">
@@ -511,7 +515,13 @@ function App() {
           )}
 
           {isSettingsOpen && (
-            <SettingsModal onClose={() => setIsSettingsOpen(false)} />
+            <SettingsModal
+              onClose={() => {
+                setIsSettingsOpen(false);
+                setSettingsDeepLink(undefined);
+              }}
+              deepLink={settingsDeepLink}
+            />
           )}
         </Suspense>
 

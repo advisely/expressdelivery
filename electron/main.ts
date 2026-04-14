@@ -10,6 +10,15 @@ import { logDebug } from './logger.js';
 logDebug('--- NEW APP STARTUP ---');
 logDebug(`Platform: ${process.platform}, Arch: ${process.arch}, App Path: ${app.getAppPath()}`);
 
+// Test isolation: Playwright E2E fixture sets ELECTRON_USER_DATA_DIR to a
+// fresh tmpdir per test run so each test launches against an isolated DB
+// (instead of the default Electron userData location which persists between
+// runs and leaks state across tests).
+if (process.env.ELECTRON_USER_DATA_DIR) {
+  app.setPath('userData', process.env.ELECTRON_USER_DATA_DIR);
+  logDebug(`[TEST] Overriding userData path: ${process.env.ELECTRON_USER_DATA_DIR}`);
+}
+
 // Robust exception handler — log and try to continue (exit only for truly fatal errors)
 process.on('uncaughtException', (err) => {
   logDebug(`[UNCAUGHT EXCEPTION] ${err.message}\n${err.stack}`);
@@ -2513,6 +2522,23 @@ app.whenReady().then(() => {
   try {
     initDatabase();
     logDebug(`[PERF] DB init: ${(performance.now() - startupStart).toFixed(1)}ms`);
+    // Test-only: insert a synthetic account after schema is ready so the
+    // Playwright E2E fixture can exercise auth_state UI paths end-to-end.
+    // Gated behind NODE_ENV=test + the specific env var so it is a no-op
+    // in all production builds.
+    if (process.env.NODE_ENV === 'test' && process.env.EXPRESSDELIVERY_TEST_SEED_REAUTH) {
+      try {
+        const testDb = getDatabase();
+        const testId = crypto.randomUUID();
+        testDb.prepare(
+          `INSERT INTO accounts (id, email, provider, password_encrypted, imap_host, imap_port, smtp_host, smtp_port, display_name, auth_type, auth_state)
+           VALUES (?, ?, 'gmail', NULL, 'imap.gmail.com', 993, 'smtp.gmail.com', 587, ?, 'oauth', ?)`
+        ).run(testId, 'reauth@example.com', 'Reauth User', process.env.EXPRESSDELIVERY_TEST_SEED_REAUTH);
+        logDebug(`[TEST] Seeded reauth account ${testId.slice(0, 8)}... with state=${process.env.EXPRESSDELIVERY_TEST_SEED_REAUTH}`);
+      } catch (seedErr) {
+        logDebug(`[TEST] Seed failed: ${seedErr instanceof Error ? seedErr.message : String(seedErr)}`);
+      }
+    }
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] Database initialization failed: ${e.message}\n${e.stack}`);

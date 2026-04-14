@@ -458,22 +458,28 @@ test.describe('Console Health', () => {
     expect(errors, 'Console errors in Settings OAuth UI test').toHaveLength(0);
   });
 
-  test.skip('sidebar: reauth badge renders for an account in reauth_required state', async () => {
-    // SKIPPED: requires test data seeding (insert an account row with
-    // auth_state='reauth_required' before launch). The current Playwright
-    // fixture launches with a fresh userDataDir on every run, so there is
-    // no account row to badge.
-    //
-    // Adding a seed hook would require:
-    //   - Extending tests/e2e/fixtures/electron-app.ts to accept an
-    //     accountSeed parameter that writes to the SQLite DB before
-    //     app.whenReady() fires
-    //   - Or exposing a debug IPC channel that inserts a synthetic account
-    //
-    // Both options are larger than the Task 28 scope. The reauth badge is
-    // already covered by 4 jsdom unit tests in src/components/Sidebar
-    // .test.tsx (renders red badge for reauth_required, amber for
-    // recommended_reauth, no badge for ok, badge on active-account button).
-    // TODO(Phase 17.1): wire seed hook + flip this test to enabled.
+  test.describe('sidebar reauth badge (seeded)', () => {
+    test.use({ seedReauthAccount: 'reauth_required' });
+
+    test('sidebar: reauth badge renders for an account in reauth_required state', async ({
+      page,
+    }) => {
+      // Phase 17.1: seed hook wired via EXPRESSDELIVERY_TEST_SEED_REAUTH
+      // env var consumed by main.ts after initDatabase(). When the env var
+      // is set and NODE_ENV=test, main.ts inserts a synthetic Gmail account
+      // with auth_type='oauth' and auth_state='reauth_required' so the
+      // sidebar renders its red reauth badge on first frame.
+      //
+      // We only assert the badge is visible — the click-through flow would
+      // require opening a real browser via shell.openExternal. The click
+      // handler itself is covered by 4 jsdom unit tests in Sidebar.test.tsx.
+      await page.waitForLoadState('networkidle');
+
+      // Badge has aria-label from i18n key oauth.reauth.badge.needed which
+      // resolves to "Sign in needed" (EN). Tolerant regex in case locale
+      // fallback picks a different phrase.
+      const reauthBadge = page.getByLabel(/sign.?in.?(needed|required|again)/i).first();
+      await expect(reauthBadge).toBeVisible({ timeout: 10_000 });
+    });
   });
 });
