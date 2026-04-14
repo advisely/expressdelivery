@@ -292,18 +292,16 @@
 }
 
 .attachment-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  display: inline-flex;
+  align-items: stretch;
   border-radius: 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   font-size: 13px;
-  cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
-  max-width: 280px;
+  max-width: 320px;
+  overflow: hidden;
 }
 
 .attachment-chip:hover {
@@ -311,9 +309,52 @@
   border-color: var(--accent-color);
 }
 
-.attachment-chip:disabled {
-  opacity: 0.6;
+/* Filename click target — opens floating preview */
+.attachment-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 8px 12px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.attachment-preview-btn:hover {
+  background: rgba(var(--accent-rgb, 99 102 241), 0.08);
+}
+
+/* Download icon click target — saves to disk */
+.attachment-download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.attachment-download-btn:hover {
+  background: rgba(var(--accent-rgb, 99 102 241), 0.12);
+  color: var(--accent-color);
+}
+
+.attachment-download-btn:disabled {
+  opacity: 0.5;
   cursor: wait;
+}
+
+.attachment-download-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 .attachment-name {

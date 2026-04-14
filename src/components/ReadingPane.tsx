@@ -13,6 +13,7 @@ import { detectPhishing } from '../lib/phishingDetector';
 import type { ToastType } from '../App';
 import DateTimePicker from './DateTimePicker';
 import { MessageSourceDialog } from './MessageSourceDialog';
+import { AttachmentPreviewModal } from './AttachmentPreviewModal';
 import styles from './ReadingPane.module.css';
 
 // Track which emails the user has consented to show remote images for.
@@ -132,7 +133,18 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
     );
 
     useEffect(() => {
+        // Whitelist of origins we accept postMessage from. The sandboxed
+        // email iframe uses srcdoc so its origin is reported as 'null' by
+        // Chromium. The renderer's own origin covers dev-server and
+        // production file:// cases. Any other origin is rejected.
+        const allowedOrigins = new Set(['null', window.location.origin, '']);
         function handleMessage(e: MessageEvent) {
+            // Defence-in-depth: origin allowlist PLUS object-identity check.
+            // Object identity (`e.source === ...contentWindow`) cannot be
+            // spoofed across windows and is the authoritative check; origin
+            // match is a secondary filter to satisfy static-analysis rules
+            // and to reject messages from unrelated tabs / extensions.
+            if (!allowedOrigins.has(e.origin)) return;
             if (
                 e.source === iframeRef.current?.contentWindow &&
                 e.data?.type === 'iframe-height' &&
@@ -185,6 +197,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const setReadingPaneZoom = useThemeStore(s => s.setReadingPaneZoom);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
+    const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
     const [cidMap, setCidMap] = useState<Record<string, string>>({});
     const [remoteImagesBlocked, setRemoteImagesBlocked] = useState(true);
     const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -323,11 +336,16 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                     content: result.content,
                 });
             }
-        } catch {
-            onToast?.(t('readingPane.downloadFailed'), undefined, 'error');
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            onToast?.(`${t('readingPane.downloadFailed')}: ${msg}`, undefined, 'error');
         } finally {
             setDownloadingId(null);
         }
+    };
+
+    const handlePreviewAttachment = (att: Attachment) => {
+        setPreviewAttachment(att);
     };
 
     const refreshEmailList = async () => {
@@ -998,27 +1016,42 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                     <Paperclip size={14} className={styles['attachments-bar-icon']} />
                     <div className={styles['attachments-list']}>
                         {downloadableAttachments.map(att => (
-                            <button
+                            <div
                                 key={att.id}
                                 className={styles['attachment-chip']}
-                                onClick={() => handleDownloadAttachment(att)}
-                                disabled={downloadingId === att.id}
-                                title={`Download ${att.filename} (${formatFileSize(att.size)})`}
-                                aria-label={`Download attachment ${att.filename}`}
+                                role="group"
+                                aria-label={att.filename}
                             >
-                                <FileText size={14} />
-                                <span className={styles['attachment-name']}>{att.filename}</span>
-                                <span className={styles['attachment-size']}>{formatFileSize(att.size)}</span>
-                                {downloadingId === att.id ? (
-                                    <span className={styles['attachment-spinner']} />
-                                ) : (
-                                    <Download size={14} />
+                                <button
+                                    type="button"
+                                    className={styles['attachment-preview-btn']}
+                                    onClick={() => handlePreviewAttachment(att)}
+                                    title={t('readingPane.previewAttachment', { filename: att.filename })}
+                                    aria-label={t('readingPane.previewAttachment', { filename: att.filename })}
+                                >
+                                    <FileText size={14} />
+                                    <span className={styles['attachment-name']}>{att.filename}</span>
+                                    <span className={styles['attachment-size']}>{formatFileSize(att.size)}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles['attachment-download-btn']}
+                                    onClick={() => handleDownloadAttachment(att)}
+                                    disabled={downloadingId === att.id}
+                                    title={t('readingPane.downloadAttachment', { filename: att.filename })}
+                                    aria-label={t('readingPane.downloadAttachment', { filename: att.filename })}
+                                >
+                                    {downloadingId === att.id ? (
+                                        <span className={styles['attachment-spinner']} />
+                                    ) : (
+                                        <Download size={14} />
                                     )}
                                 </button>
-                            ))}
-                        </div>
+                            </div>
+                        ))}
                     </div>
-                )}
+                </div>
+            )}
         </div>
 
         <MessageSourceDialog
@@ -1026,6 +1059,13 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             onOpenChange={setSourceDialogOpen}
             source={emailSource}
             subject={selectedEmail.subject ?? ''}
+        />
+
+        <AttachmentPreviewModal
+            open={previewAttachment !== null}
+            onOpenChange={(open) => { if (!open) setPreviewAttachment(null); }}
+            attachment={previewAttachment}
+            onDownloadError={(msg) => onToast?.(`${t('readingPane.downloadFailed')}: ${msg}`, undefined, 'error')}
         />
         </>
     );

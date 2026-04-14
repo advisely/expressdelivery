@@ -293,14 +293,43 @@ export class AccountSyncController {
     async runFullSync(): Promise<void> {
         if (this.syncing || this.status === 'disconnected' || !this.client) return;
         this.syncing = true;
+        const tickStart = Date.now();
+        // Time budget: release ctrl.syncing mutex and yield to user actions /
+        // runInboxSync if a single tick has been running for more than 45s.
+        // Remaining folders are picked up on the next tick. Yahoo accounts
+        // with 82 folders simply take a few ticks to sweep all folders on
+        // the first round — acceptable because Yahoo's Archive / Bulk
+        // folders don't need to be fresh-to-the-minute.
+        const TICK_BUDGET_MS = 45_000;
         try {
             const db = getDatabase();
-            const allFolders = db.prepare(
-                "SELECT path, type FROM folders WHERE account_id = ? ORDER BY CASE WHEN type = 'inbox' THEN 0 ELSE 1 END"
-            ).all(this.accountId) as Array<{ path: string; type: string }>;
+            // Priority order: the user's most-accessed folders first, Archive
+            // and Other last. Archive is typically the largest folder on any
+            // account (especially Yahoo) and lives at the end of the queue so
+            // the smaller, more important folders complete within the tick
+            // budget before Archive starts.
+            const folderPriority: Record<string, number> = {
+                'inbox': 0,
+                'sent': 1,
+                'drafts': 2,
+                'trash': 3,
+                'junk': 4,
+                'flagged': 5,
+                'archive': 6,
+                'other': 7,
+            };
+            const allFolders = (db.prepare(
+                'SELECT path, type FROM folders WHERE account_id = ?'
+            ).all(this.accountId) as Array<{ path: string; type: string | null }>)
+                .map(f => ({ ...f, priority: folderPriority[f.type ?? 'other'] ?? 7 }))
+                .sort((a, b) => a.priority - b.priority || a.path.localeCompare(b.path));
             for (const f of allFolders) {
                 // Status can change to 'disconnected' during async operations (forceDisconnect)
                 if ((this.status as string) === 'disconnected') break;
+                if (Date.now() - tickStart > TICK_BUDGET_MS) {
+                    logDebug(`[IMAP:${this.accountId}] Full sync tick budget (${TICK_BUDGET_MS}ms) exhausted — yielding, remaining folders will sync on next tick`);
+                    break;
+                }
                 const mailbox = f.path.replace(/^\//, '');
                 try {
                     await withImapTimeout(
@@ -593,44 +622,26 @@ export class ImapEngine {
                 logDebug(`[IMAP:${accountId}] Inbox initial sync: ${inboxSynced} new emails`);
             }
 
-            // Transition to connected BEFORE the non-inbox folder sync so:
-            //  1. UI sees a stable connected state (not stuck in "connecting")
-            //  2. Heartbeat starts NOOP-ing every 120s — prevents Yahoo from
-            //     dropping the idle connection during the background sync
-            //  3. The sync timers tick normally for ongoing inbox sync
+            // Transition to connected immediately after inbox sync. Non-inbox
+            // folders are handled by runFullSync on its 60s timer, which uses
+            // ctrl.syncing as a per-account mutex so it never overlaps with
+            // runInboxSync. runFullSync also prioritises inbox first so the
+            // user's critical folder is always fresh.
             //
-            // Previous behaviour awaited every non-inbox folder sequentially
-            // inside the try block. For Yahoo accounts with ~80 system
-            // folders that meant startAccount blocked for many minutes,
-            // leaving status='connecting', heartbeat not started, and the
-            // connection dropping → scheduleReconnect loop (observed bug).
+            // v1.17.2 attempted to run an initial sweep of non-inbox folders
+            // in a background IIFE here. That created severe IMAPFlow mailbox
+            // lock contention on Yahoo accounts (80+ folders): the IIFE
+            // holding a lock on Archive blocked moveMessage from acquiring
+            // INBOX, so delete/move operations timed out and silently
+            // fell back to local-only updates that got undone on the next
+            // server sync. Removed in v1.17.3 — runFullSync handles the
+            // initial sweep on its own schedule with proper mutex discipline.
             ctrl.resetOnSuccessfulConnect();
             ctrl.status = 'connected';
             ctrl.startHeartbeat();
             ctrl.startSyncTimers();
             ctrl.emitStatus();
             logDebug(`[IMAP:${accountId}] startAccount complete — timers started (inbox: ${15}s, folders: ${60}s, heartbeat: 120s)`);
-
-            // Background non-inbox initial sync. Errors are logged but never
-            // propagated — the normal folder sync timer (60s default) will
-            // retry any failures on the next tick. We intentionally run this
-            // AFTER the status transition so (a) the UI unblocks, (b) the
-            // heartbeat is protecting the connection, and (c) the sync timers
-            // can start their own work in parallel. IMAPFlow serialises
-            // concurrent mailboxOpen/fetch operations internally, so no lock
-            // contention.
-            void (async () => {
-                for (const folder of folders) {
-                    if (folder.type === 'inbox') continue;
-                    try {
-                        await this.syncNewEmails(accountId, folder.path.replace(/^\//, ''));
-                    } catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        logDebug(`[IMAP:${accountId}] Background sync failed for ${folder.path}: ${msg}`);
-                    }
-                }
-                logDebug(`[IMAP:${accountId}] Background non-inbox sync complete (${folders.length - 1} folders)`);
-            })();
         } catch (err) {
             ctrl.status = 'error';
             ctrl.emitStatus();
@@ -1072,9 +1083,13 @@ export class ImapEngine {
         const client = ctrl?.client;
         if (!client) throw new Error('Account not connected');
 
+        // 30s lock acquisition budget — user-initiated move/delete needs to
+        // survive a concurrent runFullSync iteration on a large folder
+        // (Yahoo Archive can hold the lock for ~20s on initial sweep).
+        // Internal sync operations still use 10s so they fail fast.
         const lock = await withImapTimeout(
             () => client.getMailboxLock(sourceMailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${sourceMailbox})`
         );
         try {
@@ -1129,7 +1144,7 @@ export class ImapEngine {
         const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {
@@ -1159,7 +1174,7 @@ export class ImapEngine {
 
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {
@@ -1179,7 +1194,7 @@ export class ImapEngine {
 
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {
@@ -1199,7 +1214,7 @@ export class ImapEngine {
 
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {

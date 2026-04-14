@@ -9,6 +9,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.17.3] - 2026-04-14
+
+Three fixes bundled into one hotfix: a follow-up to the v1.17.2 Yahoo IMAP work that fixes delete/move getting silently dropped on Yahoo accounts, a new floating attachment preview UX (click filename to preview, click download icon to save), and a related fix for attachment downloads that were failing on Yahoo for the same root cause as delete.
+
+### Fixed
+- **Yahoo (and any high-folder-count IMAP account) "can't delete" bug.** The v1.17.2 release un-stuck Yahoo accounts from the connecting/reconnect loop, but exposed a second-order problem: the v1.17.2 background folder-sync IIFE held IMAPFlow mailbox locks for so long that user-initiated `moveMessage`, `deleteMessage`, `markAsRead`, and `downloadAttachment` calls all timed out at the 10-second `getMailboxLock` budget. `moveMessage` returned false silently, `emails:delete` IPC fell through to its local-only fallback (`UPDATE emails SET folder_id = trash`), the renderer flashed "deleted" but on the next sync tick the email reappeared because it was never moved on the server. Same root cause for the failing PDF download. Fix is three-pronged:
+  1. **Removed the v1.17.2 background IIFE entirely.** Non-inbox folders are now exclusively handled by `runFullSync` on its 60s timer, which already uses `ctrl.syncing` as a per-account mutex so it never overlaps with `runInboxSync`. The first runFullSync tick happens 60s after connect, which is well within the user's tolerance for non-critical folders to populate.
+  2. **`runFullSync` now sorts folders by priority** (`inbox > sent > drafts > trash > junk > flagged > archive > other`) and **enforces a 45s per-tick time budget**. If a single tick runs longer than 45s it releases the `ctrl.syncing` mutex and yields — remaining folders are picked up on the next tick. This caps the worst-case time the mutex is held, so user actions and `runInboxSync` always have a window to acquire it. Yahoo accounts with 82 folders take a few ticks to sweep all folders on the first round, but the priority order means the user-critical folders (Inbox, Sent, Drafts, Trash) all complete on the first tick.
+  3. **Bumped the `getMailboxLock` timeout from 10s to 30s on every user-action path** — `moveMessage`, `deleteMessage`, `markAsRead`, `markAsUnread`, `downloadAttachment`. Internal sync paths (`runInboxSync` → `syncNewEmails`) keep the 10s timeout so they fail fast on stuck connections. The 30s budget gives user actions enough headroom to wait through one in-flight folder fetch (typical Yahoo Archive iteration is ~15-25s on first sweep) without timing out.
+
+### Added
+- **Floating attachment preview** (`AttachmentPreviewModal`). Click an attachment's filename in the reading pane and a centered modal opens with an inline preview rendered from the attachment bytes:
+  - **PDF** → Chromium's built-in PDF viewer via `<iframe src={blob URL}>`
+  - **Images** (png / jpeg / gif / webp / bmp) → `<img>` with a checkered transparency background so PNG transparency is visible
+  - **Text / JSON / XML** → `<pre>` with a monospace font and word-break wrapping
+  - **Anything else** → fallback card with the file name, size, MIME type, and an explicit Download button
+  
+  Modal header shows the filename, size, a Download button (saves the same bytes that were fetched for preview, no second IMAP round-trip), and a close button. Backed by Radix Dialog with a glassmorphism overlay and reduced-motion support.
+- **Attachment chip is now two click targets** instead of one. The filename + icon area opens the preview; the download icon (right side of the chip, separated by a 1px divider) saves directly to disk. Both have distinct `aria-label`s, distinct hover states, distinct keyboard focus rings.
+- **CSP loosened for blob: in `frame-src` and `object-src`** (and `img-src`) so the PDF viewer's blob URL renders inside the iframe. Blob URLs are session-scoped and tied to the renderer's process — no remote network access added.
+
+### Changed
+- **Attachment download error messages now surface the actual error** in the toast instead of a generic "Failed to download attachment". Previously the catch block swallowed the error message — now it reads `Failed to download attachment: <actual error>` so users (and bug reports) can distinguish lock-timeout failures from network failures from on-disk write failures.
+- **`window.addEventListener('message')` in the email iframe handler** now uses an explicit origin allowlist (`['null', window.location.origin, '']`) plus the existing object-identity check (`e.source === iframeRef.current?.contentWindow`). The object-identity check is the authoritative one — it cannot be spoofed across windows — but the origin allowlist is added as defence-in-depth and to satisfy static-analysis rules. Behaviourally equivalent.
+
+### Test count
+- 1003 vitest tests across 45 files (no new tests in this hotfix — the imap.ts changes are covered by the existing 62 imapSync.test.ts cases plus manual reproduction against the Yahoo test account)
+- Lint clean, tsc clean
+
+### Notes
+- No schema changes, no new dependencies, no breaking API changes. Patch release. Safe to install over v1.17.2.
+- After installing v1.17.3 you should be able to: (a) delete Yahoo emails and have them actually disappear from the server, (b) click a PDF attachment and have it open in a floating preview without leaving the app, (c) click the download icon on any attachment chip to save it directly.
+
+---
+
 ## [1.17.2] - 2026-04-13
 
 Hotfix for a Yahoo (and any ~80-folder account) IMAP reconnect loop surfaced during v1.17.1 manual testing. Also refreshes two stale architecture docs flagged by the docs audit.
