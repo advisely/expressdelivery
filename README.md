@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/advisely/expressdelivery/releases/latest"><img src="https://img.shields.io/github/v/release/advisely/expressdelivery?style=flat-square&color=blue" alt="Latest Release" /></a>
-  <img src="https://img.shields.io/badge/tests-779%20passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1002%20passed-brightgreen?style=flat-square" alt="Tests" />
   <a href="https://github.com/advisely/expressdelivery/actions"><img src="https://img.shields.io/github/actions/workflow/status/advisely/expressdelivery/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square" alt="Platforms" />
@@ -36,7 +36,8 @@ Most email clients are either bloated, cloud-locked, or stuck in 2010. ExpressDe
 | | |
 |---|---|
 | **Multi-account** | Manage all your email accounts in one place with provider auto-detection |
-| **Full IMAP sync** | Per-account sync engine, envelope + body fetch, folder sync, IDLE push, NOOP heartbeat, timeout protection, infinite reconnect with backoff |
+| **OAuth2 sign-in** | Gmail (RFC 8252 loopback + PKCE S256), Outlook.com Personal, Microsoft 365 Work/School — one-click sign-in via system browser, JIT token refresh, in-place re-auth for legacy accounts |
+| **Full IMAP sync** | Per-account sync engine with XOAUTH2 + on-401 retry, envelope + body fetch, folder sync, IDLE push, NOOP heartbeat, timeout protection, infinite reconnect with backoff |
 | **Rich compose** | Bold, italic, underline, lists, links — powered by TipTap editor |
 | **HTML rendering** | Sandboxed iframe with DOMPurify, inline CID images, remote image blocking |
 | **Attachments** | Send (25MB/file, max 10) and receive with on-demand IMAP download |
@@ -76,7 +77,7 @@ ExpressDelivery integrates the **Model Context Protocol (MCP)** — the open sta
 | **Invoice fraud detection** | Urgency language + payment request pattern matching |
 | **Sender whitelist/blacklist** | Per-account email and domain pattern lists |
 | **Sandboxed rendering** | Email HTML in sandboxed iframe with CSP + DOMPurify |
-| **Encrypted credentials** | OS keychain (Electron safeStorage) for passwords and API keys |
+| **Encrypted credentials** | OS keychain (Electron safeStorage) for passwords, OAuth tokens, and API keys |
 | **IPC rate limiting** | Token bucket algorithm on sensitive handlers (send, train, lists) |
 | **Cross-account isolation** | Ownership enforced on every IPC and MCP handler |
 | **Remote image blocking** | Blocked by default with privacy banner |
@@ -122,7 +123,9 @@ Once installed, ExpressDelivery checks for updates automatically via GitHub Rele
 3. **Connection test** — the wizard tests IMAP and SMTP before saving
 4. **Start reading** — your inbox syncs immediately with full-text search ready
 
-> **Gmail users:** You'll need an [App Password](https://myaccount.google.com/apppasswords) (2FA must be enabled). Regular passwords won't work with IMAP.
+> **Gmail users:** Click "Sign in with Google" for one-click OAuth2 setup, or use an [App Password](https://myaccount.google.com/apppasswords) if you prefer (2FA must be enabled for app passwords).
+>
+> **Outlook.com / Microsoft 365 users:** Click "Sign in with Microsoft" — OAuth2 is now the only supported auth for these providers (Microsoft removed password-based SMTP on April 30, 2026). Legacy accounts upgraded from earlier versions will see a "Sign in again to modernize" prompt in Settings.
 
 ---
 
@@ -148,7 +151,7 @@ npm run dev
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Vite dev server + Electron |
-| `npm run test` | Run 779 tests (Vitest) |
+| `npm run test` | Run 1002 tests (Vitest) |
 | `npm run test:coverage` | Tests with coverage report |
 | `npm run lint` | ESLint (strict, 0 warnings) |
 | `npm run build:win` | Clean Windows build (unpacked) |
@@ -161,16 +164,19 @@ npm run dev
 | Layer | Technology |
 |---|---|
 | **Frontend** | React 19, TypeScript 5.9 (strict), Zustand, Radix UI, TipTap, Tailwind CSS v4, Lucide |
-| **Backend** | Electron 41, better-sqlite3 (WAL + FTS5), IMAPFlow, Nodemailer, Express 5 |
+| **Backend** | Electron 41, better-sqlite3 (WAL + FTS5, schema v17), IMAPFlow, Nodemailer, Express 5 |
+| **Auth** | `@azure/msal-node` (Microsoft OAuth), RFC 8252 loopback + PKCE S256 (Google), safeStorage token encryption |
 | **AI** | MCP SDK (multi-client SSE), OpenRouter, 8 tool handlers |
 | **Build** | Vite 7, electron-builder (NSIS, AppImage, deb, rpm, DMG) |
-| **Test** | Vitest 4, Testing Library, 779 tests across 32 files |
+| **Test** | Vitest 4, Testing Library, `nock` HTTP mocks, 1002 tests across 45 files, Playwright Console Health E2E |
 
 ### Project Structure
 
 ```
-electron/          Main process — DB, IMAP, SMTP, MCP server, updater
-src/               Renderer — React SPA (19 components, 2 stores)
+electron/          Main process — DB, IMAP, SMTP, MCP server, updater, OAuth
+  auth/            AuthTokenManager, IPC handlers, account revocation
+  oauth/            Google + Microsoft provider adapters, client config
+src/               Renderer — React SPA (21 components, 2 stores)
   components/      UI components + co-located CSS modules
   stores/          Zustand stores (theme + email)
   lib/             Utilities, IPC wrapper, keyboard shortcuts, i18n
