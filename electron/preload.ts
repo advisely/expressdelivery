@@ -161,6 +161,12 @@ const ALLOWED_INVOKE_CHANNELS = [
   'window:toggle-devtools',
   'app:get-version',
   'app:get-electron-version',
+  // Phase 2 OAuth2: auth flow + reauth + state query (D9.6, Task 18)
+  'auth:start-oauth-flow',
+  'auth:start-reauth-flow',
+  'auth:cancel-flow',
+  'auth:flow-status',
+  'auth:get-state',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [
@@ -180,6 +186,9 @@ const ALLOWED_ON_CHANNELS = [
   'scheduled:failed',
   // Phase 12.5: Window state changes (frameless window)
   'window:maximized-change',
+  // Phase 2 OAuth2: renderer notification when refresh token is permanently
+  // invalid — fired by imapEngine.setNeedsReauthCallback in main.ts (D8.4).
+  'auth:needs-reauth',
 ] as const
 
 type InvokeChannel = typeof ALLOWED_INVOKE_CHANNELS[number]

@@ -14,19 +14,65 @@ vi.mock('./logger.js', () => ({
     logDebug: mockLogDebug,
 }));
 
-const { mockDbPrepare } = vi.hoisted(() => ({
+const { mockDbPrepare, mockGetOAuthCredential } = vi.hoisted(() => ({
     mockDbPrepare: vi.fn(() => ({
         all: vi.fn().mockReturnValue([]),
         get: vi.fn().mockReturnValue(null),
         run: vi.fn().mockReturnValue({ changes: 0 }),
     })),
+    mockGetOAuthCredential: vi.fn() as unknown as ReturnType<typeof vi.fn>,
 }));
 
 vi.mock('./db.js', () => ({
     getDatabase: vi.fn(() => ({ prepare: mockDbPrepare })),
+    getOAuthCredential: mockGetOAuthCredential,
+}));
+
+const { mockGetValidAccessToken, mockInvalidateToken } = vi.hoisted(() => ({
+    mockGetValidAccessToken: vi.fn(),
+    mockInvalidateToken: vi.fn(async () => { /* no-op */ }),
+}));
+
+// Import PermanentAuthError dynamically — can't re-export from mock.
+vi.mock('./auth/tokenManager.js', async () => {
+    const actual = await vi.importActual<typeof import('./auth/tokenManager.js')>('./auth/tokenManager.js');
+    return {
+        ...actual,
+        getAuthTokenManager: () => ({
+            getValidAccessToken: mockGetValidAccessToken,
+            invalidateToken: mockInvalidateToken,
+        }),
+    };
+});
+
+// Mock ImapFlow constructor so connection tests can control auth outcomes.
+const { mockImapFlowCtor, mockImapFlowConnect, mockImapFlowClose } = vi.hoisted(() => ({
+    mockImapFlowCtor: vi.fn(),
+    mockImapFlowConnect: vi.fn(),
+    mockImapFlowClose: vi.fn(),
+}));
+
+vi.mock('imapflow', () => {
+    class MockImapFlow {
+        constructor(opts: Record<string, unknown>) {
+            mockImapFlowCtor(opts);
+        }
+        connect() { return mockImapFlowConnect(); }
+        close() { return mockImapFlowClose(); }
+        on() { /* noop */ }
+        logout() { return Promise.resolve(); }
+    }
+    return { ImapFlow: MockImapFlow };
+});
+
+// Mock crypto.decryptData so password path works without safeStorage.
+vi.mock('./crypto.js', () => ({
+    decryptData: vi.fn((buf: Buffer) => buf.toString('utf-8')),
+    encryptData: vi.fn((s: string) => Buffer.from(s, 'utf-8')),
 }));
 
 import { AccountSyncController } from './imap.js';
+import { PermanentAuthError } from './auth/tokenManager.js';
 
 describe('ImapEngine (controller integration)', () => {
     it('isConnected returns false when no controller exists', () => {
@@ -551,6 +597,177 @@ describe('AccountSyncController', () => {
             ctrl.resetOnSuccessfulConnect();
             expect(ctrl.reconnectAttempts).toBe(0);
             expect(ctrl.consecutiveFailures).toBe(0);
+        });
+    });
+
+    describe('OAuth2 wiring (Task 15 / D8.1, D8.3, D8.4)', () => {
+        const ACCOUNT_ID = 'oauth-acc-1';
+        const PASSWORD_ACCOUNT_ROW = {
+            id: ACCOUNT_ID,
+            email: 'user@example.com',
+            password_encrypted: Buffer.from('hunter2', 'utf-8').toString('base64'),
+            provider: 'gmail',
+            imap_host: 'imap.gmail.com',
+            imap_port: 993,
+        };
+
+        beforeEach(() => {
+            vi.useRealTimers(); // these tests use real promises / no fake timers
+            mockImapFlowCtor.mockClear();
+            mockImapFlowConnect.mockReset();
+            mockImapFlowClose.mockClear();
+            mockGetOAuthCredential.mockReset();
+            mockGetValidAccessToken.mockReset();
+            mockInvalidateToken.mockClear();
+            // Default DB response: account row lookup
+            mockDbPrepare.mockImplementation(() => ({
+                all: vi.fn().mockReturnValue([]),
+                get: vi.fn().mockReturnValue(PASSWORD_ACCOUNT_ROW),
+                run: vi.fn().mockReturnValue({ changes: 0 }),
+            }));
+            // Remove any stale controllers from prior tests
+            imapEngine.controllers.delete(ACCOUNT_ID);
+            imapEngine.setNeedsReauthCallback(() => { /* noop default */ });
+        });
+
+        it('legacy password path: no OAuth credential → passes { user, pass } to ImapFlow', async () => {
+            mockGetOAuthCredential.mockReturnValue(null);
+            mockImapFlowConnect.mockResolvedValue(undefined);
+
+            const result = await imapEngine.connectAccount(ACCOUNT_ID);
+
+            expect(result).toBe(true);
+            expect(mockGetValidAccessToken).not.toHaveBeenCalled();
+            expect(mockImapFlowCtor).toHaveBeenCalledTimes(1);
+            const opts = mockImapFlowCtor.mock.calls[0][0] as { auth: Record<string, unknown> };
+            expect(opts.auth).toEqual({ user: 'user@example.com', pass: 'hunter2' });
+        });
+
+        it('OAuth path: credential row present → fetches access token + passes { user, accessToken }', async () => {
+            mockGetOAuthCredential.mockReturnValue({
+                accountId: ACCOUNT_ID,
+                provider: 'google',
+                accessTokenEncrypted: 'enc',
+                refreshTokenEncrypted: 'enc-r',
+                expiresAt: Date.now() + 3600_000,
+                scope: null, tokenType: null,
+                providerAccountEmail: null, providerAccountId: null,
+                createdAt: 0, updatedAt: 0,
+            });
+            mockGetValidAccessToken.mockResolvedValue({
+                accessToken: 'MOCK-ACCESS-TOKEN-GOOGLE',
+                expiresAt: Date.now() + 3600_000,
+                provider: 'google',
+            });
+            mockImapFlowConnect.mockResolvedValue(undefined);
+
+            const result = await imapEngine.connectAccount(ACCOUNT_ID);
+
+            expect(result).toBe(true);
+            expect(mockGetValidAccessToken).toHaveBeenCalledWith(ACCOUNT_ID);
+            expect(mockImapFlowCtor).toHaveBeenCalledTimes(1);
+            const opts = mockImapFlowCtor.mock.calls[0][0] as { auth: Record<string, unknown> };
+            expect(opts.auth).toEqual({ user: 'user@example.com', accessToken: 'MOCK-ACCESS-TOKEN-GOOGLE' });
+            // No pass field on oauth path
+            expect(opts.auth.pass).toBeUndefined();
+        });
+
+        it('first AUTHENTICATIONFAILED → invalidates token, retries, succeeds', async () => {
+            mockGetOAuthCredential.mockReturnValue({
+                accountId: ACCOUNT_ID, provider: 'google',
+                accessTokenEncrypted: 'enc', refreshTokenEncrypted: 'enc-r',
+                expiresAt: Date.now() + 3600_000, scope: null, tokenType: null,
+                providerAccountEmail: null, providerAccountId: null, createdAt: 0, updatedAt: 0,
+            });
+            mockGetValidAccessToken
+                .mockResolvedValueOnce({ accessToken: 'stale-token', expiresAt: 0, provider: 'google' })
+                .mockResolvedValueOnce({ accessToken: 'fresh-token', expiresAt: Date.now() + 3600_000, provider: 'google' });
+            // First connect fails with AUTHENTICATIONFAILED; second succeeds.
+            const authFail = Object.assign(new Error('Authentication failed'), { authenticationFailed: true });
+            mockImapFlowConnect
+                .mockRejectedValueOnce(authFail)
+                .mockResolvedValueOnce(undefined);
+
+            const result = await imapEngine.connectAccount(ACCOUNT_ID);
+
+            expect(result).toBe(true);
+            expect(mockInvalidateToken).toHaveBeenCalledTimes(1);
+            expect(mockInvalidateToken).toHaveBeenCalledWith(ACCOUNT_ID);
+            expect(mockGetValidAccessToken).toHaveBeenCalledTimes(2);
+            expect(mockImapFlowCtor).toHaveBeenCalledTimes(2);
+            // Second call should carry the refreshed token
+            const secondOpts = mockImapFlowCtor.mock.calls[1][0] as { auth: { accessToken: string } };
+            expect(secondOpts.auth.accessToken).toBe('fresh-token');
+        });
+
+        it('second AUTHENTICATIONFAILED → propagates as connect failure (returns false)', async () => {
+            mockGetOAuthCredential.mockReturnValue({
+                accountId: ACCOUNT_ID, provider: 'google',
+                accessTokenEncrypted: 'enc', refreshTokenEncrypted: 'enc-r',
+                expiresAt: Date.now() + 3600_000, scope: null, tokenType: null,
+                providerAccountEmail: null, providerAccountId: null, createdAt: 0, updatedAt: 0,
+            });
+            mockGetValidAccessToken.mockResolvedValue({
+                accessToken: 'token', expiresAt: Date.now() + 3600_000, provider: 'google',
+            });
+            const authFail = Object.assign(new Error('Authentication failed'), { authenticationFailed: true });
+            mockImapFlowConnect
+                .mockRejectedValueOnce(authFail)
+                .mockRejectedValueOnce(authFail);
+
+            const result = await imapEngine.connectAccount(ACCOUNT_ID);
+
+            expect(result).toBe(false);
+            // Only retried once
+            expect(mockImapFlowCtor).toHaveBeenCalledTimes(2);
+            expect(mockInvalidateToken).toHaveBeenCalledTimes(1);
+        });
+
+        it('PermanentAuthError from getValidAccessToken → fires needs-reauth callback + returns false', async () => {
+            mockGetOAuthCredential.mockReturnValue({
+                accountId: ACCOUNT_ID, provider: 'google',
+                accessTokenEncrypted: 'enc', refreshTokenEncrypted: 'enc-r',
+                expiresAt: 0, scope: null, tokenType: null,
+                providerAccountEmail: null, providerAccountId: null, createdAt: 0, updatedAt: 0,
+            });
+            mockGetValidAccessToken.mockRejectedValue(
+                new PermanentAuthError('refresh token revoked', 'invalid_grant', ACCOUNT_ID)
+            );
+            const reauthCallback = vi.fn();
+            imapEngine.setNeedsReauthCallback(reauthCallback);
+
+            const result = await imapEngine.connectAccount(ACCOUNT_ID);
+
+            expect(result).toBe(false);
+            expect(reauthCallback).toHaveBeenCalledWith({ accountId: ACCOUNT_ID });
+            // No ImapFlow client was ever constructed — token fetch failed first
+            expect(mockImapFlowCtor).not.toHaveBeenCalled();
+        });
+
+        it('PermanentAuthError on retry refresh also fires callback', async () => {
+            mockGetOAuthCredential.mockReturnValue({
+                accountId: ACCOUNT_ID, provider: 'google',
+                accessTokenEncrypted: 'enc', refreshTokenEncrypted: 'enc-r',
+                expiresAt: Date.now() + 3600_000, scope: null, tokenType: null,
+                providerAccountEmail: null, providerAccountId: null, createdAt: 0, updatedAt: 0,
+            });
+            mockGetValidAccessToken
+                .mockResolvedValueOnce({ accessToken: 'stale', expiresAt: 0, provider: 'google' })
+                .mockRejectedValueOnce(new PermanentAuthError('revoked', 'invalid_grant', ACCOUNT_ID));
+            const authFail = Object.assign(new Error('Authentication failed'), { authenticationFailed: true });
+            mockImapFlowConnect.mockRejectedValueOnce(authFail);
+            const reauthCallback = vi.fn();
+            imapEngine.setNeedsReauthCallback(reauthCallback);
+
+            const result = await imapEngine.connectAccount(ACCOUNT_ID);
+
+            expect(result).toBe(false);
+            expect(reauthCallback).toHaveBeenCalledWith({ accountId: ACCOUNT_ID });
+            expect(mockInvalidateToken).toHaveBeenCalledTimes(1);
+        });
+
+        afterEach(() => {
+            imapEngine.controllers.delete(ACCOUNT_ID);
         });
     });
 

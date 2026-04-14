@@ -1,0 +1,21 @@
+{
+  "token_type": "Bearer",
+  "scope": "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read offline_access",
+  "expires_in": 3599,
+  "ext_expires_in": 3599,
+  "access_token": "scrubbed_access_token_xxx_microsoft_personal",
+  "refresh_token": "scrubbed_refresh_token_xxx_microsoft_personal_offline_access",
+  "id_token_claims": {
+    "aud": "00000000-0000-0000-0000-000000000000",
+    "iss": "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0",
+    "tid": "9188040d-6c67-4c5b-b112-36a304b66dad",
+    "oid": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+    "email": "scrubbed-personal@outlook.com",
+    "preferred_username": "scrubbed-personal@outlook.com",
+    "name": "Scrubbed Personal User",
+    "ver": "2.0",
+    "iat": 1700000000,
+    "exp": 1700003600,
+    "nbf": 1700000000
+  }
+}

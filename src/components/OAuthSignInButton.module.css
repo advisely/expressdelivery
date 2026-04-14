@@ -1,0 +1,62 @@
+.oauth-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 18px;
+    border: 1px solid rgba(var(--border-color), 0.9);
+    border-radius: 10px;
+    background: rgba(var(--surface-color), 0.85);
+    color: rgba(var(--text-color), 1);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.oauth-btn:hover:not(:disabled) {
+    background: rgba(var(--hover-bg), 1);
+    border-color: rgba(var(--accent-color-rgb), 0.5);
+}
+
+.oauth-btn:active:not(:disabled) {
+    transform: scale(0.98);
+    background: rgba(var(--active-bg), 1);
+}
+
+.oauth-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.oauth-btn[data-provider='google'] {
+    border-color: rgba(234, 67, 53, 0.45);
+}
+
+.oauth-btn[data-provider='google']:hover:not(:disabled) {
+    border-color: rgba(234, 67, 53, 0.9);
+}
+
+.oauth-btn[data-provider='microsoft'] {
+    border-color: rgba(0, 120, 212, 0.45);
+}
+
+.oauth-btn[data-provider='microsoft']:hover:not(:disabled) {
+    border-color: rgba(0, 120, 212, 0.9);
+}
+
+.oauth-spinner {
+    animation: oauth-spin 1s linear infinite;
+}
+
+@keyframes oauth-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .oauth-spinner {
+        animation: none;
+    }
+}

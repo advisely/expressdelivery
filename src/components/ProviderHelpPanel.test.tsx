@@ -22,7 +22,7 @@ vi.mock('react-i18next', () => ({
     useTranslation: () => ({
         t: (key: string, opts?: { returnObjects?: boolean } & Record<string, unknown>) => {
             if (opts?.returnObjects) {
-                if (key.endsWith('.steps')) {
+                if (key.endsWith('.steps') || key.endsWith('.oauthSteps')) {
                     return ['Step 1', 'Step 2', 'Step 3'];
                 }
                 return key;
@@ -125,9 +125,13 @@ describe('ProviderHelpPanel', () => {
         expect(mockIpcInvoke).toHaveBeenCalledWith('shell:open-external', { url: preset.helpUrl });
     });
 
-    it('renders warning banner for outlook-personal', () => {
+    it('does not render warning banner for outlook-personal in Phase 2 (OAuth2 now live)', () => {
+        // Phase 1 rendered an amber "Microsoft is removing Basic Auth" warning
+        // to communicate the disabled state. Phase 2 lifts that gate — the
+        // OAuth banner replaces the warning and the role="alert" element no
+        // longer mounts on outlook-personal.
         render(<ProviderHelpPanel preset={findPreset('outlook-personal')} />);
-        expect(screen.getByRole('alert')).toHaveTextContent('providerHelp.outlookPersonal.warning');
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('does not render warning banner for gmail', () => {
@@ -135,11 +139,49 @@ describe('ProviderHelpPanel', () => {
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
-    it('renders outlook-legacy warning + shortNote but no steps and no help link', () => {
+    it('renders the OAuth banner for gmail with the gmail-specific note', () => {
+        render(<ProviderHelpPanel preset={findPreset('gmail')} />);
+        expect(screen.getByText('oauth.providerHelp.bannerTitle')).toBeInTheDocument();
+        expect(screen.getByText('oauth.providerHelp.gmailOAuthNote')).toBeInTheDocument();
+    });
+
+    it('renders the OAuth banner for outlook-personal with the personal-specific note', () => {
+        render(<ProviderHelpPanel preset={findPreset('outlook-personal')} />);
+        expect(screen.getByText('oauth.providerHelp.bannerTitle')).toBeInTheDocument();
+        expect(screen.getByText('oauth.providerHelp.outlookPersonalOAuthNote')).toBeInTheDocument();
+    });
+
+    it('renders the OAuth banner for outlook-business with the business-specific note', () => {
+        render(<ProviderHelpPanel preset={findPreset('outlook-business')} />);
+        expect(screen.getByText('oauth.providerHelp.bannerTitle')).toBeInTheDocument();
+        expect(screen.getByText('oauth.providerHelp.outlookBusinessOAuthNote')).toBeInTheDocument();
+    });
+
+    it('does not render the OAuth banner for yahoo (password-supported, no OAuth path)', () => {
+        render(<ProviderHelpPanel preset={findPreset('yahoo')} />);
+        expect(screen.queryByText('oauth.providerHelp.bannerTitle')).not.toBeInTheDocument();
+    });
+
+    it('does not render the OAuth banner for icloud (password-supported, no OAuth path)', () => {
+        render(<ProviderHelpPanel preset={findPreset('icloud')} />);
+        expect(screen.queryByText('oauth.providerHelp.bannerTitle')).not.toBeInTheDocument();
+    });
+
+    it('does not render the OAuth banner for custom', () => {
+        render(<ProviderHelpPanel preset={findPreset('custom')} />);
+        expect(screen.queryByText('oauth.providerHelp.bannerTitle')).not.toBeInTheDocument();
+    });
+
+    it('renders outlook-legacy with the new oauth migration warning + shortNote, no steps, no help link', () => {
         render(<ProviderHelpPanel preset={OUTLOOK_LEGACY_PRESET} />);
-        expect(screen.getByRole('alert')).toHaveTextContent('providerHelp.outlookLegacy.warning');
+        // Phase 2 swaps the warning text from the Phase 1 Basic Auth notice to
+        // the actionable "Sign in again to modernize your account" key.
+        expect(screen.getByRole('alert')).toHaveTextContent('oauth.providerHelp.legacyReauthWarning');
         expect(screen.getByText('providerHelp.outlookLegacy.shortNote')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /showSteps/ })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'providerHelp.common.openHelpPage' })).not.toBeInTheDocument();
+        // Legacy preset is NOT in the OAuth-banner allowlist — it surfaces the
+        // warning instead. Banner title must not appear.
+        expect(screen.queryByText('oauth.providerHelp.bannerTitle')).not.toBeInTheDocument();
     });
 });

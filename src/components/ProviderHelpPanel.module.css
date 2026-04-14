@@ -90,3 +90,30 @@
 .steps li {
     list-style-position: outside;
 }
+
+.oauth-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(var(--color-accent), 0.1);
+    border: 1px solid rgba(var(--color-accent), 0.35);
+    color: rgb(var(--color-text-primary));
+}
+
+.oauth-banner-icon {
+    flex-shrink: 0;
+    margin-top: 0.0625rem;
+    color: rgb(var(--color-accent));
+}
+
+.oauth-banner-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.oauth-banner-title {
+    font-weight: 600;
+}

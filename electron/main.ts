@@ -48,9 +48,11 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 import { initDatabase, getDatabase, closeDatabase } from './db.js'
+import { maybeRevokeOAuthCredentials } from './auth/accountRevoke.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
-import { smtpEngine } from './smtp.js'
+import { sendMail } from './sendMail.js'
+import type { SendMailParams } from './sendMail.js'
 import { encryptData, decryptData } from './crypto.js'
 import { sanitizeFts5Query, stripCRLF } from './utils.js'
 import { schedulerEngine } from './scheduler.js'
@@ -61,6 +63,7 @@ import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
 import { handleShellOpenExternal } from './shellOpen.js'
+import { registerAuthIpcHandlers } from './auth/ipcHandlers.js'
 // menu.ts removed — frameless window with custom TitleBar component (Phase 12.5)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -279,7 +282,7 @@ function registerIpcHandlers() {
   // Combined startup handler: accounts + folders + inbox emails in one round-trip
   ipcMain.handle('startup:load', () => {
     const accounts = db.prepare(
-      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
+      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at, auth_type, auth_state FROM accounts'
     ).all() as Array<{ id: string }>;
     if (accounts.length === 0) return { accounts, folders: [], emails: [] };
     const firstAccountId = accounts[0].id;
@@ -310,8 +313,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('accounts:list', () => {
+    // Phase 2 OAuth2: project auth_type + auth_state so the renderer can
+    // distinguish OAuth accounts (auth_type='oauth2') from legacy password
+    // accounts and render the "Sign in again" CTA when auth_state is
+    // 'recommended_reauth' or 'reauth_required' (D9.5, D11.9).
     return db.prepare(
-      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at FROM accounts'
+      'SELECT id, email, provider, display_name, imap_host, imap_port, smtp_host, smtp_port, signature_html, created_at, auth_type, auth_state FROM accounts'
     ).all();
   });
 
@@ -405,6 +412,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('accounts:remove', async (_event, accountId: string) => {
+    // Phase 2 D11.1: best-effort refresh token revocation on account delete.
+    // Google has a real revoke endpoint; Microsoft's revokeSignInSessions is
+    // nuclear and intentionally a no-op. Revocation failures never block the
+    // delete — maybeRevokeOAuthCredentials never throws.
+    await maybeRevokeOAuthCredentials(db, accountId);
+
     try {
       await imapEngine.disconnectAccount(accountId);
     } catch (err) {
@@ -931,12 +944,21 @@ function registerIpcHandlers() {
       return { filename: sanitizedName, content: att.content, contentType: getMimeType(sanitizedName) };
     });
 
-    const sendResult = await smtpEngine.sendEmail(
-      params.accountId, sanitizedTo, stripCRLF(params.subject), params.html,
-      sanitizeList(params.cc), sanitizeList(params.bcc),
-      attachments
-    );
-    const success = sendResult.success;
+    const sendParams: SendMailParams = {
+      accountId: params.accountId,
+      to: sanitizedTo,
+      subject: stripCRLF(params.subject),
+      html: params.html,
+      cc: sanitizeList(params.cc),
+      bcc: sanitizeList(params.bcc),
+      attachments: attachments?.map(att => ({
+        filename: att.filename,
+        content: Buffer.from(att.content, 'base64'),
+        contentType: att.contentType,
+      })),
+    };
+    const sendResult = await sendMail(sendParams);
+    const success = sendResult.accepted.length > 0;
     if (success) {
       // Save a copy to the Sent folder via IMAP APPEND
       const account = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(params.accountId) as { email: string; display_name: string | null } | undefined;
@@ -2505,11 +2527,23 @@ app.whenReady().then(() => {
   logDebug('Registering IPC handlers...');
   try {
     registerIpcHandlers();
+    registerAuthIpcHandlers();
     logDebug('IPC handlers registered successfully.');
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     logDebug(`[ERROR] IPC handler registration failed: ${e.message}\n${e.stack}`);
   }
+
+  // Phase 2 OAuth2: wire needs-reauth callback so IMAP can notify the renderer
+  // when a refresh token is permanently invalid (D8.4). The renderer surfaces
+  // this as a toast with a "Sign in again" CTA.
+  imapEngine.setNeedsReauthCallback(({ accountId }) => {
+    try {
+      win?.webContents.send('auth:needs-reauth', { accountId });
+    } catch (err) {
+      logDebug(`[OAUTH] failed to emit auth:needs-reauth: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
 
   // Create window FIRST so user sees UI immediately
   logDebug('Creating main window...');

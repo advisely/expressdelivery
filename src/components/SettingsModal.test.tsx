@@ -61,6 +61,7 @@ vi.mock('lucide-react', () => ({
     Database: () => <div data-testid="icon-Database">Db</div>,
     ArrowUpDown: () => <div data-testid="icon-ArrowUpDown">AUD</div>,
     Info: () => <div data-testid="icon-Info">In</div>,
+    LogIn: () => <div data-testid="icon-LogIn">Li</div>,
 }));
 
 const mockIpcInvoke = vi.mocked(ipcInvoke);
@@ -592,19 +593,19 @@ describe('SettingsModal Integration Tests', () => {
             expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
         });
 
-        it('disables add flow for outlook-personal with coming soon message', async () => {
+        it('gates outlook-personal add flow behind Microsoft OAuth button', async () => {
             renderSettings();
 
             fireEvent.click(screen.getByText('settings.addAccount'));
             fireEvent.click(screen.getByText('Outlook.com (Personal)'));
 
-            // Warning banner from ProviderHelpPanel
-            expect(screen.getByText('providerHelp.outlookPersonal.warning')).toBeInTheDocument();
-            // Coming-soon block — exposed as role="status" / aria-live="polite" so
-            // assistive tech announces the disabled state when it appears.
+            // Phase 2: warning banner removed; ProviderHelpPanel now renders
+            // an OAuth banner with the personal-specific note above the steps.
+            expect(screen.getByText('oauth.providerHelp.outlookPersonalOAuthNote')).toBeInTheDocument();
+            // OAuth button region — exposed as role="status" / aria-live="polite"
             const status = screen.getByRole('status');
-            expect(status).toHaveTextContent('providerHelp.outlookPersonal.comingSoonMessage');
             expect(status).toHaveAttribute('aria-live', 'polite');
+            expect(status).toHaveTextContent('oauth.button.microsoft');
             // Password input must NOT be rendered while the flow is gated
             expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
             // The custom-fallback button must be present
@@ -617,15 +618,15 @@ describe('SettingsModal Integration Tests', () => {
             fireEvent.click(screen.getByText('settings.addAccount'));
             fireEvent.click(screen.getByText('Microsoft 365 (Work/School)'));
 
-            // Coming-soon message visible, password hidden
-            expect(screen.getByText('providerHelp.outlookBusiness.comingSoonMessage')).toBeInTheDocument();
+            // OAuth button visible (not coming-soon); password hidden
+            expect(screen.getByText('oauth.button.microsoft')).toBeInTheDocument();
             expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
 
             // Click the custom fallback button
             fireEvent.click(screen.getByText('onboarding.useCustomInstead'));
 
-            // Coming-soon banner gone; password input back
-            expect(screen.queryByText('providerHelp.outlookBusiness.comingSoonMessage')).not.toBeInTheDocument();
+            // OAuth button gone; password input back
+            expect(screen.queryByText('oauth.button.microsoft')).not.toBeInTheDocument();
             expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
             // Help panel now shows the custom preset short note
             expect(screen.getByText('providerHelp.custom.shortNote')).toBeInTheDocument();
@@ -668,10 +669,11 @@ describe('SettingsModal Integration Tests', () => {
             // Click the row to enter edit mode
             await user.click(screen.getByText('legacy@outlook.com'));
 
-            // Warning banner from ProviderHelpPanel with role="alert"
+            // Warning banner from ProviderHelpPanel with role="alert".
+            // Phase 2: warning text key changed to legacyReauthWarning.
             const alerts = screen.getAllByRole('alert');
             const legacyWarning = alerts.find(el =>
-                el.textContent?.includes('providerHelp.outlookLegacy.warning')
+                el.textContent?.includes('oauth.providerHelp.legacyReauthWarning')
             );
             expect(legacyWarning).toBeDefined();
 
@@ -705,6 +707,210 @@ describe('SettingsModal Integration Tests', () => {
                     id: 'acc-legacy',
                     provider: 'outlook',
                 });
+            });
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Task 21 + 22: OAuth2 UI — add flow OAuth button + edit flow reauth CTA
+    // -----------------------------------------------------------------------
+    describe('OAuth sign-in integration (Tasks 21 + 22)', () => {
+        beforeEach(() => {
+            vi.clearAllMocks();
+            mockIpcInvoke.mockResolvedValue(null);
+            useEmailStore.setState({
+                accounts: [], folders: [], emails: [],
+                selectedAccountId: null, selectedFolderId: null,
+                selectedEmailId: null, selectedEmail: null, searchQuery: '',
+            });
+        });
+
+        it('renders Google OAuth button with password-fallback divider on Gmail add flow', async () => {
+            renderSettings();
+            fireEvent.click(screen.getByText('settings.addAccount'));
+            fireEvent.click(screen.getByText('Gmail'));
+
+            expect(screen.getByText('oauth.button.google')).toBeInTheDocument();
+            expect(screen.getByText('oauth.divider.orUseAppPassword')).toBeInTheDocument();
+            // Password input still rendered alongside the OAuth option
+            expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
+        });
+
+        it('dispatches auth:start-oauth-flow when Gmail OAuth button is clicked', async () => {
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:start-oauth-flow') return { success: true, accountId: 'new-oauth' };
+                if (channel === 'accounts:list') return [];
+                return null;
+            });
+
+            renderSettings();
+            fireEvent.click(screen.getByText('settings.addAccount'));
+            fireEvent.click(screen.getByText('Gmail'));
+
+            const user = userEvent.setup();
+            await user.click(screen.getByText('oauth.button.google'));
+
+            await waitFor(() => {
+                const call = mockIpcInvoke.mock.calls.find(c => c[0] === 'auth:start-oauth-flow');
+                expect(call).toBeDefined();
+                expect(call![1]).toEqual({ provider: 'google' });
+            });
+        });
+
+        it('shows reauth banner for an oauth account in reauth_required state', async () => {
+            useEmailStore.setState({
+                accounts: [{
+                    id: 'acc-oauth',
+                    email: 'user@gmail.com',
+                    provider: 'gmail',
+                    display_name: 'G User',
+                    imap_host: 'imap.gmail.com',
+                    imap_port: 993,
+                    smtp_host: 'smtp.gmail.com',
+                    smtp_port: 465,
+                    signature_html: null,
+                    auth_type: 'oauth',
+                    auth_state: 'reauth_required',
+                }],
+            });
+
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:get-state') return { state: 'reauth_required' };
+                return null;
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await user.click(screen.getByText('user@gmail.com'));
+
+            // Reauth CTA visible
+            expect(screen.getByText('oauth.reauth.bannerTitle')).toBeInTheDocument();
+            expect(screen.getByText('oauth.reauth.cta')).toBeInTheDocument();
+            // Password input hidden because auth_type = oauth
+            expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
+            // Signed-in-via readout present
+            expect(screen.getByTestId('signed-in-via')).toBeInTheDocument();
+        });
+
+        it('shows reauth banner (amber) for recommended_reauth state', async () => {
+            useEmailStore.setState({
+                accounts: [{
+                    id: 'acc-oauth',
+                    email: 'user2@gmail.com',
+                    provider: 'gmail',
+                    display_name: null,
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                    auth_type: 'oauth',
+                    auth_state: 'recommended_reauth',
+                }],
+            });
+
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:get-state') return { state: 'recommended_reauth' };
+                return null;
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await user.click(screen.getByText('user2@gmail.com'));
+
+            expect(screen.getByText('oauth.reauth.bannerTitle')).toBeInTheDocument();
+        });
+
+        it('does NOT show reauth banner for an oauth account in ok state', async () => {
+            useEmailStore.setState({
+                accounts: [{
+                    id: 'acc-oauth',
+                    email: 'user3@gmail.com',
+                    provider: 'gmail',
+                    display_name: null,
+                    imap_host: null,
+                    imap_port: null,
+                    smtp_host: null,
+                    smtp_port: null,
+                    signature_html: null,
+                    auth_type: 'oauth',
+                    auth_state: 'ok',
+                }],
+            });
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:get-state') return { state: 'ok' };
+                return null;
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await user.click(screen.getByText('user3@gmail.com'));
+
+            expect(screen.queryByText('oauth.reauth.bannerTitle')).not.toBeInTheDocument();
+            // Legacy outlook warning also must NOT show
+            expect(screen.queryByText('oauth.reauth.legacyOutlookWarning')).not.toBeInTheDocument();
+        });
+
+        it('shows legacy outlook warning banner for password-auth stored provider="outlook"', async () => {
+            useEmailStore.setState({
+                accounts: [{
+                    id: 'acc-legacy',
+                    email: 'legacy@outlook.com',
+                    provider: 'outlook',
+                    display_name: 'Legacy',
+                    imap_host: 'outlook.office365.com',
+                    imap_port: 993,
+                    smtp_host: 'smtp.office365.com',
+                    smtp_port: 587,
+                    signature_html: null,
+                    auth_type: 'password',
+                    auth_state: 'ok',
+                }],
+            });
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:get-state') return { state: 'ok' };
+                return null;
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await user.click(screen.getByText('legacy@outlook.com'));
+
+            expect(screen.getByText('oauth.reauth.legacyOutlookWarning')).toBeInTheDocument();
+            expect(screen.getByText('oauth.reauth.cta')).toBeInTheDocument();
+            // Password field still present (auth_type = password) — still editable
+            expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
+        });
+
+        it('reauth CTA button invokes auth:start-reauth-flow with the account id', async () => {
+            useEmailStore.setState({
+                accounts: [{
+                    id: 'acc-oauth',
+                    email: 'needs@gmail.com',
+                    provider: 'gmail',
+                    display_name: null,
+                    imap_host: null, imap_port: null, smtp_host: null, smtp_port: null,
+                    signature_html: null,
+                    auth_type: 'oauth',
+                    auth_state: 'reauth_required',
+                }],
+            });
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'auth:get-state') return { state: 'reauth_required' };
+                if (channel === 'auth:start-reauth-flow') return { success: true };
+                if (channel === 'accounts:list') return [];
+                return null;
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await user.click(screen.getByText('needs@gmail.com'));
+            await user.click(screen.getByText('oauth.reauth.cta'));
+
+            await waitFor(() => {
+                const call = mockIpcInvoke.mock.calls.find(c => c[0] === 'auth:start-reauth-flow');
+                expect(call).toBeDefined();
+                expect(call![1]).toEqual({ accountId: 'acc-oauth' });
             });
         });
     });

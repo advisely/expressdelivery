@@ -1,0 +1,21 @@
+{
+  "token_type": "Bearer",
+  "scope": "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send https://graph.microsoft.com/User.Read offline_access",
+  "expires_in": 3599,
+  "ext_expires_in": 3599,
+  "access_token": "scrubbed_access_token_xxx_microsoft_business",
+  "refresh_token": "scrubbed_refresh_token_xxx_microsoft_business_offline_access",
+  "id_token_claims": {
+    "aud": "00000000-0000-0000-0000-000000000000",
+    "iss": "https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0",
+    "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "oid": "00000000-0000-0000-0000-bbbbbbbbbbbb",
+    "email": "scrubbed-business@contoso.example.com",
+    "preferred_username": "scrubbed-business@contoso.example.com",
+    "name": "Scrubbed Business User",
+    "ver": "2.0",
+    "iat": 1700000000,
+    "exp": 1700003600,
+    "nbf": 1700000000
+  }
+}

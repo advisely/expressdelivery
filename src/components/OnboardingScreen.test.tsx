@@ -123,30 +123,31 @@ describe('OnboardingScreen', () => {
         expect(screen.getByText('providerHelp.gmail.shortNote')).toBeInTheDocument();
     });
 
-    it('shows disabled state for Outlook.com Personal with custom fallback CTA', async () => {
+    it('renders OAuth sign-in button for Outlook.com Personal with custom fallback CTA', async () => {
         render(<OnboardingScreen onAccountAdded={vi.fn()} />);
         await userEvent.click(screen.getByText('onboarding.getStarted'));
         await userEvent.click(screen.getByText('Outlook.com (Personal)'));
-        expect(screen.getByText('providerHelp.outlookPersonal.comingSoonMessage')).toBeInTheDocument();
+        expect(screen.getByText('oauth.button.microsoft')).toBeInTheDocument();
         expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
         expect(screen.queryByText('onboarding.connect')).not.toBeInTheDocument();
         expect(screen.getByText('onboarding.useCustomInstead')).toBeInTheDocument();
     });
 
-    it('announces the Outlook disabled state via role="status" / aria-live', async () => {
+    it('announces the Outlook OAuth-only state via role="status" / aria-live', async () => {
         render(<OnboardingScreen onAccountAdded={vi.fn()} />);
         await userEvent.click(screen.getByText('onboarding.getStarted'));
         await userEvent.click(screen.getByText('Outlook.com (Personal)'));
         const status = screen.getByRole('status');
-        expect(status).toHaveTextContent('providerHelp.outlookPersonal.comingSoonMessage');
         expect(status).toHaveAttribute('aria-live', 'polite');
+        // The OAuth button is rendered inside the status region
+        expect(status).toHaveTextContent('oauth.button.microsoft');
     });
 
-    it('shows disabled state for Microsoft 365 business', async () => {
+    it('renders OAuth sign-in button for Microsoft 365 business', async () => {
         render(<OnboardingScreen onAccountAdded={vi.fn()} />);
         await userEvent.click(screen.getByText('onboarding.getStarted'));
         await userEvent.click(screen.getByText('Microsoft 365 (Work/School)'));
-        expect(screen.getByText('providerHelp.outlookBusiness.comingSoonMessage')).toBeInTheDocument();
+        expect(screen.getByText('oauth.button.microsoft')).toBeInTheDocument();
         expect(screen.queryByLabelText('settings.password')).not.toBeInTheDocument();
     });
 
@@ -155,14 +156,89 @@ describe('OnboardingScreen', () => {
         await userEvent.click(screen.getByText('onboarding.getStarted'));
         await userEvent.click(screen.getByText('Outlook.com (Personal)'));
 
-        // Still on credentials step showing the disabled state
-        expect(screen.getByText('providerHelp.outlookPersonal.comingSoonMessage')).toBeInTheDocument();
+        // Still on credentials step showing the OAuth button
+        expect(screen.getByText('oauth.button.microsoft')).toBeInTheDocument();
 
         // Click the custom fallback button
         await userEvent.click(screen.getByText('onboarding.useCustomInstead'));
 
-        // Jumped straight to the server step — disabled state is gone, server heading is present
-        expect(screen.queryByText('providerHelp.outlookPersonal.comingSoonMessage')).not.toBeInTheDocument();
+        // Jumped straight to the server step — OAuth button gone, server heading present
+        expect(screen.queryByText('oauth.button.microsoft')).not.toBeInTheDocument();
         expect(screen.getByText('onboarding.serverSettings')).toBeInTheDocument();
+    });
+
+    it('renders OAuth sign-in button on the Gmail credentials step', async () => {
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Gmail'));
+        expect(screen.getByText('oauth.button.google')).toBeInTheDocument();
+        // The password fields are still present underneath the divider
+        expect(screen.getByLabelText('settings.password')).toBeInTheDocument();
+        expect(screen.getByText('oauth.divider.orUseAppPassword')).toBeInTheDocument();
+    });
+
+    it('completes onboarding on a successful Gmail OAuth flow', async () => {
+        const onAccountAdded = vi.fn();
+        mockIpcInvoke
+            .mockResolvedValueOnce({ success: true, accountId: 'oauth-1' }) // auth:start-oauth-flow
+            .mockResolvedValueOnce([{ // accounts:list
+                id: 'oauth-1',
+                email: 'new@gmail.com',
+                provider: 'gmail',
+                display_name: null,
+                imap_host: 'imap.gmail.com',
+                imap_port: 993,
+                smtp_host: 'smtp.gmail.com',
+                smtp_port: 465,
+                signature_html: null,
+                auth_type: 'oauth',
+                auth_state: 'ok',
+            }]);
+
+        render(<OnboardingScreen onAccountAdded={onAccountAdded} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Gmail'));
+
+        await act(async () => {
+            await userEvent.click(screen.getByText('oauth.button.google'));
+        });
+
+        expect(mockIpcInvoke).toHaveBeenCalledWith('auth:start-oauth-flow', { provider: 'google' });
+        expect(onAccountAdded).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces a classification-mismatch warning when personal selected but business detected', async () => {
+        mockIpcInvoke
+            .mockResolvedValueOnce({ // auth:start-oauth-flow
+                success: true,
+                accountId: 'oauth-b',
+                classifiedProvider: 'microsoft_business',
+            })
+            .mockResolvedValueOnce([]); // accounts:list
+
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Outlook.com (Personal)'));
+
+        await act(async () => {
+            await userEvent.click(screen.getByText('oauth.button.microsoft'));
+        });
+
+        expect(screen.getByText('oauth.mismatch.personalSelectedBusinessDetected')).toBeInTheDocument();
+    });
+
+    it('surfaces an error when OAuth flow fails', async () => {
+        mockIpcInvoke.mockResolvedValueOnce({ success: false, error: 'user cancelled' });
+
+        render(<OnboardingScreen onAccountAdded={vi.fn()} />);
+        await userEvent.click(screen.getByText('onboarding.getStarted'));
+        await userEvent.click(screen.getByText('Gmail'));
+
+        await act(async () => {
+            await userEvent.click(screen.getByText('oauth.button.google'));
+        });
+
+        // oauth.reauth.failed is the error prefix used by handleOAuthError
+        expect(screen.getByRole('alert')).toHaveTextContent('oauth.reauth.failed');
     });
 });

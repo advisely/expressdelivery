@@ -45,8 +45,12 @@ describe('rateLimit', () => {
         rateLimit(key, 2, 0.001);
         expect(rateLimit(key, 2, 0.001)).toBe(false);
 
-        // Wait and refill with high rate — but cap at maxTokens=2
-        await new Promise(r => setTimeout(r, 20));
+        // Wait and refill with high rate — but cap at maxTokens=2.
+        // 60ms + rate=100 gives 6 tokens refilled (capped to 2). Windows
+        // timer granularity (~15ms) means a 20ms sleep can return in 30ms
+        // but with only 1.5 tokens refilled (floored to 1) — so we use 60ms
+        // to give a comfortable margin on any OS.
+        await new Promise(r => setTimeout(r, 60));
         // Should have 2 tokens (capped), use both
         expect(rateLimit(key, 2, 100)).toBe(true);
         expect(rateLimit(key, 2, 0.001)).toBe(true); // second token

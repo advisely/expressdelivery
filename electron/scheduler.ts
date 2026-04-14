@@ -1,6 +1,7 @@
 import { getDatabase } from './db.js';
-import { smtpEngine } from './smtp.js';
 import type { SendAttachment } from './smtp.js';
+import { sendMail } from './sendMail.js';
+import type { SendMailParams } from './sendMail.js';
 import { logDebug } from './logger.js';
 
 export interface SchedulerCallbacks {
@@ -115,11 +116,21 @@ export class SchedulerEngine {
       }
 
       try {
-        const sendResult = await smtpEngine.sendEmail(
-          scheduled.account_id, toList, scheduled.subject, scheduled.body_html,
-          ccList, bccList, attachments
-        );
-        if (sendResult.success) {
+        const scheduledParams: SendMailParams = {
+          accountId: scheduled.account_id,
+          to: toList,
+          subject: scheduled.subject,
+          html: scheduled.body_html,
+          cc: ccList,
+          bcc: bccList,
+          attachments: attachments?.map((att: SendAttachment) => ({
+            filename: att.filename,
+            content: Buffer.from(att.content, 'base64'),
+            contentType: att.contentType,
+          })),
+        };
+        const sendResult = await sendMail(scheduledParams);
+        if (sendResult.accepted.length > 0) {
           db.transaction(() => {
             db.prepare("UPDATE scheduled_sends SET status = 'sent' WHERE id = ?").run(scheduled.id);
             if (scheduled.draft_id) {
@@ -129,7 +140,7 @@ export class SchedulerEngine {
           logDebug(`Scheduled send completed: id=${scheduled.id}`);
           this.callbacks?.onScheduledSendResult(scheduled.id, true);
         } else {
-          this.handleSendFailure(db, scheduled, 'SMTP send returned false');
+          this.handleSendFailure(db, scheduled, 'send returned no accepted recipients');
         }
       } catch (err) {
         this.handleSendFailure(db, scheduled, err instanceof Error ? err.message : String(err));

@@ -474,6 +474,32 @@
     box-sizing: border-box;
 }
 
+.ob-oauth-wrap {
+    width: 100%;
+    margin: 8px 0 12px;
+    box-sizing: border-box;
+}
+
+.ob-oauth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin: 14px 0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+}
+
+.ob-oauth-divider::before,
+.ob-oauth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(var(--border-color), 0.6);
+}
+
 .ob-password-wrap {
     position: relative;
 }

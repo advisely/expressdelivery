@@ -1,0 +1,8 @@
+{
+  "access_token": "scrubbed_access_token_xxx_google_userinfo_email_imap_smtp",
+  "expires_in": 3599,
+  "refresh_token": "scrubbed_refresh_token_xxx_google_offline_access",
+  "scope": "https://mail.google.com/ openid email profile",
+  "token_type": "Bearer",
+  "id_token": "scrubbed_id_token_placeholder_NOT_a_real_jwt"
+}

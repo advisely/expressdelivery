@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useTranslation } from 'react-i18next';
-import { useEmailStore, type EmailSummary, type Tag, type SavedSearch, type Folder } from '../stores/emailStore';
+import { useEmailStore, type EmailSummary, type Tag, type SavedSearch, type Folder, type Account } from '../stores/emailStore';
 import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
@@ -67,6 +67,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast }) => {
   const { t } = useTranslation();
   const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion, setEmails, setSelectedEmail } = useEmailStore();
+  const setAccounts = useEmailStore(s => s.setAccounts);
   const tags = useEmailStore(s => s.tags);
   const setTags = useEmailStore(s => s.setTags);
   const savedSearches = useEmailStore(s => s.savedSearches);
@@ -92,6 +93,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
   const isAllAccounts = selectedAccountId === '__all';
   const activeAccount = isAllAccounts ? null : (accounts.find(a => a.id === selectedAccountId) ?? accounts[0]);
+
+  // Task 23: reauth badge renderer. Returns null when the account is in 'ok'
+  // state or auth_state is undefined (password-auth accounts have no badge).
+  // Reserves its own element so callers can place it alongside the account
+  // label without affecting layout when no badge is needed.
+  const renderReauthBadge = (account: Account | null | undefined) => {
+    if (!account) return null;
+    const state = account.auth_state;
+    if (state !== 'reauth_required' && state !== 'recommended_reauth') return null;
+    const title = state === 'reauth_required'
+      ? t('oauth.reauth.badge.needed')
+      : t('oauth.reauth.badge.recommended');
+    return (
+      <span
+        className={`${styles['reauth-badge']} ${state === 'reauth_required' ? styles['reauth-badge-danger'] : styles['reauth-badge-warning']}`}
+        role="img"
+        aria-label={title}
+        title={title}
+        data-auth-state={state}
+        data-testid={`reauth-badge-${account.id}`}
+      />
+    );
+  };
   const isPartialAll = isAllAccounts && excludedAccountIds.size > 0 && excludedAccountIds.size < accounts.length;
   const includedAccounts = accounts.filter(a => !excludedAccountIds.has(a.id));
 
@@ -445,6 +469,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     return () => { cleanupAvail?.(); cleanupDone?.(); };
   }, []);
 
+  // Phase 2 OAuth2 (Task 23): subscribe to auth:needs-reauth events fired by
+  // imapEngine when a refresh token is permanently invalid. On receipt, we
+  // refetch accounts:list so the sidebar's reauth badge flips to red.
+  useEffect(() => {
+    const cleanup = ipcOn('auth:needs-reauth', async () => {
+      const result = await ipcInvoke<Account[]>('accounts:list');
+      if (Array.isArray(result)) {
+        setAccounts(result);
+      }
+    });
+    return () => { cleanup?.(); };
+  }, [setAccounts]);
+
   // IMAP connection status — poll every 5 seconds + listen for push events
   useEffect(() => {
     let cancelled = false;
@@ -566,6 +603,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               <span className={`${styles['account-name']} ${isPartialAll ? styles['account-name-partial'] : ''}`}>
                 {isAllAccounts ? t('sidebar.allAccounts') : (activeAccount?.display_name ?? t('sidebar.personal'))}
                 {isPartialAll ? '*' : ''}
+                {!isAllAccounts && renderReauthBadge(activeAccount)}
               </span>
               <span className={styles['account-email']}>
                 {isAllAccounts
@@ -650,20 +688,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
             {accounts.map(acc => {
               const AccIcon = getProviderIcon(acc.provider);
               return (
-                <button
-                  key={acc.id}
-                  className={`${styles['account-picker-item']} ${acc.id === selectedAccountId ? styles['active'] : ''}`}
-                  onClick={() => {
-                    selectAccount(acc.id);
-                    setShowAccountPicker(false);
-                  }}
-                >
-                  <div className={styles['avatar-icon-sm']}><AccIcon size={16} /></div>
-                  <div className={styles['account-info']}>
-                    <span className={styles['account-name']}>{acc.display_name ?? acc.email}</span>
-                    <span className={styles['account-email']}>{acc.email}</span>
-                  </div>
-                </button>
+                <div key={acc.id} className={styles['account-picker-row']}>
+                  <button
+                    className={`${styles['account-picker-item']} ${acc.id === selectedAccountId ? styles['active'] : ''}`}
+                    onClick={() => {
+                      selectAccount(acc.id);
+                      setShowAccountPicker(false);
+                    }}
+                    style={{ flex: 1 }}
+                  >
+                    <div className={styles['avatar-icon-sm']}><AccIcon size={16} /></div>
+                    <div className={styles['account-info']}>
+                      <span className={styles['account-name']}>
+                        {acc.display_name ?? acc.email}
+                        {renderReauthBadge(acc)}
+                      </span>
+                      <span className={styles['account-email']}>{acc.email}</span>
+                    </div>
+                  </button>
+                  {(acc.auth_state === 'reauth_required' || acc.auth_state === 'recommended_reauth') && (
+                    <button
+                      className={styles['reauth-menu-item']}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAccountPicker(false);
+                        onSettings();
+                      }}
+                      title={t('oauth.reauth.contextMenuItem')}
+                      aria-label={t('oauth.reauth.contextMenuItem')}
+                      type="button"
+                    >
+                      {t('oauth.reauth.contextMenuItem')}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -708,6 +766,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                   />
                   <span className={styles['context-account-text']}>
                     {acc.display_name ?? acc.email}
+                    {renderReauthBadge(acc)}
                   </span>
                 </button>
               )}
