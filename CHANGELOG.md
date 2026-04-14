@@ -9,6 +9,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.17.2] - 2026-04-13
+
+Hotfix for a Yahoo (and any ~80-folder account) IMAP reconnect loop surfaced during v1.17.1 manual testing. Also refreshes two stale architecture docs flagged by the docs audit.
+
+### Fixed
+- **Yahoo / high-folder-count IMAP accounts were stuck in a "connecting → disconnect → reconnect" loop.** `ImapEngine.startAccount()` had a folder-sync loop labelled "non-blocking" in its comment but actually did a sequential `await` over every non-inbox folder. For Yahoo accounts with ~80 folders and a 60s per-folder timeout, this blocked `startAccount` for up to ~80 minutes before the status could transition to `connected` and the heartbeat could start. During that window the idle TCP connection dropped (no NOOPs), `on('close')` fired `forceDisconnect('health')`, `scheduleReconnect()` fired a new `startAccount`, and the cycle repeated indefinitely. Fix: the inbox initial sync still runs in the foreground (the user needs *something* to look at on first render), but every other folder's initial sync is deferred to a fire-and-forget IIFE that runs *after* `ctrl.status = 'connected'` and `startHeartbeat()` have already run. The normal 60s folder sync timer picks up any failures on its next tick. IMAPFlow serializes mailboxOpen/fetch operations internally, so the background loop does not contend with the heartbeat or the inbox sync timer for mailbox locks. Verified: 62 `imapSync.test.ts` cases still pass; 1003/1003 full suite green. Observed in `%APPDATA%\\ExpressDelivery\\logs\\debug_startup.log` as an account that logged "Found 82 folders" + "Inbox initial sync: 14 new emails" but never logged "startAccount complete".
+
+### Docs
+- `docs/ARCHITECTURE.md` refreshed to v1.17.1+ state: ~116 IPC handlers (was ~107), 17 migrations (was 12), new `electron/auth/` and `electron/oauth/` module subtrees documented, `sendMail.ts` + `graphSend.ts` listed, Phase 2 migrations 16 + 17 noted.
+- `docs/PACKAGES.md` refreshed to v1.17.1+ state: `@azure/msal-node ^5.1.2` added to production deps, `nock ^14.0.12` added to dev deps, `grammy` + `@playwright/test` demoted from "New" to "Current".
+
+### Notes
+- No schema changes, no new dependencies, no breaking API changes. Patch release. Safe to install over v1.17.1 or v1.17.0 via the `.expressdelivery` update package.
+- If your Yahoo account was stuck in the reconnect loop on v1.17.1 the new build clears it immediately — the account transitions to connected within ~5 seconds and you should see the inbox right away. Non-inbox folders (Bulk Mail, Trash, Archive, custom labels) populate in the background over the next 30-90 seconds depending on how many messages are in each.
+
+---
+
 ## [1.17.1] - 2026-04-13
 
 Phase 17.1 — polish follow-up to the v1.17.0 OAuth2 landing. Wires the three items deferred from Phase 2 execution: a Playwright seed hook so the Sidebar reauth badge has real E2E coverage, deep-link from the Sidebar "Sign in again" CTA to the correct account's edit form in Settings, and dead-key cleanup in the OAuth mismatch warning. Also widens the rateLimiter test refill window to eliminate a pre-existing Windows CI flake that was unrelated to Phase 2 but blocking merges.
