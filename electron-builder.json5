@@ -18,9 +18,16 @@
   "mac": {
     "icon": "build/icon@2x.png",
     "target": [
-      "dmg"
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
     ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    "artifactName": "${productName}-Mac-${version}-${arch}.${ext}",
     // Code signing: set CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD for notarization
     "hardenedRuntime": true,
     "gatekeeperAssess": false
@@ -30,19 +37,15 @@
     "target": [
       {
         "target": "nsis",
-        "arch": [
-          "x64"
-        ]
+        "arch": ["x64", "arm64"]
       },
       {
         // Portable ZIP — extract anywhere, run ExpressDelivery.exe, no install
         "target": "zip",
-        "arch": [
-          "x64"
-        ]
+        "arch": ["x64", "arm64"]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
+    "artifactName": "${productName}-Windows-${version}-${arch}-Setup.${ext}",
     // Code signing: set CSC_LINK (path to .pfx) and CSC_KEY_PASSWORD env vars to enable
     "signAndEditExecutable": true
   },
@@ -70,11 +73,11 @@
       },
       {
         "target": "AppImage",
-        "arch": ["x64"]
+        "arch": ["x64", "arm64"]
       },
       {
         "target": "rpm",
-        "arch": ["x64"]
+        "arch": ["x64", "arm64"]
       }
     ],
     "artifactName": "${productName}-Linux-${version}-${arch}.${ext}",

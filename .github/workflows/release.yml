@@ -85,7 +85,10 @@ jobs:
         run: npx @electron/rebuild -m . --only better-sqlite3 --force
 
       - name: Package and publish to GitHub Releases
-        run: npx electron-builder --win --publish always
+        # Build both x64 and arm64 Windows targets (NSIS installer + portable ZIP for each).
+        # better-sqlite3 arm64 prebuilt is pulled from the npm prebuild on x64 runners;
+        # if the prebuild is missing, electron-builder falls back to building from source.
+        run: npx electron-builder --win --x64 --arm64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -178,9 +181,98 @@ jobs:
         run: npx @electron/rebuild -m . --only better-sqlite3 --force
 
       - name: Package and publish to GitHub Releases
-        run: npx electron-builder --linux --publish always
+        # Build both x64 and arm64 Linux targets. The aarch64 cross-compile
+        # toolchain installed above is picked up by @electron/rebuild when
+        # electron-builder invokes it for the arm64 target. Produces:
+        # .deb, .AppImage, and .rpm for both x64 and arm64 (6 artifacts).
+        run: npx electron-builder --linux --x64 --arm64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      # actions/checkout@v5 (Node 24 compatible)
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      # actions/setup-node@v5 (Node 24 compatible)
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      # Phase 2 OAuth2: same secret pre-flight check as the other jobs.
+      - name: Verify OAuth secrets are present
+        shell: bash
+        env:
+          OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
+        run: |
+          missing=0
+          if [ -z "$OAUTH_GOOGLE_CLIENT_ID" ]; then
+            echo "::error::OAUTH_GOOGLE_CLIENT_ID secret is missing"
+            missing=1
+          fi
+          if [ -z "$OAUTH_GOOGLE_CLIENT_SECRET" ]; then
+            echo "::error::OAUTH_GOOGLE_CLIENT_SECRET secret is missing"
+            missing=1
+          fi
+          if [ -z "$OAUTH_MICROSOFT_CLIENT_ID" ]; then
+            echo "::error::OAUTH_MICROSOFT_CLIENT_ID secret is missing"
+            missing=1
+          fi
+          if [ "$missing" -eq 1 ]; then
+            echo "::error::One or more required OAuth secrets are missing — refusing to build a release without OAuth credentials. Configure them in repository Settings → Secrets and variables → Actions before retrying."
+            exit 1
+          fi
+          echo "All OAuth secrets present."
+
+      - name: Build Electron app
+        env:
+          VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+          VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+          VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
+        run: |
+          npx tsc
+          npx vite build
+
+      # E2E console health gate — must pass before packaging.
+      # macos-latest is arm64 (Apple Silicon) since late 2024. Chromium
+      # launches headless without any xvfb shim.
+      - name: Install Playwright Electron
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E console health
+        run: npm run test:e2e -- --grep "Console Health"
+
+      # Rebuild better-sqlite3 for Electron ABI on the host arch.
+      # The macOS runner is Apple Silicon — @electron/rebuild picks up the
+      # native arch automatically. Universal binaries handle both x64 and
+      # arm64 in a single .app bundle via electron-builder's own lipo step.
+      - name: Rebuild native deps for packaging
+        run: npx @electron/rebuild -m . --only better-sqlite3 --force
+
+      - name: Package and publish to GitHub Releases
+        # Build both x64 and arm64 dmg + zip targets. electron-builder
+        # downloads the opposite-arch Electron binary and lipos the native
+        # modules into a universal package per target.
+        run: npx electron-builder --mac --x64 --arm64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional code signing + notarization — build succeeds unsigned if omitted.
+          CSC_LINK: ${{ secrets.CSC_LINK_MAC }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD_MAC }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
           VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
           VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
