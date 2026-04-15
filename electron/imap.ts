@@ -6,6 +6,7 @@ import { logDebug } from './logger.js';
 import { applyRulesToEmail } from './ruleEngine.js';
 import { parseAuthResults, getSenderVerification } from './authResults.js';
 import { getAuthTokenManager, PermanentAuthError } from './auth/tokenManager.js';
+import { AsyncQueue } from './asyncQueue.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
 
@@ -134,9 +135,11 @@ export class AccountSyncController {
     /* newEmailCallback is stored here for future use by controller-driven sync.
        Currently, ImapEngine.syncNewEmails() calls the engine-level callback directly. */
     newEmailCb: ((accountId: string, folderId: string, count: number) => void) | null = null;
+    readonly operationQueue: AsyncQueue;
 
     constructor(accountId: string, settings?: Partial<SyncSettings>) {
         this.accountId = accountId;
+        this.operationQueue = new AsyncQueue(accountId);
         if (settings) {
             this.settings = { ...this.settings, ...settings };
         }
@@ -164,6 +167,7 @@ export class AccountSyncController {
         this.status = 'disconnected';
         this.syncing = false;
         this.syncingFolders.clear();
+        this.operationQueue.drain();
     }
 
     forceDisconnect(reason: 'health' | 'user' | 'shutdown' = 'health'): void {
@@ -176,6 +180,7 @@ export class AccountSyncController {
         if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
         if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        this.operationQueue.drain();
         logDebug(`[IMAP:${this.accountId}] Force disconnected (reason: ${reason})`);
         if (reason === 'health') {
             this.scheduleReconnect();

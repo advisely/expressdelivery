@@ -802,4 +802,49 @@ describe('AccountSyncController', () => {
             ctrl2.stop();
         });
     });
+
+    describe('AccountSyncController.operationQueue', () => {
+        beforeEach(() => {
+            vi.useRealTimers(); // these tests rely on real setTimeout for blocker tasks
+        });
+
+        it('exposes an operationQueue instance on the controller', () => {
+            const ctrl = new AccountSyncController('acct-queue-1');
+            expect(ctrl.operationQueue).toBeDefined();
+            expect(typeof ctrl.operationQueue.enqueue).toBe('function');
+            expect(typeof ctrl.operationQueue.drain).toBe('function');
+        });
+
+        it('drains the operation queue on forceDisconnect', async () => {
+            const ctrl = new AccountSyncController('acct-queue-2');
+            ctrl.status = 'connected';
+
+            // Seed a blocking task so subsequent enqueues remain pending.
+            const blocker = ctrl.operationQueue.enqueue(() =>
+                new Promise<string>(resolve => setTimeout(() => resolve('done'), 50))
+            );
+            const pending = ctrl.operationQueue.enqueue(async () => 'never-runs');
+
+            ctrl.forceDisconnect('user');
+
+            await expect(blocker).resolves.toBe('done');
+            await expect(pending).rejects.toThrow(/drained/);
+        });
+
+        it('drains the operation queue on stop()', async () => {
+            const ctrl = new AccountSyncController('acct-queue-3');
+            ctrl.status = 'connected';
+
+            // Seed a blocking task so the subsequent enqueue remains pending.
+            const blocker = ctrl.operationQueue.enqueue(() =>
+                new Promise<string>(resolve => setTimeout(() => resolve('done'), 50))
+            );
+            const pending = ctrl.operationQueue.enqueue(async () => 'never-runs');
+
+            ctrl.stop();
+
+            await expect(blocker).resolves.toBe('done');
+            await expect(pending).rejects.toThrow(/drained/);
+        });
+    });
 });
