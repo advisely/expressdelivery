@@ -71,4 +71,47 @@ describe('AsyncQueue', () => {
         expect(err.message).toContain('test-account');
         expect(err.name).toBe('QueueDrainedError');
     });
+
+    it('handles enqueue called from within a running task', async () => {
+        const queue = new AsyncQueue();
+        const log: string[] = [];
+
+        let nestedPromise: Promise<string> | undefined;
+        const outer = queue.enqueue(async () => {
+            log.push('outer-start');
+            nestedPromise = queue.enqueue(async () => {
+                log.push('nested');
+                return 'nested-result';
+            });
+            log.push('outer-end');
+            return 'outer-result';
+        });
+
+        const outerResult = await outer;
+        const nestedResult = await nestedPromise;
+
+        expect(outerResult).toBe('outer-result');
+        expect(nestedResult).toBe('nested-result');
+        // Serial guarantee: outer must fully complete before nested runs.
+        expect(log).toEqual(['outer-start', 'outer-end', 'nested']);
+    });
+
+    it('rejects tasks enqueued after drain() with QueueDrainedError', async () => {
+        const queue = new AsyncQueue('acct-X');
+        queue.drain();
+
+        const taskFn = vi.fn(async () => 'should-not-run');
+        const rejected = queue.enqueue(taskFn);
+
+        await expect(rejected).rejects.toBeInstanceOf(QueueDrainedError);
+        await expect(rejected).rejects.toThrow('acct-X');
+        expect(taskFn).not.toHaveBeenCalled();
+    });
+
+    it('drain() is idempotent on empty queue and when called twice', () => {
+        const queue = new AsyncQueue('acct-Y');
+        expect(() => queue.drain()).not.toThrow();
+        expect(() => queue.drain()).not.toThrow();
+        expect(queue.size).toBe(0);
+    });
 });
