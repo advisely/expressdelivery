@@ -1117,4 +1117,85 @@ describe('syncNewEmails two-phase parsing', () => {
 
         imapEngine['controllers'].delete('acct-chunk-1');
     });
+
+    it('skips a malformed message mid-batch without aborting the rest', async () => {
+        const ctrl = new AccountSyncController('acct-bad-1');
+        ctrl.status = 'connected';
+
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => ({ release: () => undefined })),
+            fetch: vi.fn(() => (async function* () {
+                yield {
+                    uid: 1,
+                    envelope: { subject: 'good-1', from: [{ address: 'a@x' }], to: [{ address: 'b@x' }], date: new Date('2026-04-14T00:00:00Z'), messageId: '<1@x>', inReplyTo: null },
+                    bodyStructure: null,
+                    source: Buffer.from('Subject: good-1\r\n\r\nhi'),
+                };
+                yield {
+                    uid: 2,
+                    envelope: { subject: 'bad', from: [{ address: 'a@x' }], to: [{ address: 'b@x' }], date: new Date('2026-04-14T00:00:00Z'), messageId: '<2@x>', inReplyTo: null },
+                    bodyStructure: null,
+                    source: Buffer.from('THROW_PLEASE'),
+                };
+                yield {
+                    uid: 3,
+                    envelope: { subject: 'good-3', from: [{ address: 'a@x' }], to: [{ address: 'b@x' }], date: new Date('2026-04-14T00:00:00Z'), messageId: '<3@x>', inReplyTo: null },
+                    bodyStructure: null,
+                    source: Buffer.from('Subject: good-3\r\n\r\nhi'),
+                };
+            })()),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-bad-1', ctrl);
+
+        // Make mailparser throw when it sees the THROW_PLEASE sentinel, succeed otherwise.
+        mockSimpleParser.mockImplementation(async (input: unknown) => {
+            const buf = input as Buffer;
+            if (buf.toString().includes('THROW_PLEASE')) {
+                throw new Error('mailparser boom');
+            }
+            return { text: 'hi', html: false, headers: new Map() } as unknown as Awaited<
+                ReturnType<typeof import('mailparser').simpleParser>
+            >;
+        });
+
+        // Capture email-insert calls.
+        const inserts: string[] = [];
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            if (sql.startsWith('INSERT OR IGNORE INTO emails')) {
+                return {
+                    run: (id: string) => {
+                        inserts.push(id);
+                        return { changes: 1 };
+                    },
+                    get: () => null,
+                    all: () => [],
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 0 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        const count = await imapEngine.syncNewEmails('acct-bad-1', 'INBOX');
+
+        imapEngine['controllers'].delete('acct-bad-1');
+
+        // Messages 1 and 3 persisted, 2 skipped.
+        expect(count).toBe(2);
+        expect(inserts).toEqual(['acct-bad-1_1', 'acct-bad-1_3']);
+        // logDebug called with the malformed UID.
+        expect(mockLogDebug).toHaveBeenCalledWith(
+            expect.stringContaining('mailparser error for acct-bad-1_2')
+        );
+    });
 });
