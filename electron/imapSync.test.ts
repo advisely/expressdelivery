@@ -882,5 +882,37 @@ describe('AccountSyncController', () => {
 
             imapEngine['controllers'].delete('acct-delete-1');
         });
+
+        it('routes moveMessage through the operation queue', async () => {
+            const ctrl = new AccountSyncController('acct-move-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageMove: vi.fn(async () => { callOrder.push('move'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-move-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const movePromise = imapEngine.moveMessage('acct-move-1', 42, 'INBOX', 'Trash');
+            await Promise.all([blocker, movePromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const moveIdx = callOrder.indexOf('move');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(moveIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(moveIdx);
+
+            imapEngine['controllers'].delete('acct-move-1');
+        });
     });
 });

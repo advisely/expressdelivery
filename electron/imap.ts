@@ -1085,8 +1085,20 @@ export class ImapEngine {
 
     async moveMessage(accountId: string, emailUid: number, sourceMailbox: string, destMailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
-        if (!client) throw new Error('Account not connected');
+        if (!ctrl?.client) throw new Error('Account not connected');
+        return ctrl.operationQueue.enqueue(() =>
+            this._moveMessageLocked(ctrl, emailUid, sourceMailbox, destMailbox)
+        );
+    }
+
+    private async _moveMessageLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        sourceMailbox: string,
+        destMailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
+        if (!client) return false;
 
         // 30s lock acquisition budget — user-initiated move/delete needs to
         // survive a concurrent runFullSync iteration on a large folder
