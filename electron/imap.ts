@@ -1264,12 +1264,23 @@ export class ImapEngine {
         mailbox: string
     ): Promise<{ bodyText: string; bodyHtml: string | null } | null> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return null;
+        return ctrl.operationQueue.enqueue(() =>
+            this._refetchEmailBodyLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _refetchEmailBodyLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<{ bodyText: string; bodyHtml: string | null } | null> {
+        const client = ctrl.client;
         if (!client) return null;
 
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {

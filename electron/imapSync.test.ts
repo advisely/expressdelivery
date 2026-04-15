@@ -914,5 +914,57 @@ describe('AccountSyncController', () => {
 
             imapEngine['controllers'].delete('acct-move-1');
         });
+
+        it('routes refetchEmailBody through the queue and uses 30s lock timeout', async () => {
+            const ctrl = new AccountSyncController('acct-refetch-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                fetch: vi.fn(async function* () {
+                    yield { source: Buffer.from('Subject: test\r\n\r\nhello') };
+                }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-refetch-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const refetchPromise = imapEngine.refetchEmailBody('acct-refetch-1', 42, 'INBOX');
+            await Promise.all([blocker, refetchPromise]);
+
+            // Serialization: lock must not be acquired until after the blocker finishes.
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const lockAcquireIdx = callOrder.indexOf('lock-acquired');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(lockAcquireIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(lockAcquireIdx);
+
+            imapEngine['controllers'].delete('acct-refetch-1');
+        });
+
+        it('refetchEmailBody uses a 30-second mailbox lock timeout', async () => {
+            // Static-source assertion: verify the timeout constant is 30_000, not 10_000.
+            // This guards against accidental regression on the timeout bump.
+            const fs = await import('node:fs');
+            const src = fs.readFileSync('electron/imap.ts', 'utf-8');
+
+            // Locate the _refetchEmailBodyLocked (or refetchEmailBody if not yet extracted) method body
+            // and find its first withImapTimeout call.
+            const refetchStart = src.indexOf('refetchEmailBody');
+            expect(refetchStart).toBeGreaterThan(-1);
+            const slice = src.slice(refetchStart);
+            // The timeout in the next withImapTimeout call must be 30_000.
+            const match = /withImapTimeout\s*\(\s*\(\)\s*=>\s*client\.getMailboxLock\([^)]+\),\s*(\d+)_000/.exec(slice);
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe('30');
+        });
     });
 });
