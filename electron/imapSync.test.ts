@@ -1198,4 +1198,96 @@ describe('syncNewEmails two-phase parsing', () => {
             expect.stringContaining('mailparser error for acct-bad-1_2')
         );
     });
+
+    it('persists identical fields (subject, from, to, thread, message_id) after refactor', async () => {
+        const ctrl = new AccountSyncController('acct-fields-1');
+        ctrl.status = 'connected';
+
+        const fixture = {
+            uid: 7,
+            envelope: {
+                subject: 'Quarterly Report',
+                from: [{ name: 'Alice Example', address: 'alice@example.com' }],
+                to: [{ address: 'bob@example.com' }],
+                date: new Date('2026-04-10T14:30:00Z'),
+                messageId: '<qr-7@example.com>',
+                inReplyTo: null,
+            },
+            bodyStructure: null,
+            source: Buffer.from(
+                'Subject: Quarterly Report\r\n' +
+                'From: Alice Example <alice@example.com>\r\n' +
+                'To: bob@example.com\r\n' +
+                'Date: Fri, 10 Apr 2026 14:30:00 +0000\r\n' +
+                '\r\n' +
+                'Q1 numbers attached.\r\n'
+            ),
+        };
+
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => ({ release: () => undefined })),
+            fetch: vi.fn(() => (async function* () { yield fixture; })()),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-fields-1', ctrl);
+
+        // Parser returns a stable body text for assertion.
+        mockSimpleParser.mockImplementation(async () => ({
+            text: 'Q1 numbers attached.',
+            html: false,
+            headers: new Map(),
+        } as unknown as Awaited<ReturnType<typeof import('mailparser').simpleParser>>));
+
+        const persistedRows: unknown[][] = [];
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            if (sql.startsWith('INSERT OR IGNORE INTO emails')) {
+                return {
+                    run: (...args: unknown[]) => {
+                        persistedRows.push(args);
+                        return { changes: 1 };
+                    },
+                    get: () => null,
+                    all: () => [],
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 0 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        await imapEngine.syncNewEmails('acct-fields-1', 'INBOX');
+
+        expect(persistedRows.length).toBe(1);
+        const [
+            id,
+            accountId,
+            folderId,
+            threadId,
+            messageId,
+            subject,
+            fromName,
+            fromEmail,
+            toEmail,
+        ] = persistedRows[0];
+        expect(id).toBe('acct-fields-1_7');
+        expect(accountId).toBe('acct-fields-1');
+        expect(folderId).toBe('folder-inbox');
+        expect(threadId).toBe('<qr-7@example.com>');
+        expect(messageId).toBe('<qr-7@example.com>');
+        expect(subject).toBe('Quarterly Report');
+        expect(fromName).toBe('Alice Example');
+        expect(fromEmail).toBe('alice@example.com');
+        expect(toEmail).toBe('bob@example.com');
+
+        imapEngine['controllers'].delete('acct-fields-1');
+    });
 });
