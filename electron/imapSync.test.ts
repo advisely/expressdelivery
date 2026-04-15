@@ -71,6 +71,16 @@ vi.mock('./crypto.js', () => ({
     encryptData: vi.fn((s: string) => Buffer.from(s, 'utf-8')),
 }));
 
+// Mock mailparser so syncNewEmails tests can track when simpleParser is invoked.
+// ESM exports cannot be spied on directly (vi.spyOn throws "module namespace
+// is not configurable"), so we mock the module and expose a settable impl.
+const { mockSimpleParser } = vi.hoisted(() => ({
+    mockSimpleParser: vi.fn(async () => ({ text: '', html: false, headers: new Map() })),
+}));
+vi.mock('mailparser', () => ({
+    simpleParser: mockSimpleParser,
+}));
+
 import { AccountSyncController } from './imap.js';
 import { PermanentAuthError } from './auth/tokenManager.js';
 
@@ -966,5 +976,75 @@ describe('AccountSyncController', () => {
             expect(match).not.toBeNull();
             expect(match![1]).toBe('30');
         });
+    });
+});
+
+describe('syncNewEmails two-phase parsing', () => {
+    it('releases the mailbox lock before running simpleParser', async () => {
+        const ctrl = new AccountSyncController('acct-sync-1');
+        ctrl.status = 'connected';
+
+        const events: string[] = [];
+        const fakeFetchIterator = async function* () {
+            yield {
+                uid: 101,
+                envelope: {
+                    subject: 'Test',
+                    from: [{ name: 'A', address: 'a@example.com' }],
+                    to: [{ address: 'b@example.com' }],
+                    date: new Date('2026-04-14T00:00:00Z'),
+                    messageId: '<msg-101@example.com>',
+                    inReplyTo: null,
+                },
+                bodyStructure: null,
+                source: Buffer.from('Subject: Test\r\nFrom: a@example.com\r\n\r\nhi'),
+            };
+        };
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => {
+                events.push('lock-acquired');
+                return {
+                    release: () => events.push('lock-released'),
+                };
+            }),
+            fetch: vi.fn(() => fakeFetchIterator()),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-sync-1', ctrl);
+
+        // Seed folder row via the db mock.
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 1 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        // Instrument mailparser mock to record when simpleParser is invoked.
+        mockSimpleParser.mockImplementationOnce(async () => {
+            events.push('simple-parser-invoked');
+            return { text: 'hi', html: false, headers: new Map() } as unknown as Awaited<
+                ReturnType<typeof import('mailparser').simpleParser>
+            >;
+        });
+
+        await imapEngine.syncNewEmails('acct-sync-1', 'INBOX');
+
+        imapEngine['controllers'].delete('acct-sync-1');
+
+        const releaseIdx = events.indexOf('lock-released');
+        const parseIdx = events.indexOf('simple-parser-invoked');
+        expect(releaseIdx).toBeGreaterThan(-1);
+        expect(parseIdx).toBeGreaterThan(-1);
+        // The critical invariant: lock is released BEFORE simpleParser runs.
+        expect(releaseIdx).toBeLessThan(parseIdx);
     });
 });

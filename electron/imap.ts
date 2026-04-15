@@ -43,6 +43,20 @@ interface BodyStructureNode {
     childNodes?: BodyStructureNode[];
 }
 
+interface FetchedMessage {
+    uid: number;
+    envelope: {
+        subject?: string;
+        from?: Array<{ name?: string; address?: string }>;
+        to?: Array<{ address?: string }>;
+        date?: Date;
+        messageId?: string;
+        inReplyTo?: string | null;
+    } | null;
+    bodyStructure: BodyStructureNode | null;
+    source: Buffer | null;
+}
+
 function sanitizeAttFilename(raw: string): string {
     return raw
         .replace(/[\r\n\0]/g, '')                    // strip CRLF / NUL
@@ -865,8 +879,6 @@ export class ImapEngine {
         const ctrl = this.controllers.get(accountId);
         const client = ctrl?.client;
 
-        // Per-folder syncing guard: one active sync per mailbox per account.
-        // Uses controller.syncingFolders (Set<string>) rather than the old global Map.
         const syncKey = mailbox;
         if (!ctrl) return 0;
         if (ctrl.syncingFolders.has(syncKey)) return 0;
@@ -874,176 +886,197 @@ export class ImapEngine {
 
         let insertedCount = 0;
         try {
-        if (!client) return 0;
+            if (!client) return 0;
 
-        const db = getDatabase();
-        const folder = db.prepare(
-            'SELECT id, type FROM folders WHERE account_id = ? AND path = ?'
-        ).get(accountId, `/${mailbox}`) as { id: string; type: string | null } | undefined;
-        if (!folder) return 0;
-        const isInbox = folder.type === 'inbox';
+            const db = getDatabase();
+            const folder = db.prepare(
+                'SELECT id, type FROM folders WHERE account_id = ? AND path = ?'
+            ).get(accountId, `/${mailbox}`) as { id: string; type: string | null } | undefined;
+            if (!folder) return 0;
+            const isInbox = folder.type === 'inbox';
 
-        const lastUid = ctrl.lastSeenUid.get(mailbox) ?? 0;
-        const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
+            const lastUid = ctrl.lastSeenUid.get(mailbox) ?? 0;
+            const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
 
-        const lock = await withImapTimeout(
-            () => client.getMailboxLock(mailbox),
-            10_000,
-            `getMailboxLock(${mailbox})`
-        );
-        try {
-            const insertStmt = db.prepare(
-                `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
-                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe,
-                 auth_spf, auth_dkim, auth_dmarc, sender_verified)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+            // ── Phase 1: fetch raw sources inside the mailbox lock ─────────
+            const fetched: FetchedMessage[] = [];
+            const lock = await withImapTimeout(
+                () => client.getMailboxLock(mailbox),
+                10_000,
+                `getMailboxLock(${mailbox})`
             );
-            const insertAttStmt = db.prepare(
-                `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`
-            );
-            const markAttStmt = db.prepare(
-                'UPDATE emails SET has_attachments = 1 WHERE id = ?'
-            );
-            const updateBodyStmt = db.prepare(
-                `UPDATE emails SET body_text = ?, body_html = ?
-                 WHERE id = ? AND (body_html IS NULL OR body_html = '')`
-            );
-
-            // Fetch envelope + bodyStructure + full message source in ONE command.
-            // Individual UID FETCH commands fail on some servers (e.g. privateemail.com)
-            // with "Invalid messageset", so we must get everything in the batch fetch.
-            // source maxLength caps download to 2MB per message to avoid OOM on huge emails.
-            // IMAPFlow throws "Command failed" if the UID range has no matches.
-            try { for await (const message of client.fetch(range, {
-                envelope: true,
-                bodyStructure: true,
-                source: { maxLength: MAX_BODY_BYTES },
-                uid: true,
-            })) {
-                const uid = message.uid;
-                if (lastUid > 0 && uid <= lastUid) continue;
-
-                // IMAP UIDs are per-mailbox; include folder ID for non-INBOX to avoid collisions.
-                // INBOX keeps legacy format (${accountId}_${uid}) for backward compatibility.
-                const emailId = isInbox ? `${accountId}_${uid}` : `${folder.id}_${uid}`;
-                const env = message.envelope;
-                if (!env) continue;
-
-                // Parse body from raw RFC822 source using mailparser
-                let bodyText = '';
-                let bodyHtml: string | null = null;
-                let listUnsubscribe: string | null = null;
-                let authResultsHeader: string | null = null;
-                if (message.source && message.source.length > 0) {
-                    try {
-                        const parsed = await simpleParser(message.source, {
-                            skipHtmlToText: true,
-                            skipTextToHtml: true,
-                            skipImageLinks: true,
+            try {
+                try {
+                    for await (const message of client.fetch(range, {
+                        envelope: true,
+                        bodyStructure: true,
+                        source: { maxLength: MAX_BODY_BYTES },
+                        uid: true,
+                    })) {
+                        const uid = message.uid;
+                        if (lastUid > 0 && uid <= lastUid) continue;
+                        fetched.push({
+                            uid,
+                            envelope: (message.envelope ?? null) as FetchedMessage['envelope'],
+                            bodyStructure: (message.bodyStructure as BodyStructureNode | undefined) ?? null,
+                            source: message.source ?? null,
                         });
-                        bodyText = parsed.text ?? '';
-                        bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
-                        const listUnsubVal = parsed.headers?.get('list-unsubscribe');
-                        if (typeof listUnsubVal === 'string' && listUnsubVal.trim()) {
-                            listUnsubscribe = listUnsubVal.slice(0, 500);
-                        }
-                        // Extract Authentication-Results header for SPF/DKIM/DMARC
-                        const authVal = parsed.headers?.get('authentication-results');
-                        if (typeof authVal === 'string' && authVal.trim()) {
-                            authResultsHeader = authVal.slice(0, 2000);
-                        }
-                    } catch (parseErr) {
-                        logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+                    }
+                } catch (fetchErr) {
+                    // "Command failed" is normal when there are no new messages
+                    // (UID range beyond existing messages). Only log non-standard errors.
+                    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                    if (msg !== 'Command failed') {
+                        logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
                     }
                 }
-
-                // Compute thread_id: inherit from parent via In-Reply-To, otherwise use own messageId
-                const messageId = env.messageId ?? emailId;
-                let threadId = messageId;
-                if (env.inReplyTo) {
-                    const parent = db.prepare(
-                        'SELECT thread_id FROM emails WHERE message_id = ?'
-                    ).get(env.inReplyTo) as { thread_id: string } | undefined;
-                    if (parent?.thread_id) threadId = parent.thread_id;
-                }
-
-                // Parse authentication results
-                const authResults = parseAuthResults(authResultsHeader);
-                const senderVerified = getSenderVerification(authResults);
-
-                const result = insertStmt.run(
-                    emailId, accountId, folder.id,
-                    threadId, messageId,
-                    env.subject ?? '(no subject)',
-                    env.from?.[0]?.name ?? '',
-                    env.from?.[0]?.address ?? '',
-                    env.to?.[0]?.address ?? '',
-                    env.date?.toISOString() ?? new Date().toISOString(),
-                    (bodyText || '').replace(/\s+/g, ' ').trim().slice(0, 150),
-                    bodyText,
-                    bodyHtml,
-                    listUnsubscribe,
-                    authResults.spf,
-                    authResults.dkim,
-                    authResults.dmarc,
-                    senderVerified,
-                );
-
-                if (result.changes > 0) {
-                    insertedCount++;
-
-                    // Parse attachment metadata from bodyStructure
-                    if (message.bodyStructure) {
-                        const atts = extractAttachments(message.bodyStructure as BodyStructureNode);
-                        if (atts.length > 0) {
-                            markAttStmt.run(emailId);
-                            for (const att of atts) {
-                                const attId = `${emailId}_att_${att.partNumber}`;
-                                insertAttStmt.run(attId, emailId, att.filename, att.mimeType, att.size, att.partNumber, att.contentId);
-                            }
-                        }
-                    }
-
-                    // Apply mail rules to newly inserted email
-                    applyRulesToEmail(emailId, accountId);
-
-                    // Auto-spam classification: score the email and update spam_score
-                    try {
-                        const { classifyEmail } = await import('./spamFilter.js');
-                        const spamScore = classifyEmail(accountId, `${env.subject ?? ''} ${bodyText}`);
-                        if (spamScore !== null) {
-                            db.prepare('UPDATE emails SET spam_score = ? WHERE id = ?').run(spamScore, emailId);
-                        }
-                    } catch { /* spam classifier not trained yet — skip */ }
-                } else if (bodyText || bodyHtml) {
-                    // Row already exists but may have empty body from a previous sync
-                    // that didn't fetch source. Backfill the body content.
-                    updateBodyStmt.run(bodyText, bodyHtml, emailId);
-                }
-
-                if (uid > (ctrl.lastSeenUid.get(mailbox) ?? 0)) {
-                    ctrl.lastSeenUid.set(mailbox, uid);
-                }
+            } finally {
+                lock.release();
             }
-            } catch (fetchErr) {
-                // "Command failed" is normal when there are no new messages
-                // (UID range beyond existing messages). Only log non-standard errors.
-                const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-                if (msg !== 'Command failed') {
-                    logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
-                }
-            }
-        } finally {
-            lock.release();
-        }
 
-        if (insertedCount > 0) {
-            this.newEmailCallback?.(accountId, folder.id, insertedCount);
-        }
+            // ── Phase 2: parse and persist outside the lock ────────────────
+            insertedCount = await this.persistFetchedMessages(
+                accountId,
+                folder,
+                isInbox,
+                ctrl,
+                mailbox,
+                fetched
+            );
+
+            if (insertedCount > 0) {
+                this.newEmailCallback?.(accountId, folder.id, insertedCount);
+            }
         } finally {
             ctrl.syncingFolders.delete(syncKey);
         }
+        return insertedCount;
+    }
+
+    private async persistFetchedMessages(
+        accountId: string,
+        folder: { id: string; type: string | null },
+        isInbox: boolean,
+        ctrl: AccountSyncController,
+        mailbox: string,
+        fetched: FetchedMessage[],
+    ): Promise<number> {
+        if (fetched.length === 0) return 0;
+        const db = getDatabase();
+
+        const insertStmt = db.prepare(
+            `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
+             from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe,
+             auth_spf, auth_dkim, auth_dmarc, sender_verified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+        );
+        const insertAttStmt = db.prepare(
+            `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        const markAttStmt = db.prepare(
+            'UPDATE emails SET has_attachments = 1 WHERE id = ?'
+        );
+        const updateBodyStmt = db.prepare(
+            `UPDATE emails SET body_text = ?, body_html = ?
+             WHERE id = ? AND (body_html IS NULL OR body_html = '')`
+        );
+
+        let insertedCount = 0;
+        for (const msg of fetched) {
+            const emailId = isInbox ? `${accountId}_${msg.uid}` : `${folder.id}_${msg.uid}`;
+            const env = msg.envelope;
+            if (!env) continue;
+
+            let bodyText = '';
+            let bodyHtml: string | null = null;
+            let listUnsubscribe: string | null = null;
+            let authResultsHeader: string | null = null;
+            if (msg.source && msg.source.length > 0) {
+                try {
+                    const parsed = await simpleParser(msg.source, {
+                        skipHtmlToText: true,
+                        skipTextToHtml: true,
+                        skipImageLinks: true,
+                    });
+                    bodyText = parsed.text ?? '';
+                    bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
+                    const listUnsubVal = parsed.headers?.get('list-unsubscribe');
+                    if (typeof listUnsubVal === 'string' && listUnsubVal.trim()) {
+                        listUnsubscribe = listUnsubVal.slice(0, 500);
+                    }
+                    const authVal = parsed.headers?.get('authentication-results');
+                    if (typeof authVal === 'string' && authVal.trim()) {
+                        authResultsHeader = authVal.slice(0, 2000);
+                    }
+                } catch (parseErr) {
+                    logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+                    continue;
+                }
+            }
+
+            const messageId = env.messageId ?? emailId;
+            let threadId = messageId;
+            if (env.inReplyTo) {
+                const parent = db.prepare(
+                    'SELECT thread_id FROM emails WHERE message_id = ?'
+                ).get(env.inReplyTo) as { thread_id: string } | undefined;
+                if (parent?.thread_id) threadId = parent.thread_id;
+            }
+
+            const authResults = parseAuthResults(authResultsHeader);
+            const senderVerified = getSenderVerification(authResults);
+
+            const result = insertStmt.run(
+                emailId, accountId, folder.id,
+                threadId, messageId,
+                env.subject ?? '(no subject)',
+                env.from?.[0]?.name ?? '',
+                env.from?.[0]?.address ?? '',
+                env.to?.[0]?.address ?? '',
+                env.date?.toISOString() ?? new Date().toISOString(),
+                (bodyText || '').replace(/\s+/g, ' ').trim().slice(0, 150),
+                bodyText,
+                bodyHtml,
+                listUnsubscribe,
+                authResults.spf,
+                authResults.dkim,
+                authResults.dmarc,
+                senderVerified,
+            );
+
+            if (result.changes > 0) {
+                insertedCount++;
+
+                if (msg.bodyStructure) {
+                    const atts = extractAttachments(msg.bodyStructure);
+                    if (atts.length > 0) {
+                        markAttStmt.run(emailId);
+                        for (const att of atts) {
+                            const attId = `${emailId}_att_${att.partNumber}`;
+                            insertAttStmt.run(attId, emailId, att.filename, att.mimeType, att.size, att.partNumber, att.contentId);
+                        }
+                    }
+                }
+
+                applyRulesToEmail(emailId, accountId);
+
+                try {
+                    const { classifyEmail } = await import('./spamFilter.js');
+                    const spamScore = classifyEmail(accountId, `${env.subject ?? ''} ${bodyText}`);
+                    if (spamScore !== null) {
+                        db.prepare('UPDATE emails SET spam_score = ? WHERE id = ?').run(spamScore, emailId);
+                    }
+                } catch { /* spam classifier not trained yet — skip */ }
+            } else if (bodyText || bodyHtml) {
+                updateBodyStmt.run(bodyText, bodyHtml, emailId);
+            }
+
+            if (msg.uid > (ctrl.lastSeenUid.get(mailbox) ?? 0)) {
+                ctrl.lastSeenUid.set(mailbox, msg.uid);
+            }
+        }
+
         return insertedCount;
     }
 
