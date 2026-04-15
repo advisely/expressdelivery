@@ -1214,7 +1214,18 @@ export class ImapEngine {
 
     async deleteMessage(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._deleteMessageLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _deleteMessageLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -1226,7 +1237,8 @@ export class ImapEngine {
             await client.messageFlagsAdd(String(emailUid), ['\\Deleted'], { uid: true });
             await client.messageDelete(String(emailUid), { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[deleteMessage] error for uid=${emailUid} on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();

@@ -846,5 +846,41 @@ describe('AccountSyncController', () => {
             await expect(blocker).resolves.toBe('done');
             await expect(pending).rejects.toThrow(/drained/);
         });
+
+        it('routes deleteMessage through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-delete-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsAdd: vi.fn(async () => { callOrder.push('flags-add'); }),
+                messageDelete: vi.fn(async () => { callOrder.push('delete'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-delete-1', ctrl);
+
+            // Seed a blocker so the delete has to wait for it to finish.
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+
+            const deletePromise = imapEngine.deleteMessage('acct-delete-1', 42, 'INBOX');
+            await Promise.all([blocker, deletePromise]);
+
+            // The delete must not begin until the blocker finishes.
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsAddIdx = callOrder.indexOf('flags-add');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsAddIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsAddIdx);
+
+            imapEngine['controllers'].delete('acct-delete-1');
+        });
     });
 });
