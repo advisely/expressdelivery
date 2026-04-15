@@ -15,7 +15,8 @@ vi.mock('./logger.js', () => ({
 }));
 
 const { mockDbPrepare, mockGetOAuthCredential } = vi.hoisted(() => ({
-    mockDbPrepare: vi.fn(() => ({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mockDbPrepare: vi.fn((_sql: string) => ({
         all: vi.fn().mockReturnValue([]),
         get: vi.fn().mockReturnValue(null),
         run: vi.fn().mockReturnValue({ changes: 0 }),
@@ -75,7 +76,12 @@ vi.mock('./crypto.js', () => ({
 // ESM exports cannot be spied on directly (vi.spyOn throws "module namespace
 // is not configurable"), so we mock the module and expose a settable impl.
 const { mockSimpleParser } = vi.hoisted(() => ({
-    mockSimpleParser: vi.fn(async () => ({ text: '', html: false, headers: new Map() })),
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mockSimpleParser: vi.fn(async (_input: unknown): Promise<{
+        text?: string;
+        html?: string | false;
+        headers?: Map<string, unknown>;
+    }> => ({ text: '', html: false, headers: new Map() })),
 }));
 vi.mock('mailparser', () => ({
     simpleParser: mockSimpleParser,
@@ -1031,9 +1037,7 @@ describe('syncNewEmails two-phase parsing', () => {
         // Instrument mailparser mock to record when simpleParser is invoked.
         mockSimpleParser.mockImplementationOnce(async () => {
             events.push('simple-parser-invoked');
-            return { text: 'hi', html: false, headers: new Map() } as unknown as Awaited<
-                ReturnType<typeof import('mailparser').simpleParser>
-            >;
+            return { text: 'hi', html: false, headers: new Map() };
         });
 
         await imapEngine.syncNewEmails('acct-sync-1', 'INBOX');
@@ -1154,9 +1158,7 @@ describe('syncNewEmails two-phase parsing', () => {
             if (buf.toString().includes('THROW_PLEASE')) {
                 throw new Error('mailparser boom');
             }
-            return { text: 'hi', html: false, headers: new Map() } as unknown as Awaited<
-                ReturnType<typeof import('mailparser').simpleParser>
-            >;
+            return { text: 'hi', html: false, headers: new Map() };
         });
 
         // Capture email-insert calls.
@@ -1236,7 +1238,7 @@ describe('syncNewEmails two-phase parsing', () => {
             text: 'Q1 numbers attached.',
             html: false,
             headers: new Map(),
-        } as unknown as Awaited<ReturnType<typeof import('mailparser').simpleParser>>));
+        }));
 
         const persistedRows: unknown[][] = [];
         mockDbPrepare.mockImplementation((sql: string) => {
