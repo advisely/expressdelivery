@@ -9,6 +9,7 @@ import { getAuthTokenManager, PermanentAuthError } from './auth/tokenManager.js'
 import { AsyncQueue } from './asyncQueue.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
+const SYNC_CHUNK_SIZE = 100;
 
 export async function withImapTimeout<T>(
     operation: () => Promise<T>,
@@ -896,53 +897,73 @@ export class ImapEngine {
             const isInbox = folder.type === 'inbox';
 
             const lastUid = ctrl.lastSeenUid.get(mailbox) ?? 0;
-            const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
 
-            // ── Phase 1: fetch raw sources inside the mailbox lock ─────────
-            const fetched: FetchedMessage[] = [];
-            const lock = await withImapTimeout(
-                () => client.getMailboxLock(mailbox),
-                10_000,
-                `getMailboxLock(${mailbox})`
-            );
-            try {
+            // ── Phase 1+2 interleaved: fetch up to SYNC_CHUNK_SIZE per lock hold ───
+            let nextRangeStart = lastUid + 1;
+            let largeDeltaLogged = false;
+
+            while (true) {
+                if ((ctrl.status as string) === 'disconnected') break;
+
+                const chunkRange = `${nextRangeStart}:*`;
+                const chunk: FetchedMessage[] = [];
+
+                const lock = await withImapTimeout(
+                    () => client.getMailboxLock(mailbox),
+                    10_000,
+                    `getMailboxLock(${mailbox})`
+                );
                 try {
-                    for await (const message of client.fetch(range, {
-                        envelope: true,
-                        bodyStructure: true,
-                        source: { maxLength: MAX_BODY_BYTES },
-                        uid: true,
-                    })) {
-                        const uid = message.uid;
-                        if (lastUid > 0 && uid <= lastUid) continue;
-                        fetched.push({
-                            uid,
-                            envelope: (message.envelope ?? null) as FetchedMessage['envelope'],
-                            bodyStructure: (message.bodyStructure as BodyStructureNode | undefined) ?? null,
-                            source: message.source ?? null,
-                        });
+                    try {
+                        for await (const message of client.fetch(chunkRange, {
+                            envelope: true,
+                            bodyStructure: true,
+                            source: { maxLength: MAX_BODY_BYTES },
+                            uid: true,
+                        })) {
+                            const uid = message.uid;
+                            if (uid < nextRangeStart) continue;
+                            chunk.push({
+                                uid,
+                                envelope: (message.envelope ?? null) as FetchedMessage['envelope'],
+                                bodyStructure: (message.bodyStructure as BodyStructureNode | undefined) ?? null,
+                                source: message.source ?? null,
+                            });
+                            if (chunk.length >= SYNC_CHUNK_SIZE) break;
+                        }
+                    } catch (fetchErr) {
+                        // "Command failed" is normal when there are no new messages
+                        // (UID range beyond existing messages). Only log non-standard errors.
+                        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                        if (msg !== 'Command failed') {
+                            logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
+                        }
                     }
-                } catch (fetchErr) {
-                    // "Command failed" is normal when there are no new messages
-                    // (UID range beyond existing messages). Only log non-standard errors.
-                    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-                    if (msg !== 'Command failed') {
-                        logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
-                    }
+                } finally {
+                    lock.release();
                 }
-            } finally {
-                lock.release();
-            }
 
-            // ── Phase 2: parse and persist outside the lock ────────────────
-            insertedCount = await this.persistFetchedMessages(
-                accountId,
-                folder,
-                isInbox,
-                ctrl,
-                mailbox,
-                fetched
-            );
+                if (chunk.length === 0) break;
+
+                if (chunk.length >= SYNC_CHUNK_SIZE && !largeDeltaLogged) {
+                    logDebug(`[SYNC] large delta detected: chunking account=${accountId} folder=${mailbox}`);
+                    largeDeltaLogged = true;
+                }
+
+                insertedCount += await this.persistFetchedMessages(
+                    accountId, folder, isInbox, ctrl, mailbox, chunk
+                );
+
+                // Advance start past the last uid we saw.
+                const lastInChunk = chunk[chunk.length - 1].uid;
+                nextRangeStart = lastInChunk + 1;
+
+                // If chunk didn't fill, we're done — no more messages in this range.
+                if (chunk.length < SYNC_CHUNK_SIZE) break;
+
+                // Yield to microtask queue between chunks so user-queued ops can interleave.
+                await Promise.resolve();
+            }
 
             if (insertedCount > 0) {
                 this.newEmailCallback?.(accountId, folder.id, insertedCount);

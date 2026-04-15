@@ -1047,4 +1047,74 @@ describe('syncNewEmails two-phase parsing', () => {
         // The critical invariant: lock is released BEFORE simpleParser runs.
         expect(releaseIdx).toBeLessThan(parseIdx);
     });
+
+    it('processes a large delta in chunks of 100 messages, releasing the lock between chunks', async () => {
+        const ctrl = new AccountSyncController('acct-chunk-1');
+        ctrl.status = 'connected';
+
+        let lockAcquireCount = 0;
+        const fetchBatches: number[][] = [];
+        // Simulate a mailbox with 250 messages across 3 chunks (100, 100, 50).
+        const TOTAL_MESSAGES = 250;
+
+        const makeFetchIterator = (range: string) => {
+            const m = /^(\d+):(\d+|\*)$/.exec(range);
+            const start = m ? parseInt(m[1], 10) : 1;
+            const capOfServer = TOTAL_MESSAGES;
+            const batchUids: number[] = [];
+            for (let uid = start; uid <= capOfServer; uid++) batchUids.push(uid);
+            fetchBatches.push([...batchUids]);
+
+            return (async function* () {
+                for (const uid of batchUids) {
+                    yield {
+                        uid,
+                        envelope: {
+                            subject: `Msg ${uid}`,
+                            from: [{ address: `sender${uid}@example.com` }],
+                            to: [{ address: 'b@example.com' }],
+                            date: new Date('2026-04-14T00:00:00Z'),
+                            messageId: `<msg-${uid}@example.com>`,
+                            inReplyTo: null,
+                        },
+                        bodyStructure: null,
+                        source: Buffer.from(`Subject: Msg ${uid}\r\n\r\nhi ${uid}`),
+                    };
+                }
+            })();
+        };
+
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => {
+                lockAcquireCount++;
+                return { release: () => { /* intentional noop */ } };
+            }),
+            fetch: vi.fn((range: string) => makeFetchIterator(range)),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-chunk-1', ctrl);
+
+        // Seed folder row.
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 1 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        await imapEngine.syncNewEmails('acct-chunk-1', 'INBOX');
+
+        // 250 messages / 100 per chunk = 3 chunks → 3 lock acquisitions at minimum.
+        expect(lockAcquireCount).toBeGreaterThanOrEqual(3);
+
+        imapEngine['controllers'].delete('acct-chunk-1');
+    });
 });
