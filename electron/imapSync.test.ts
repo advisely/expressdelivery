@@ -982,6 +982,140 @@ describe('AccountSyncController', () => {
             expect(match).not.toBeNull();
             expect(match![1]).toBe('30');
         });
+
+        it('routes markAsRead through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-mark-read-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsAdd: vi.fn(async () => { callOrder.push('flags-add'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-mark-read-1', ctrl);
+
+            // Blocker enqueued FIRST. markAsRead must wait for it to finish.
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const markPromise = imapEngine.markAsRead('acct-mark-read-1', 42, 'INBOX');
+            await Promise.all([blocker, markPromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsAddIdx = callOrder.indexOf('flags-add');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsAddIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsAddIdx);
+
+            imapEngine['controllers'].delete('acct-mark-read-1');
+        });
+
+        it('routes markAsUnread through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-mark-unread-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsRemove: vi.fn(async () => { callOrder.push('flags-remove'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-mark-unread-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const markPromise = imapEngine.markAsUnread('acct-mark-unread-1', 42, 'INBOX');
+            await Promise.all([blocker, markPromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsRemoveIdx = callOrder.indexOf('flags-remove');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsRemoveIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsRemoveIdx);
+
+            imapEngine['controllers'].delete('acct-mark-unread-1');
+        });
+
+        it('routes markAllRead through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-mark-all-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsAdd: vi.fn(async () => { callOrder.push('flags-add-all'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-mark-all-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const markAllPromise = imapEngine.markAllRead('acct-mark-all-1', 'INBOX');
+            await Promise.all([blocker, markAllPromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsAddIdx = callOrder.indexOf('flags-add-all');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsAddIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsAddIdx);
+
+            imapEngine['controllers'].delete('acct-mark-all-1');
+        });
+
+        it('releases the mailbox lock before running simpleParser in refetchEmailBody', async () => {
+            // Spec section 2 invariant: mailbox locks must only protect IMAP fetch
+            // and state operations, not MIME parsing. This test enforces the
+            // invariant for refetchEmailBody, which had previously held the lock
+            // across the simpleParser call.
+            const ctrl = new AccountSyncController('acct-refetch-parse-1');
+            ctrl.status = 'connected';
+
+            const events: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    events.push('lock-acquired');
+                    return { release: () => { events.push('lock-released'); } };
+                }),
+                fetch: vi.fn(async function* () {
+                    yield { source: Buffer.from('Subject: test\r\n\r\nhello') };
+                }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-refetch-parse-1', ctrl);
+
+            mockSimpleParser.mockImplementationOnce(async () => {
+                events.push('simple-parser-invoked');
+                return { text: 'hello', html: false, headers: new Map() };
+            });
+
+            await imapEngine.refetchEmailBody('acct-refetch-parse-1', 42, 'INBOX');
+
+            imapEngine['controllers'].delete('acct-refetch-parse-1');
+
+            const releaseIdx = events.indexOf('lock-released');
+            const parseIdx = events.indexOf('simple-parser-invoked');
+            expect(releaseIdx).toBeGreaterThan(-1);
+            expect(parseIdx).toBeGreaterThan(-1);
+            expect(releaseIdx).toBeLessThan(parseIdx);
+        });
     });
 });
 

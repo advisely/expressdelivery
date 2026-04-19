@@ -1240,7 +1240,18 @@ export class ImapEngine {
 
     async markAsRead(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._markAsReadLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _markAsReadLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -1251,7 +1262,8 @@ export class ImapEngine {
         try {
             await client.messageFlagsAdd(String(emailUid), ['\\Seen'], { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[markAsRead] error for uid=${emailUid} on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();
@@ -1260,7 +1272,18 @@ export class ImapEngine {
 
     async markAsUnread(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._markAsUnreadLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _markAsUnreadLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -1271,7 +1294,8 @@ export class ImapEngine {
         try {
             await client.messageFlagsRemove(String(emailUid), ['\\Seen'], { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[markAsUnread] error for uid=${emailUid} on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();
@@ -1332,17 +1356,17 @@ export class ImapEngine {
         const client = ctrl.client;
         if (!client) return null;
 
+        // Phase 1: fetch raw source under the mailbox lock — IMAP-only work.
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
             30_000,
             `getMailboxLock(${mailbox})`
         );
+        let source: Buffer | null = null;
         try {
             // Use range format "uid:uid" and fetch full source — some IMAP servers
             // (e.g. privateemail.com) reject single-UID FETCH but accept ranges.
-            // Parse the RFC822 source with mailparser for charset-aware body extraction.
             const uidRange = `${emailUid}:${emailUid}`;
-            let source: Buffer | null = null;
             for await (const message of client.fetch(uidRange, {
                 source: { maxLength: MAX_BODY_BYTES },
                 uid: true,
@@ -1351,9 +1375,17 @@ export class ImapEngine {
                     source = message.source;
                 }
             }
+        } catch (err) {
+            logDebug(`[refetchEmailBody] fetch error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            lock.release();
+        }
 
-            if (!source) return null;
+        if (!source) return null;
 
+        // Phase 2: parse the RFC822 source outside the mailbox lock — simpleParser
+        // is CPU-bound and must not block other queued user actions (spec §2).
+        try {
             const parsed = await simpleParser(source, {
                 skipHtmlToText: true,
                 skipTextToHtml: true,
@@ -1366,10 +1398,8 @@ export class ImapEngine {
             if (!bodyText && !bodyHtml) return null;
             return { bodyText, bodyHtml };
         } catch (err) {
-            logDebug(`[refetchEmailBody] error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
+            logDebug(`[refetchEmailBody] parse error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
             return null;
-        } finally {
-            lock.release();
         }
     }
 
@@ -1485,18 +1515,28 @@ export class ImapEngine {
 
     async markAllRead(accountId: string, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._markAllReadLocked(ctrl, mailbox)
+        );
+    }
+
+    private async _markAllReadLocked(
+        ctrl: AccountSyncController,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {
             await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: true });
             return true;
         } catch (err) {
-            logDebug(`[markAllRead] error: ${err instanceof Error ? err.message : String(err)}`);
+            logDebug(`[markAllRead] error on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();
