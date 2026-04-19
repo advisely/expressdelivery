@@ -9,6 +9,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.2] - 2026-04-19
+
+Hotfix for a selection-state regression user-reported after v1.18.1 testing:
+"I deleted the older email and went back to the newer one — couldn't read it,
+or any other email." Root cause was pre-existing latent state-split (not
+introduced by v1.18.1) that the user's test plan happened to exercise.
+
+### Fixed
+- **Stale `selectedEmailId` after delete/archive (regression guard).** The
+  `emailStore` had two independent setters: `setSelectedEmail(emailFull |
+  null)` only touched `selectedEmail`, and `selectEmail(id | null)` only
+  touched `selectedEmailId`. Every delete/archive flow called
+  `setSelectedEmail(null)` to clear the open email — but `selectedEmailId`
+  was left pointing at the just-deleted message. The store ended up in a
+  split state (`selectedEmail === null`, `selectedEmailId === <deleted id>`)
+  that broke subsequent reads on the next click. Hardened
+  `setSelectedEmail` to keep the two fields in lockstep — when called with
+  `null`, it now also clears `selectedEmailId`; when called with an
+  `EmailFull`, it syncs `selectedEmailId` to that email's id. Added an
+  explicit `clearActiveEmail()` action for delete/archive flows that want
+  named-intent clearing. Switched the two highest-traffic call sites
+  (`ReadingPane.handleDelete` and `ThreadList.handleDeleteEmail`) to use
+  the new helper. The store hardening covers every other call site
+  defensively without code churn.
+
+### Added
+- New store action `clearActiveEmail()` — atomic clear of both
+  `selectedEmail` and `selectedEmailId`.
+- 4 new tests in `src/stores/emailStore.test.ts` pinning the lockstep
+  contract: `setSelectedEmail(emailFull)` syncs id; `setSelectedEmail(null)`
+  clears both; `clearActiveEmail()` clears both; `clearActiveEmail()`
+  doesn't touch unrelated state (multi-select set, folder).
+- 1 new integration regression test in `src/components/ThreadList.test.tsx`:
+  open older email, delete it, then click newer email → assertion that the
+  store has both fields cleared after delete AND `emails:read` fires for
+  the newer email AND `selectedEmailId` updates correctly. This is the
+  exact reproduction of the user's report.
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.2-selection-state-lockstep.md`
+
+### Quality gate
+- vitest: 1098/1098 (was 1093 + 4 store + 1 ThreadList).
+- ESLint: 0 warnings. TypeScript strict: clean.
+
+### Note on test coverage growth
+- v1.17.4 baseline: 1023 tests
+- v1.17.5: +4 (markAsRead/Unread/AllRead queue + parse-after-release)
+- v1.18.0: +52 (animations, security MVP, design polish)
+- v1.18.1: +18 (delete fallback + drag-drop)
+- v1.18.2: +5 (selection-state lockstep)
+- Net: +75 tests in 24 hours. The pattern — extract pure logic + write the
+  failing test that pins the contract before fixing — has now caught three
+  classes of regressions (queue routing, silent fallback, split state).
+  Future contributors who try to revert any of these will hit failing tests
+  named after the original symptom.
+
+---
+
 ## [1.18.1] - 2026-04-19
 
 Hotfix release for two bugs that surfaced after v1.18.0 testing. Both were

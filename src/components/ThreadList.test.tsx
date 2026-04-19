@@ -1544,6 +1544,59 @@ describe('ThreadList', () => {
                 expect(mockIpcInvoke).toHaveBeenCalledWith('emails:read', 'email-1')
             );
         });
+
+        // ── REGRESSION: delete-then-reopen-different-email lockstep ─────────
+        // Before v1.18.2 the delete handler called only setSelectedEmail(null),
+        // leaving selectedEmailId pointing at the deleted email. On the next
+        // click of a different email, the selection state was inconsistent.
+        // This test pins the contract: after deleting the active email, the
+        // store has BOTH fields cleared, AND a subsequent click on a new email
+        // fires emails:read for that new id.
+        it('clears BOTH selectedEmail and selectedEmailId after deleting the active email, then can read another', async () => {
+            const older = makeSummary({ id: 'email-older', subject: 'Older' });
+            const newer = makeSummary({ id: 'email-newer', subject: 'Newer' });
+            const newerFull = makeFullEmail({ id: 'email-newer', subject: 'Newer' });
+            setupStoreWithEmails([older, newer]);
+            // Pretend the user had the older email open at the moment of delete.
+            useEmailStore.setState({ selectedEmailId: 'email-older', selectedEmail: makeFullEmail({ id: 'email-older' }) });
+
+            mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+                if (channel === 'emails:delete') return { success: true };
+                if (channel === 'emails:list') return [newer]; // older is gone
+                if (channel === 'emails:read' && args[0] === 'email-newer') return newerFull;
+                return null;
+            });
+
+            renderThreadList();
+
+            // Trigger the delete on the older email (the active one).
+            const olderRow = screen.getByText('Older').closest('[data-thread-id="email-older"]') as HTMLElement;
+            const deleteBtn = olderRow.querySelector('button[aria-label="Delete email"]') as HTMLButtonElement;
+            await act(async () => { fireEvent.click(deleteBtn); });
+
+            // Wait for the delete + refresh + animation cleanup to settle.
+            await waitFor(() => {
+                expect(useEmailStore.getState().selectedEmail).toBeNull();
+                expect(useEmailStore.getState().selectedEmailId).toBeNull();
+            }, { timeout: 1500 });
+
+            // Now click the newer email. emails:read should fire and selection
+            // state should update for the newer email — the regression scenario
+            // showed reads silently failing here.
+            await waitFor(() => {
+                expect(screen.queryByText('Newer')).toBeInTheDocument();
+            });
+            const newerRow = screen.getByText('Newer').closest('[role="button"]') as HTMLElement;
+            await act(async () => { fireEvent.click(newerRow); });
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:read', 'email-newer');
+            });
+            await waitFor(() => {
+                expect(useEmailStore.getState().selectedEmailId).toBe('email-newer');
+                expect(useEmailStore.getState().selectedEmail?.id).toBe('email-newer');
+            });
+        });
     });
 
     // -----------------------------------------------------------------------

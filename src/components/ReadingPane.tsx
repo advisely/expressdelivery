@@ -195,6 +195,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const folders = useEmailStore(s => s.folders);
     const tags = useEmailStore(s => s.tags);
     const { setSelectedEmail, setEmails } = useEmailStore();
+    const clearActiveEmail = useEmailStore(s => s.clearActiveEmail);
     const readingPaneZoom = useThemeStore(s => s.readingPaneZoom);
     const setReadingPaneZoom = useThemeStore(s => s.setReadingPaneZoom);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -394,7 +395,9 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
         try {
             const result = await ipcInvoke<{ success: boolean; error?: string }>('emails:delete', selectedEmail.id);
             if (result?.success) {
-                setSelectedEmail(null);
+                // clearActiveEmail clears BOTH selectedEmail and selectedEmailId
+                // — see emailStore.test.ts "selection state stays in lockstep".
+                clearActiveEmail();
                 await refreshEmailList();
                 onToast?.(t('readingPane.emailDeleted'), undefined, 'success');
             } else {

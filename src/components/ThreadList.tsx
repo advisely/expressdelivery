@@ -453,7 +453,9 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         ]);
         if (result?.success) {
             if (useEmailStore.getState().selectedEmailId === emailId) {
-                setSelectedEmail(null);
+                // clearActiveEmail clears BOTH selectedEmail and selectedEmailId
+                // — see emailStore.test.ts "selection state stays in lockstep".
+                useEmailStore.getState().clearActiveEmail();
             }
             if (selectedFolderId) {
                 const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
@@ -470,7 +472,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
             next.delete(emailId);
             return next;
         });
-    }, [selectedFolderId, setEmails, setSelectedEmail]);
+    }, [selectedFolderId, setEmails]);
 
     return (
         <div className={`${styles['thread-list']} scrollable`}>
