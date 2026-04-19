@@ -499,7 +499,8 @@
     "mailto": "Enviar correo para cancelar suscripción"
   },
   "dragDrop": {
-    "moveToFolder": "{{count}} correo(s) movido(s) a {{folder}}"
+    "moveToFolder": "{{count}} correo(s) movido(s) a {{folder}}",
+    "crossAccountUnsupported": "Mover correos entre cuentas diferentes no está soportado. Arrastra a una carpeta de la misma cuenta."
   },
   "spam": {
     "reportSpam": "Reportar como spam",

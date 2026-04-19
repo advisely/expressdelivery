@@ -499,7 +499,8 @@
     "mailto": "Envoyer un e-mail de désabonnement"
   },
   "dragDrop": {
-    "moveToFolder": "{{count}} e-mail(s) déplacé(s) vers {{folder}}"
+    "moveToFolder": "{{count}} e-mail(s) déplacé(s) vers {{folder}}",
+    "crossAccountUnsupported": "Le déplacement d'emails entre comptes différents n'est pas pris en charge. Glissez vers un dossier du même compte."
   },
   "spam": {
     "reportSpam": "Signaler comme spam",

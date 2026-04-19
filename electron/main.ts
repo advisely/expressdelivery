@@ -61,6 +61,7 @@ import { maybeRevokeOAuthCredentials } from './auth/accountRevoke.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
 import { assessAttachmentRisk } from './attachmentSafety.js'
+import { deleteEmailLogic } from './deleteEmailLogic.js'
 import { sendMail } from './sendMail.js'
 import type { SendMailParams } from './sendMail.js'
 import { encryptData, decryptData } from './crypto.js'
@@ -1038,58 +1039,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:delete', async (_event, emailId: string) => {
-    const email = db.prepare(
-      'SELECT id, account_id, folder_id FROM emails WHERE id = ?'
-    ).get(emailId) as { id: string; account_id: string; folder_id: string } | undefined;
-    if (!email) return { success: false };
-
-    // Check if already in Trash — permanent delete
-    const currentFolder = db.prepare(
-      'SELECT type, path FROM folders WHERE id = ?'
-    ).get(email.folder_id) as { type: string; path: string } | undefined;
-
-    if (currentFolder?.type === 'trash') {
-      // Permanent delete from Trash: delete on IMAP server + local DB
-      const uid = extractUid(email.id);
-      if (uid > 0) {
-        await imapEngine.deleteMessage(email.account_id, uid, currentFolder.path.replace(/^\//, '')).catch(() => {});
-      }
-      db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
-      return { success: true };
-    }
-
-    // Move to Trash folder
-    const trashFolder = db.prepare(
-      "SELECT id, path FROM folders WHERE account_id = ? AND type = 'trash'"
-    ).get(email.account_id) as { id: string; path: string } | undefined;
-
-    if (!trashFolder) {
-      // No trash folder found — fallback to permanent delete
-      db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
-      return { success: true };
-    }
-
-    const sourceFolder = db.prepare(
-      'SELECT path FROM folders WHERE id = ?'
-    ).get(email.folder_id) as { path: string } | undefined;
-
-    const uid = extractUid(email.id);
-
-    if (uid > 0 && sourceFolder) {
-      const moved = await imapEngine.moveMessage(
-        email.account_id, uid,
-        sourceFolder.path.replace(/^\//, ''),
-        trashFolder.path.replace(/^\//, '')
-      );
-      if (moved) {
-        db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(trashFolder.id, emailId);
-        return { success: true };
-      }
-    }
-
-    // IMAP move failed — fallback to local-only move
-    db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(trashFolder.id, emailId);
-    return { success: true };
+    // Delegated to electron/deleteEmailLogic.ts so the no-silent-fallback
+    // contract is regression-tested at the unit level. NEVER inline this
+    // handler again — see electron/deleteEmailLogic.test.ts for the rules
+    // we must preserve (do NOT update local DB when the IMAP move/delete
+    // returns false or throws; surface the error to the renderer so the
+    // user sees an error toast instead of a misleading success).
+    return deleteEmailLogic(db, emailId, imapEngine);
   });
 
   ipcMain.handle('emails:purge-trash', async (_event, accountId: string) => {

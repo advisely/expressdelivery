@@ -392,11 +392,16 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const handleDelete = async () => {
         if (!selectedEmail) return;
         try {
-            const result = await ipcInvoke<{ success: boolean }>('emails:delete', selectedEmail.id);
+            const result = await ipcInvoke<{ success: boolean; error?: string }>('emails:delete', selectedEmail.id);
             if (result?.success) {
                 setSelectedEmail(null);
                 await refreshEmailList();
                 onToast?.(t('readingPane.emailDeleted'), undefined, 'success');
+            } else {
+                // IPC handler explicitly refused — show the server's reason so
+                // the user knows the email was NOT actually deleted (vs. the
+                // pre-v1.18.1 silent-fallback behavior that misled the user).
+                onToast?.(result?.error ?? t('toast.deleteFailed'), undefined, 'error');
             }
         } catch {
             onToast?.(t('toast.deleteFailed'), undefined, 'error');

@@ -9,6 +9,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.1] - 2026-04-19
+
+Hotfix release for two bugs that surfaced after v1.18.0 testing. Both were
+pre-existing latent bugs that the user happened to exercise — neither was
+introduced by v1.18.0 — but both warranted regression-test coverage so they
+cannot return.
+
+### Fixed
+- **Reading-pane delete claimed success but email persisted (regression
+  guard).** The `emails:delete` IPC handler at `electron/main.ts:1040` had a
+  silent local-only fallback: if `imapEngine.moveMessage(... → Trash)`
+  returned `false` (Yahoo server rejection, lock timeout, transient network
+  error), the handler still ran `UPDATE emails SET folder_id = trash` locally
+  and returned `{ success: true }`. The renderer flashed a "deleted" toast
+  but the next IMAP sync re-discovered the email in INBOX (server still had
+  it there) and re-created the local row. To the user this looked like the
+  email "came back" or "was never deleted" — the v1.17.3 changelog entry
+  describes the same anti-pattern, and v1.17.4 reduced the failure rate by
+  queuing user actions but did not remove the silent-fallback itself. v1.18.1
+  extracts the IPC body into `electron/deleteEmailLogic.ts` and tests the
+  contract directly: when `moveMessage` returns false or throws, the local
+  DB is **not** updated and the IPC returns `{ success: false, error }`.
+  The renderer (`ReadingPane.handleDelete`) now surfaces that error as a
+  toast so the user knows the delete actually failed and can retry.
+- **Drag-drop in unified ("All Accounts") inbox showed forbidden cursor on
+  every folder (regression guard).** The Sidebar's unified-mode folder
+  render at `Sidebar.tsx:824` lacked `onDragOver` / `onDrop` / drop-target
+  className (the single-account render at line 870 had them). Browser
+  showed the forbidden cursor because no folder accepted drops. Fix: add the
+  drag handlers using a new pure helper `src/lib/canDropOnFolder.ts` to
+  decide same-account-allow vs. cross-account-refuse. Same-account drags
+  now work in unified view; cross-account drags display a clear toast
+  ("Moving emails between different accounts is not supported. Drag onto a
+  folder of the same account.") translated en/fr/es/de. IMAP cannot move
+  messages atomically across accounts (would require download from A,
+  upload to B, delete from A — out of v1.18.1 scope; deferred to a future
+  cross-account-move feature).
+
+### Added
+- `electron/deleteEmailLogic.ts` + `electron/deleteEmailLogic.test.ts` —
+  11 regression tests pinning the no-silent-fallback contract for both the
+  Move-to-Trash path and the Permanent-Delete-from-Trash path. Also tests
+  `extractUidFromEmailId` corner cases.
+- `src/lib/canDropOnFolder.ts` + `src/lib/canDropOnFolder.test.ts` —
+  7 tests covering same-account allow, cross-account reject, multi-account
+  drag, missing destination, and missing emails.
+- New i18n key `dragDrop.crossAccountUnsupported` translated en/fr/es/de.
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.1-delete-fallback-and-drag-drop.md`
+
+### Quality gate
+- vitest: 1093/1093 (was 1075 + 11 + 7 new).
+- ESLint: 0 warnings. TypeScript strict: clean.
+- The two new modules are pure (DB or in-memory data + dependency-injected
+  IMAP functions / no DOM access) so the tests run in milliseconds and
+  catch the regression contracts at the unit level — the IPC handler in
+  `main.ts` is now a one-line delegation to the tested logic.
+
+---
+
 ## [1.18.0] - 2026-04-19
 
 A combined feature + security release. Closes the remaining queue gap from the v1.17.4 Yahoo lock-contention work, adds a long-asked-for thread-list preview-line toggle with enter/exit animations, ships the security MVP for attachment safety + risk-aware remote-image banner, and visually upgrades the email body rendering area from a flat seam into a proper elevated card.

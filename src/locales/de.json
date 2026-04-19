@@ -499,7 +499,8 @@
     "mailto": "Abmelde-E-Mail senden"
   },
   "dragDrop": {
-    "moveToFolder": "{{count}} E-Mail(s) nach {{folder}} verschoben"
+    "moveToFolder": "{{count}} E-Mail(s) nach {{folder}} verschoben",
+    "crossAccountUnsupported": "E-Mails zwischen verschiedenen Konten zu verschieben wird nicht unterstützt. Ziehen Sie auf einen Ordner desselben Kontos."
   },
   "spam": {
     "reportSpam": "Als Spam melden",

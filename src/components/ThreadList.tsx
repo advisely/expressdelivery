@@ -448,7 +448,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
         // the row fade out immediately while the IMAP queue does its work.
         setExitingIds(prev => new Set(prev).add(emailId));
         const [result] = await Promise.all([
-            ipcInvoke<{ success: boolean }>('emails:delete', emailId),
+            ipcInvoke<{ success: boolean; error?: string }>('emails:delete', emailId),
             new Promise<void>(resolve => setTimeout(resolve, 250)),
         ]);
         if (result?.success) {
@@ -460,6 +460,11 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                 if (Array.isArray(refreshed)) setEmails(refreshed);
             }
         }
+        // On failure (success === false) we deliberately leave the row in
+        // place — the IMAP move was rejected, the local DB row is unchanged,
+        // and the next emails:list refresh below would re-add the row anyway.
+        // The toast for the failure is surfaced from the calling component
+        // (ReadingPane handleDelete) since ThreadList has no onToast prop.
         setExitingIds(prev => {
             const next = new Set(prev);
             next.delete(emailId);

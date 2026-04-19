@@ -499,7 +499,8 @@
     "mailto": "Send unsubscribe email"
   },
   "dragDrop": {
-    "moveToFolder": "Moved {{count}} email(s) to {{folder}}"
+    "moveToFolder": "Moved {{count}} email(s) to {{folder}}",
+    "crossAccountUnsupported": "Moving emails between different accounts is not supported. Drag onto a folder of the same account."
   },
   "spam": {
     "reportSpam": "Report as spam",

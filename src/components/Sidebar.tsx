@@ -35,6 +35,7 @@ import { useEmailStore, type EmailSummary, type Tag, type SavedSearch, type Fold
 import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
+import { canDropEmailsOnFolder } from '../lib/canDropOnFolder';
 import type { ToastType } from '../App';
 import styles from './Sidebar.module.css';
 
@@ -73,6 +74,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast }) => {
   const { t } = useTranslation();
   const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion, setEmails, setSelectedEmail } = useEmailStore();
+  const emails = useEmailStore(s => s.emails);
   const setAccounts = useEmailStore(s => s.setAccounts);
   const tags = useEmailStore(s => s.tags);
   const setTags = useEmailStore(s => s.setTags);
@@ -826,12 +828,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                     const allCount = allUnreadCounts[folder.id] ?? 0;
                     const showAllBadge = allCount > 0 && folder.type !== 'trash' && folder.type !== 'junk';
                     return (
-                      <div key={folder.id} className={styles['nav-item-row']}>
+                      <div
+                        key={folder.id}
+                        data-folder-id={folder.id}
+                        data-account-id={acc.id}
+                        className={`${styles['nav-item-row']} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
+                      >
                         <button
                           className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
                           onClick={() => selectFolder(folder.id)}
                           title={sidebarCollapsed ? folder.name : undefined}
                           style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                          onDragOver={(e) => {
+                            // In unified ("All Accounts") mode, only allow drops
+                            // when every dragged email belongs to the same
+                            // account as this folder. Cross-account moves are
+                            // not supported by IMAP atomically.
+                            const assessment = canDropEmailsOnFolder(acc.id, draggedEmailIds, emails);
+                            if (assessment === 'allow') {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                              setDragOverFolderId(folder.id);
+                            } else {
+                              e.dataTransfer.dropEffect = 'none';
+                            }
+                          }}
+                          onDragLeave={() => setDragOverFolderId(null)}
+                          onDrop={(e) => {
+                            const assessment = canDropEmailsOnFolder(acc.id, draggedEmailIds, emails);
+                            if (assessment === 'allow') {
+                              handleFolderDrop(e, folder.id, folder.name);
+                            } else {
+                              e.preventDefault();
+                              setDragOverFolderId(null);
+                              setDraggedEmailIds([]);
+                              onToast?.(t('dragDrop.crossAccountUnsupported'), undefined, 'warning');
+                            }
+                          }}
                         >
                           <Icon size={18} className={styles['nav-icon']} />
                           {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
