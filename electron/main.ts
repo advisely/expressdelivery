@@ -60,6 +60,7 @@ import { initDatabase, getDatabase, closeDatabase } from './db.js'
 import { maybeRevokeOAuthCredentials } from './auth/accountRevoke.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
+import { assessAttachmentRisk } from './attachmentSafety.js'
 import { sendMail } from './sendMail.js'
 import type { SendMailParams } from './sendMail.js'
 import { encryptData, decryptData } from './crypto.js'
@@ -1549,19 +1550,45 @@ function registerIpcHandlers() {
   ipcMain.handle('attachments:save', async (_event, params: {
     filename: string;
     content: string;
+    mimeType?: string;
+    confirmed?: boolean;
   }) => {
     if (!win) throw new Error('No window available');
     if (!params?.filename || !params?.content) throw new Error('Missing parameters');
 
     const safeName = path.basename(params.filename).slice(0, 255);
+
+    // Decode once so the safety scan and the disk write share the same bytes.
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(params.content, 'base64');
+      if (buffer.length === 0) throw new Error('Empty content');
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Decode failed' };
+    }
+
+    // Security gate: extension denylist + magic-byte impersonation check.
+    // If the file is risky and the renderer has not yet shown the user a
+    // confirmation dialog, return a "requiresConfirmation" response so the
+    // renderer can surface the warning. The save itself is deferred until
+    // the renderer re-invokes with confirmed: true.
+    const assessment = assessAttachmentRisk(safeName, params.mimeType ?? 'application/octet-stream', buffer);
+    if (assessment.risk !== 'safe' && params.confirmed !== true) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        risk: assessment.risk,
+        reason: assessment.reason,
+        detectedType: assessment.detectedType,
+      } as const;
+    }
+
     const result = await dialog.showSaveDialog(win, {
       defaultPath: safeName,
     });
     if (result.canceled || !result.filePath) return { success: false };
 
     try {
-      const buffer = Buffer.from(params.content, 'base64');
-      if (buffer.length === 0) throw new Error('Empty content');
       fs.writeFileSync(result.filePath, buffer);
       return { success: true, path: result.filePath };
     } catch (err) {

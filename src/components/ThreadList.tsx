@@ -14,6 +14,9 @@ interface ThreadItemProps {
     isChecked: boolean;
     hasAnyChecked: boolean;
     isUnified: boolean;
+    showPreview: boolean;
+    isEntering: boolean;
+    isExiting: boolean;
     accounts: Account[];
     onSelect: (id: string) => void;
     onDelete: (id: string) => void;
@@ -23,12 +26,13 @@ interface ThreadItemProps {
     onDragEnd: () => void;
 }
 
-const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAnyChecked, isUnified, accounts, onSelect, onDelete, onToggleCheck, onContextMenu, onDragStart, onDragEnd }) => (
+const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAnyChecked, isUnified, showPreview, isEntering, isExiting, accounts, onSelect, onDelete, onToggleCheck, onContextMenu, onDragStart, onDragEnd }) => (
     <div
         role="button"
         tabIndex={0}
         draggable
-        className={`${styles['thread-item']} ${!thread.is_read ? styles['unread'] : ''} ${isSelected ? styles['selected'] : ''} ${isChecked ? styles['checked'] : ''} ${hasAnyChecked ? styles['show-checks'] : ''}`}
+        data-thread-id={thread.id}
+        className={`${styles['thread-item']} ${!thread.is_read ? styles['unread'] : ''} ${isSelected ? styles['selected'] : ''} ${isChecked ? styles['checked'] : ''} ${hasAnyChecked ? styles['show-checks'] : ''} ${isEntering ? styles['thread-item-entering'] : ''} ${isExiting ? styles['thread-item-exiting'] : ''}`}
         onClick={(e) => { if (e.ctrlKey || e.metaKey || e.shiftKey) { onToggleCheck(thread.id, e); } else { onSelect(thread.id); } }}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(thread.id); } }}
         onContextMenu={(e) => onContextMenu(e, thread)}
@@ -101,7 +105,7 @@ const ThreadItem = memo<ThreadItemProps>(({ thread, isSelected, isChecked, hasAn
                     </span>
                 )}
             </div>
-            {thread.snippet && thread.snippet !== thread.subject && (
+            {showPreview && thread.snippet && thread.snippet !== thread.subject && (
                 <div className={styles['snippet']}>{thread.snippet}</div>
             )}
         </div>
@@ -144,13 +148,46 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const savedSearches = useEmailStore(s => s.savedSearches);
     const setSavedSearches = useEmailStore(s => s.setSavedSearches);
     const setDraggedEmailIds = useEmailStore(s => s.setDraggedEmailIds);
+    const showThreadPreview = useThemeStore(s => s.showThreadPreview);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
     const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
     const [showBulkMove, setShowBulkMove] = useState(false);
+    const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
+    const [exitingIds, setExitingIds] = useState<Set<string>>(() => new Set());
+    const enterTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
     const ctxRef = useRef<HTMLDivElement>(null);
 
     const hasSelection = selectedEmailIds.size > 0;
+
+    // Cleanup outstanding animation timers on unmount. No folder-switch reset
+    // is needed: stale IDs from a previous folder never match the new folder's
+    // email IDs (so no class is applied) and self-clean via the 400ms timer.
+    useEffect(() => {
+        const timers = enterTimersRef.current;
+        return () => { timers.forEach(clearTimeout); timers.clear(); };
+    }, []);
+
+    // Apply a brief enter-animation pulse to a freshly-arrived set of email IDs.
+    // Called from the email:new IPC handler (an async event callback, not an
+    // effect body) so it doesn't trip react-hooks/set-state-in-effect.
+    const flagAsEntering = useCallback((newIds: string[]) => {
+        if (newIds.length === 0) return;
+        setEnteringIds(prev => {
+            const next = new Set(prev);
+            newIds.forEach(id => next.add(id));
+            return next;
+        });
+        const timer = setTimeout(() => {
+            enterTimersRef.current.delete(timer);
+            setEnteringIds(prev => {
+                const next = new Set(prev);
+                newIds.forEach(id => next.delete(id));
+                return next;
+            });
+        }, 400);
+        enterTimersRef.current.add(timer);
+    }, []);
 
     useEffect(() => {
         return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
@@ -179,8 +216,15 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     useEffect(() => {
         const cleanup = ipcOn('email:new', async () => {
             if (selectedFolderId) {
-                ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId)
-                    .then(result => { if (Array.isArray(result)) setEmails(result); });
+                const result = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
+                if (Array.isArray(result)) {
+                    // Diff against the current store BEFORE swapping the list so
+                    // newcomer rows can animate in.
+                    const priorIds = new Set(useEmailStore.getState().emails.map(e => e.id));
+                    const newcomers = result.filter(e => !priorIds.has(e.id)).map(e => e.id);
+                    setEmails(result);
+                    flagAsEntering(newcomers);
+                }
             }
             const soundEnabled = await ipcInvoke<string>('settings:get', 'sound_enabled');
             if (soundEnabled === 'true') {
@@ -192,7 +236,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
             }
         });
         return () => { cleanup?.(); };
-    }, [selectedFolderId, setEmails]);
+    }, [selectedFolderId, setEmails, flagAsEntering]);
 
     const [isSearching, setIsSearching] = useState(false);
 
@@ -400,7 +444,13 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const movableFolders = folders.filter(f => f.id !== selectedFolderId);
 
     const handleDeleteEmail = useCallback(async (emailId: string) => {
-        const result = await ipcInvoke<{ success: boolean }>('emails:delete', emailId);
+        // Apply exit animation in parallel with the IPC delete so the user sees
+        // the row fade out immediately while the IMAP queue does its work.
+        setExitingIds(prev => new Set(prev).add(emailId));
+        const [result] = await Promise.all([
+            ipcInvoke<{ success: boolean }>('emails:delete', emailId),
+            new Promise<void>(resolve => setTimeout(resolve, 250)),
+        ]);
         if (result?.success) {
             if (useEmailStore.getState().selectedEmailId === emailId) {
                 setSelectedEmail(null);
@@ -410,6 +460,11 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                 if (Array.isArray(refreshed)) setEmails(refreshed);
             }
         }
+        setExitingIds(prev => {
+            const next = new Set(prev);
+            next.delete(emailId);
+            return next;
+        });
     }, [selectedFolderId, setEmails, setSelectedEmail]);
 
     return (
@@ -576,6 +631,9 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                         isChecked={selectedEmailIds.has(thread.id)}
                         hasAnyChecked={hasSelection}
                         isUnified={selectedFolderId === '__unified'}
+                        showPreview={showThreadPreview}
+                        isEntering={enteringIds.has(thread.id)}
+                        isExiting={exitingIds.has(thread.id)}
                         accounts={accounts}
                         onSelect={handleSelectEmail}
                         onDelete={handleDeleteEmail}

@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ThreadList } from './ThreadList';
 import { ThemeProvider } from './ThemeContext';
 import { useEmailStore } from '../stores/emailStore';
+import { useThemeStore } from '../stores/themeStore';
 import type { EmailSummary, EmailFull, Folder } from '../stores/emailStore';
 
 // ---------------------------------------------------------------------------
@@ -1466,6 +1467,67 @@ describe('ThreadList', () => {
             renderThreadList();
 
             expect(screen.getByText('Preview text here...')).toBeInTheDocument();
+        });
+
+        it('hides snippet preview when themeStore.showThreadPreview is false', () => {
+            useThemeStore.setState({ showThreadPreview: false });
+            try {
+                setupStoreWithEmails([
+                    makeSummary({ subject: 'My Subject', snippet: 'Preview text here...' }),
+                ]);
+                renderThreadList();
+
+                expect(screen.queryByText('Preview text here...')).not.toBeInTheDocument();
+                expect(screen.getByText('My Subject')).toBeInTheDocument();
+            } finally {
+                useThemeStore.setState({ showThreadPreview: true });
+            }
+        });
+
+        it('shows snippet preview again when themeStore.showThreadPreview is toggled back on', () => {
+            useThemeStore.setState({ showThreadPreview: true });
+            setupStoreWithEmails([
+                makeSummary({ subject: 'My Subject', snippet: 'Preview text here...' }),
+            ]);
+            renderThreadList();
+
+            expect(screen.getByText('Preview text here...')).toBeInTheDocument();
+        });
+
+        it('applies the exit-animation class to a row when delete is requested', async () => {
+            const email = makeSummary({ id: 'email-1', subject: 'Doomed Email' });
+            setupStoreWithEmails([email]);
+            // Make the delete IPC resolve quickly so the test cleans up promptly.
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:delete') return { success: true };
+                if (channel === 'emails:list') return [email]; // keep the row mounted briefly
+                return null;
+            });
+
+            renderThreadList();
+
+            const row = screen.getByText('Doomed Email').closest('[data-thread-id="email-1"]') as HTMLElement;
+            expect(row).not.toBeNull();
+            expect(row.className).not.toMatch(/thread-item-exiting/);
+
+            const deleteBtn = row.querySelector('button[aria-label="Delete email"]') as HTMLButtonElement;
+            expect(deleteBtn).not.toBeNull();
+            // The exit class is added synchronously before any await in handleDeleteEmail,
+            // so a single act() flush is enough to observe it.
+            await act(async () => {
+                fireEvent.click(deleteBtn);
+            });
+
+            expect(row.className).toMatch(/thread-item-exiting/);
+
+            // Wait for the exit class to clear (handleDeleteEmail's Promise.all
+            // resolves at ~250ms, then setExitingIds(prev => prev - id) runs).
+            // Asserting the absence of the class guarantees the timer + state
+            // update have completed before the test exits, preventing pollution
+            // of subsequent tests in the suite.
+            await waitFor(() => {
+                expect(row.className).not.toMatch(/thread-item-exiting/);
+            }, { timeout: 1500 });
         });
 
         it('Space key on thread row triggers selection', async () => {

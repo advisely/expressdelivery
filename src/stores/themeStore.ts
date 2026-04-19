@@ -30,6 +30,7 @@ interface ThemeState {
     densityMode: DensityMode
     readingPaneZoom: number
     dynamicFolderSwitch: boolean
+    showThreadPreview: boolean
     setTheme: (name: ThemeName) => void
     setLayout: (layout: LayoutMode) => void
     setSidebarCollapsed: (collapsed: boolean) => void
@@ -38,6 +39,7 @@ interface ThemeState {
     setDensityMode: (mode: DensityMode) => void
     setReadingPaneZoom: (zoom: number) => void
     setDynamicFolderSwitch: (enabled: boolean) => void
+    setShowThreadPreview: (enabled: boolean) => void
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -49,6 +51,7 @@ export const useThemeStore = create<ThemeState>()(
             densityMode: 'comfortable',
             readingPaneZoom: 100,
             dynamicFolderSwitch: true,
+            showThreadPreview: true,
 
             setTheme: (themeName) => set({ themeName }),
             setLayout: (layout) => set({ layout }),
@@ -64,6 +67,7 @@ export const useThemeStore = create<ThemeState>()(
             setDensityMode: (densityMode) => set({ densityMode }),
             setReadingPaneZoom: (zoom) => set({ readingPaneZoom: Math.max(80, Math.min(150, zoom)) }),
             setDynamicFolderSwitch: (dynamicFolderSwitch) => set({ dynamicFolderSwitch }),
+            setShowThreadPreview: (showThreadPreview) => set({ showThreadPreview }),
         }),
         { name: 'app-theme' }
     )

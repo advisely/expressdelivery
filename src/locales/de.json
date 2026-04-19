@@ -129,7 +129,9 @@
     "snooze": "Zurückstellen",
     "reminder": "Erinnerung",
     "loadImages": "Bilder laden",
+    "loadImagesAnyway": "Trotzdem laden",
     "remoteImagesBlocked": "Remote-Bilder aus Datenschutzgründen blockiert",
+    "remoteImagesUnsafe": "Das Laden von Remote-Bildern wird für diese E-Mail NICHT empfohlen — Risikoindikatoren erkannt:",
     "emailDeleted": "E-Mail in den Papierkorb verschoben",
     "emailArchived": "E-Mail archiviert",
     "emailMoved": "E-Mail verschoben",
@@ -257,6 +259,8 @@
     "ruleSaveFailed": "Speichern fehlgeschlagen",
     "dynamicFolderSwitch": "Kontextuelle Ordnernavigation",
     "dynamicFolderSwitchDesc": "In der Ansicht aller Konten zeigt ein Klick auf eine E-Mail die Ordner dieses Kontos",
+    "showThreadPreview": "Erste-Zeile-Vorschau anzeigen",
+    "showThreadPreviewDesc": "Zeigt einen Auszug des E-Mail-Inhalts unter dem Betreff in der Liste",
     "undoSendDelay": "Senden-Rückgängig-Verzögerung",
     "undoSendOff": "Aus",
     "undoSendSeconds": "{{seconds}}s",
@@ -507,6 +511,10 @@
   "phishing": {
     "warning": "Warnung: Diese E-Mail kann Phishing-Links enthalten",
     "reasons": "Verdächtige Indikatoren gefunden:"
+  },
+  "attachmentRisk": {
+    "title": "Dieser Anhang könnte unsicher sein",
+    "saveAnyway": "Trotzdem speichern"
   },
   "confirm": {
     "cancel": "Abbrechen",

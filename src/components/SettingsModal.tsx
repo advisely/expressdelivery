@@ -99,7 +99,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose, deepLink }) => 
     const selectFolder = useEmailStore(s => s.selectFolder);
     const setFolders = useEmailStore(s => s.setFolders);
     const { layout, setLayout } = useLayout();
-    const { themeName, setTheme, densityMode, setDensityMode, dynamicFolderSwitch, setDynamicFolderSwitch } = useThemeStore();
+    const { themeName, setTheme, densityMode, setDensityMode, dynamicFolderSwitch, setDynamicFolderSwitch, showThreadPreview, setShowThreadPreview } = useThemeStore();
     const { i18n, t } = useTranslation();
 
     // API key state
@@ -1313,6 +1313,24 @@ export const SettingsModal: FC<SettingsModalProps> = ({ onClose, deepLink }) => 
                                                 <span>{t(`settings.density${mode.charAt(0).toUpperCase() + mode.slice(1)}`)}</span>
                                             </label>
                                         ))}
+                                    </div>
+                                </div>
+
+                                <div className={styles['setting-group']}>
+                                    <div className={styles['agentic-toggle-row']}>
+                                        <div className={styles['agentic-toggle-info']}>
+                                            <span className={styles['agentic-toggle-label']}>{t('settings.showThreadPreview')}</span>
+                                            <span className={styles['agentic-toggle-desc']}>{t('settings.showThreadPreviewDesc')}</span>
+                                        </div>
+                                        <button
+                                            className={`${styles['notif-switch']} ${showThreadPreview ? styles['notif-switch-on'] : ''}`}
+                                            onClick={() => setShowThreadPreview(!showThreadPreview)}
+                                            aria-label={t('settings.showThreadPreview')}
+                                            role="switch"
+                                            aria-checked={showThreadPreview}
+                                        >
+                                            <span className={styles['notif-switch-thumb']} />
+                                        </button>
                                     </div>
                                 </div>
 

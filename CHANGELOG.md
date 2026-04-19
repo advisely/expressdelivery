@@ -9,6 +9,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.0] - 2026-04-19
+
+A combined feature + security release. Closes the remaining queue gap from the v1.17.4 Yahoo lock-contention work, adds a long-asked-for thread-list preview-line toggle with enter/exit animations, ships the security MVP for attachment safety + risk-aware remote-image banner, and visually upgrades the email body rendering area from a flat seam into a proper elevated card.
+
+### Fixed (carried from v1.17.5 work on `fix/yahoo-delete-lock`)
+- **Yahoo "delete after open" lock-contention follow-up.** The v1.17.4 fix routed `deleteMessage`, `moveMessage`, `refetchEmailBody` through a per-account `operationQueue` but missed `markAsRead`, `markAsUnread`, and `markAllRead`. These three methods were still acquiring `getMailboxLock()` directly, racing with queued operations at the IMAPFlow mutex level. Opening a heavy promotional email on Yahoo (e.g., a multi-megabyte multipart HTML newsletter) triggered an unqueued `markAsRead` that beat a subsequent queued `deleteMessage` to the mailbox lock — surfacing as "delete is slow / hangs after opening that one email". Routed all three through `operationQueue` using the existing `_xxxLocked` split pattern. Also bumped `markAllRead`'s lock timeout from 10s to 30s for consistency.
+- **`_refetchEmailBodyLocked` now obeys the spec section-2 invariant** ("Mailbox locks must only protect IMAP fetch and state operations, not MIME parsing"). Refactored to a two-phase pattern: fetch raw source under lock, release lock, then run `mailparser.simpleParser` outside. Mirrors the `syncNewEmails` pattern from v1.17.4 commit `e7a02d8`. For the Prime Store / large marketing email reproduction case, parse phase used to hold the queue for several seconds; now it never blocks subsequent user actions.
+- **`Buffer.from(content, 'base64')` invalid-input handling in `attachments:save`.** Decode now happens once, before the safety scan, so the magic-byte check operates on the same bytes that hit disk.
+
+### Added — Thread list UX (`src/components/ThreadList.tsx`)
+- **"Show first-line preview" toggle.** Settings → General → Appearance now has a switch to hide the snippet line under the subject (sender + subject only). Persisted via Zustand `themeStore` (localStorage). Default: on. Translated en/fr/es/de.
+- **Email row enter / exit animations.** New emails arriving via `email:new` IPC fade in + slide down (~350ms). Single-email delete fades the row out + slides right + collapses height (~250ms) in parallel with the IMAP delete, so the user perceives instant feedback while the queue does the actual server work. Folder switches and initial loads do not animate. Respects `prefers-reduced-motion: reduce`.
+
+### Added — Security MVP (Phase 3)
+- **Risk-aware remote-image banner (`ReadingPane.tsx` + new `src/lib/senderRisk.ts`).** When `phishingResult.isPhishing` OR `auth_dmarc/dkim/spf` ∈ {fail, softfail, permerror} OR `detectDisplayNameSpoofing` raises a flag, the banner switches to a danger variant: red background, role="alert", up to 2 risk reasons enumerated as a `<ul>`, and the button reads "Load anyway" instead of "Load remote images". Click behavior unchanged — false positives must remain dismissible.
+- **Attachment safety gate (`electron/attachmentSafety.ts` + main.ts wiring).** New 47-extension `DANGEROUS_EXTENSIONS` denylist (`.exe .scr .docm .vbs .ps1 .jar` etc.) + hand-rolled magic-byte detector for PE/ELF/PDF/ZIP/PNG/JPEG/GIF/RTF/OLE/HTML. `assessAttachmentRisk` flags both: filename ends with a dangerous extension, or magic bytes are an executable (always), or the extension's allowlist disallows the detected type (e.g., `.pdf` containing HTML, `.txt` containing ZIP — common malware vectors). When risky, `attachments:save` IPC returns `{ requiresConfirmation: true, risk, reason }` and the renderer parks the bytes behind a `ConfirmDialog` with `variant="danger"` until the user explicitly confirms with "Save anyway". Filename in the dialog is sanitized to strip RTLO bidi overrides (defends against the `photo<U+202E>gpj.exe` → "photoexe.jpg" trick).
+- **35 + 10 new tests** for `attachmentSafety` and `senderRisk` modules. Total suite: 1075 tests.
+
+### Added — Animation extension + design polish
+- **Email body card design upgrade.** The sandboxed iframe (and the plain-text fallback `<pre>`) now sits in an elevated card surface: 10px rounded corners, theme-aware `--email-surface-border`, theme-tuned `--shadow-card-md` (Light/Cream get warm subtle shadow, Midnight/Forest get deep dark shadow), `--bg-elevated` background. Iframe internal padding bumped to `16px 20px` so author HTML doesn't kiss the rounded edges; iframe body `background: transparent` so the parent's elevated bg shows through (preserves tonal continuity across themes — the iframe srcdoc cannot read parent CSS variables). Reduced-motion users get no shadow transition.
+- **Sidebar folder enter/exit animations.** Creating a folder slides it in from the left (~300ms); deleting slides out to the right + collapses (~250ms) in parallel with the `folders:delete` IPC. Respects `prefers-reduced-motion: reduce`.
+- **Compose attachment chip enter/exit animations.** Attaching files scales chips up + fades in (~300ms); clicking the X scale-collapses + fades out (~220ms) before actually removing from state. Respects `prefers-reduced-motion: reduce`.
+
+### Changed
+- `electron-builder.json5` and `package.json` version → 1.18.0.
+- CLAUDE.md status line updated: 48 test files / 1075 tests (was 46 / 1023).
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.17.5-yahoo-delete-lock-followup.md`
+- `docs/superpowers/specs/2026-04-19-v1.18.0-security-mvp.md`
+- `docs/superpowers/specs/2026-04-19-v1.18.0-design-polish.md`
+
+### Quality gate (all green)
+- ESLint: 0 warnings.
+- TypeScript strict: clean.
+- Vitest: 1075/1075 (was 1023 + 4 ThreadList animations + 1 markAllRead + 3 markAsRead/Unread + parse-after-release + 35 attachmentSafety + 10 senderRisk).
+- Semgrep SAST: no new findings on changed files.
+- cyber-sentinel + code-reviewer + code-simplifier: HIGH findings addressed (markAllRead missed-from-queue, ZIP-mismatch dead code), MEDIUM addressed (RTF/OLE magic, RTLO sanitization, attacker-filename in dialog reason).
+
+---
+
+## [1.17.4] - 2026-04-14
+
+Hotfix release for the v1.17.3 Yahoo delete fix. Establishes the per-account `operationQueue` pattern in `electron/imap.ts`, routes user-initiated delete/move/refetch through it, and removes MIME parsing from inside the mailbox lock in `syncNewEmails` (chunked into 100-message batches, parse runs outside the lock). Background-sync ticks remain on the direct `getMailboxLock` path so they don't compete for queue slots. Spec: `docs/superpowers/specs/2026-04-14-yahoo-delete-lock-fix-design.md`.
+
+### Fixed
+- Yahoo accounts: `deleteMessage`, `moveMessage`, and user-initiated `refetchEmailBody` are now serialized through a per-account `AsyncQueue`, eliminating IMAPFlow-mutex races that caused intermittent delete-falls-back-to-local on slow connections. `getMailboxLock` timeout aligned to 30s on every queued user-action path.
+- `syncNewEmails` two-phase refactor: Phase 1 fetches raw source bytes under the lock (chunked at MAX_CHUNK_SIZE=100), Phase 2 runs `simpleParser` and DB inserts outside the lock with per-message try/catch so one malformed message never aborts the batch.
+
+---
+
 ## [1.17.3] - 2026-04-14
 
 Three fixes bundled into one hotfix: a follow-up to the v1.17.2 Yahoo IMAP work that fixes delete/move getting silently dropped on Yahoo accounts, a new floating attachment preview UX (click filename to preview, click download icon to save), and a related fix for attachment downloads that were failing on Yahoo for the same root cause as delete.

@@ -559,6 +559,50 @@
   gap: 2px;
 }
 
+.nav-item-row-entering {
+  animation: nav-item-row-in 0.3s ease-out both;
+}
+
+.nav-item-row-exiting {
+  animation: nav-item-row-out 0.25s ease-in both;
+  pointer-events: none;
+}
+
+@keyframes nav-item-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 60px;
+  }
+}
+
+@keyframes nav-item-row-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 60px;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(20px);
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item-row-entering,
+  .nav-item-row-exiting {
+    animation: none;
+  }
+}
+
 /* The folder button inside a row shrinks to leave room for the purge button */
 .nav-item-trash {
   flex: 1;

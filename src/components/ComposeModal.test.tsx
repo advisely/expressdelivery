@@ -241,7 +241,10 @@ describe('ComposeModal', () => {
             expect(screen.getByText('doc.pdf')).toBeInTheDocument();
         });
         fireEvent.click(screen.getByLabelText('compose.removeAttachment'));
-        expect(screen.queryByText('doc.pdf')).not.toBeInTheDocument();
+        // Removal animates out for ~220ms before unmount, so wait for the row to leave.
+        await waitFor(() => {
+            expect(screen.queryByText('doc.pdf')).not.toBeInTheDocument();
+        });
     });
 
     it('includes attachments in send payload', async () => {

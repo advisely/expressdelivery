@@ -129,7 +129,9 @@
     "snooze": "Posponer",
     "reminder": "Recordatorio",
     "loadImages": "Cargar imágenes",
+    "loadImagesAnyway": "Cargar de todos modos",
     "remoteImagesBlocked": "Imágenes remotas bloqueadas por privacidad",
+    "remoteImagesUnsafe": "NO se recomienda cargar imágenes remotas en este correo — se detectaron indicadores de riesgo:",
     "emailDeleted": "Correo movido a la papelera",
     "emailArchived": "Correo archivado",
     "emailMoved": "Correo movido",
@@ -257,6 +259,8 @@
     "ruleSaveFailed": "Error al guardar",
     "dynamicFolderSwitch": "Navegación contextual de carpetas",
     "dynamicFolderSwitchDesc": "En la vista de todas las cuentas, hacer clic en un email muestra las carpetas de esa cuenta",
+    "showThreadPreview": "Mostrar vista previa de la primera línea",
+    "showThreadPreviewDesc": "Muestra un fragmento del cuerpo del correo bajo el asunto en la lista",
     "undoSendDelay": "Retraso de deshacer",
     "undoSendOff": "Desactivado",
     "undoSendSeconds": "{{seconds}}s",
@@ -507,6 +511,10 @@
   "phishing": {
     "warning": "Advertencia: Este correo puede contener enlaces de phishing",
     "reasons": "Indicadores sospechosos encontrados:"
+  },
+  "attachmentRisk": {
+    "title": "Este archivo adjunto puede ser inseguro",
+    "saveAnyway": "Guardar de todos modos"
   },
   "confirm": {
     "cancel": "Cancelar",

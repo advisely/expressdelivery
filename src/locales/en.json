@@ -132,7 +132,9 @@
     "emailArchived": "Email archived",
     "emailMoved": "Email moved",
     "loadImages": "Load remote images",
+    "loadImagesAnyway": "Load anyway",
     "remoteImagesBlocked": "Remote images are blocked for privacy",
+    "remoteImagesUnsafe": "Loading remote images is NOT recommended for this email — risk indicators were detected:",
     "attachments": "Attachments",
     "download": "Download",
     "moveTo": "Move to...",
@@ -257,6 +259,8 @@
     "ruleSaveFailed": "Failed to save rule",
     "dynamicFolderSwitch": "Contextual folder navigation",
     "dynamicFolderSwitchDesc": "In All Accounts view, clicking an email switches the folder list to that email's account",
+    "showThreadPreview": "Show first-line preview",
+    "showThreadPreviewDesc": "Display a snippet of the email body under the subject in the email list",
     "undoSendDelay": "Undo send delay",
     "undoSendOff": "Off",
     "undoSendSeconds": "{{seconds}}s",
@@ -507,6 +511,10 @@
   "phishing": {
     "warning": "Warning: This email may contain phishing links",
     "reasons": "Suspicious indicators found:"
+  },
+  "attachmentRisk": {
+    "title": "This attachment may be unsafe",
+    "saveAnyway": "Save anyway"
   },
   "confirm": {
     "cancel": "Cancel",
