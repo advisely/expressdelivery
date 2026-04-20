@@ -928,20 +928,23 @@ describe('ThreadList', () => {
     // 13. Context menu — Reply / Forward
     // -----------------------------------------------------------------------
     describe('Context menu: Reply and Forward', () => {
+        // v1.18.7: switched from .mockResolvedValueOnce chains (order-dependent
+        // and flaky when the component mounts a new selector that adds an extra
+        // IPC call) to .mockImplementation channel-based dispatch (order-
+        // independent). This eliminates the cross-test flake that tripped CI
+        // intermittently from v1.18.0 onward.
         it('calls emails:read and then onReply when reply is clicked', async () => {
             const full = makeFullEmail({ id: 'email-1' });
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
             const onReply = vi.fn();
-
-            // mount emails:list → folders:sync (background) → emails:read (context reply)
-            mockIpcInvoke
-                .mockResolvedValueOnce(null)                         // mount emails:list
-                .mockResolvedValueOnce({ success: true, synced: 0 }) // folders:sync
-                .mockResolvedValueOnce(full);                        // context menu: emails:read
+            mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+                if (channel === 'emails:read' && args[0] === 'email-1') return full;
+                if (channel === 'folders:sync') return { success: true, synced: 0 };
+                return null;
+            });
 
             renderThreadList({ onReply });
 
-            // Wait for mount to settle
             await waitFor(() =>
                 expect(mockIpcInvoke).toHaveBeenCalledWith('emails:list', 'folder-inbox')
             );
@@ -959,12 +962,11 @@ describe('ThreadList', () => {
             const full = makeFullEmail({ id: 'email-1' });
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
             const onForward = vi.fn();
-
-            // mount emails:list → folders:sync (background) → emails:read (context reply)
-            mockIpcInvoke
-                .mockResolvedValueOnce(null)                         // mount emails:list
-                .mockResolvedValueOnce({ success: true, synced: 0 }) // folders:sync
-                .mockResolvedValueOnce(full);                        // context menu: emails:read
+            mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+                if (channel === 'emails:read' && args[0] === 'email-1') return full;
+                if (channel === 'folders:sync') return { success: true, synced: 0 };
+                return null;
+            });
 
             renderThreadList({ onForward });
 
@@ -983,9 +985,10 @@ describe('ThreadList', () => {
 
         it('does not call onReply if emails:read returns null (guard)', async () => {
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
-            mockIpcInvoke
-                .mockResolvedValueOnce(null) // mount emails:list
-                .mockResolvedValueOnce(null); // context menu: emails:read → null
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'folders:sync') return { success: true, synced: 0 };
+                return null; // emails:read also returns null → guard test
+            });
             const onReply = vi.fn();
 
             renderThreadList({ onReply });
