@@ -1,0 +1,50 @@
+# Enforce LF line endings across the repo for cross-platform consistency.
+# Suppresses the "LF will be replaced by CRLF" warnings on Windows clones
+# and prevents accidental noise in diffs when contributors on different
+# OSes touch the same file.
+
+*               text=auto eol=lf
+
+# Source — must be LF
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.js            text eol=lf
+*.jsx           text eol=lf
+*.mjs           text eol=lf
+*.cjs           text eol=lf
+*.json          text eol=lf
+*.css           text eol=lf
+*.md            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.html          text eol=lf
+*.xml           text eol=lf
+*.txt           text eol=lf
+
+# Windows-specific scripts — keep CRLF
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Binary — never touch
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.icns          binary
+*.svg           text eol=lf
+*.pdf           binary
+*.zip           binary
+*.gz            binary
+*.tar           binary
+*.exe           binary
+*.dll           binary
+*.so            binary
+*.dylib         binary
+*.node          binary
+*.ttf           binary
+*.otf           binary
+*.woff          binary
+*.woff2         binary
+*.expressdelivery binary
