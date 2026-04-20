@@ -524,6 +524,12 @@
     "added": "{{email}} added to trusted senders. The warning won't show for this sender again.",
     "addFailed": "Failed to add trusted sender"
   },
+  "authBadge": {
+    "verified": "Verified sender",
+    "partial": "Partially verified",
+    "unverified": "Unverified sender",
+    "unknown": "Auth unknown"
+  },
   "confirm": {
     "cancel": "Cancel",
     "confirm": "Confirm",

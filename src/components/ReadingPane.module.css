@@ -117,8 +117,9 @@
 
 .sender-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .sender-name {
@@ -131,16 +132,74 @@
   font-size: 13px;
 }
 
-.verified-badge {
-  color: rgb(var(--color-success));
+/* v1.18.4 — explicit auth-result badge (replaces v1.18.0 icon-only pair) */
+.auth-badge {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  cursor: help;
 }
 
-.unverified-badge {
-  color: rgb(var(--color-danger));
+.auth-badge-label {
+  letter-spacing: 0.02em;
+}
+
+.auth-badge-checks {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid currentColor;
+  opacity: 0.85;
+}
+
+.auth-check {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 2px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.auth-check-pass     { color: rgb(var(--color-success)); background: rgba(var(--color-success), 0.1); }
+.auth-check-fail     { color: rgb(var(--color-danger));  background: rgba(var(--color-danger),  0.15); text-decoration: line-through; }
+.auth-check-softfail { color: rgb(var(--color-flag));    background: rgba(var(--color-flag),    0.15); }
+.auth-check-permerror,
+.auth-check-temperror{ color: rgb(var(--color-flag));    background: rgba(var(--color-flag),    0.15); }
+.auth-check-neutral,
+.auth-check-none     { color: var(--text-muted); background: var(--surface-overlay); opacity: 0.65; }
+
+.auth-badge-verified {
+  color: rgb(var(--color-success));
+  background: rgba(var(--color-success), 0.1);
+  border-color: rgba(var(--color-success), 0.3);
+}
+
+.auth-badge-partial {
+  color: rgb(var(--color-flag));
+  background: rgba(var(--color-flag), 0.1);
+  border-color: rgba(var(--color-flag), 0.35);
+}
+
+.auth-badge-unverified {
+  color: rgb(var(--color-danger));
+  background: rgba(var(--color-danger), 0.1);
+  border-color: rgba(var(--color-danger), 0.35);
+}
+
+.auth-badge-unknown {
+  color: var(--text-muted);
+  background: var(--surface-overlay);
+  border-color: var(--glass-border);
 }
 
 .to-row {

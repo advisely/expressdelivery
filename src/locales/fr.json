@@ -524,6 +524,12 @@
     "added": "{{email}} ajouté aux expéditeurs de confiance. L'avertissement ne s'affichera plus pour cet expéditeur.",
     "addFailed": "Échec de l'ajout de l'expéditeur de confiance"
   },
+  "authBadge": {
+    "verified": "Expéditeur vérifié",
+    "partial": "Partiellement vérifié",
+    "unverified": "Expéditeur non vérifié",
+    "unknown": "Auth inconnue"
+  },
   "confirm": {
     "cancel": "Annuler",
     "confirm": "Confirmer",

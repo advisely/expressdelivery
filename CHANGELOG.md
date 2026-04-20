@@ -9,6 +9,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.4] - 2026-04-19
+
+Two related improvements: a structural fix for the brand-spoofing false
+positives that v1.18.3 only data-patched, and a much more visible
+SPF/DKIM/DMARC authentication-result badge per user request ("make the
+SPF + DKIM + DMARC pass more explicit").
+
+### Fixed
+- **Brand-spoofing rule now Public Suffix List aware** (`src/lib/phishingDetector.ts`).
+  v1.18.3 expanded the Amazon list and added `x.com` for Twitter — overfitted
+  per the user's observation. v1.18.4 replaces the hard-coded regional
+  enumeration with an algorithmic check via the well-established `tldts`
+  npm package (Public Suffix List, ~50 KB, used by ad blockers worldwide).
+  Each brand now declares either:
+  - `allowAlgorithmic: true` (most brands) → ANY `<brand>.<safe-tld>` hostname
+    is accepted (e.g., `amazon.lu`, `google.lt`, `microsoft.gr` work without
+    being enumerated). Suspicious TLDs (`.tk`, `.ml`, `.gq`, etc.) still
+    rejected.
+  - `allowAlgorithmic: false` (US-only brands: Chase, Wells Fargo,
+    Bank of America) → only the explicit `aliases` list is accepted, so
+    `chase.de` etc. are still flagged.
+  - `aliases`: always-allowed exact domains (Twitter's `x.com`).
+  Negative cases still flagged: `amazon.com.evil.com`, `amazon.tk`,
+  `paypal-fake.tk`, `apple-secure.tk` — verified by 6 new regression tests.
+
+### Added
+- **Explicit SPF/DKIM/DMARC authentication badge** in the email header
+  (`src/components/ReadingPane.tsx` + `ReadingPane.module.css`). Replaces
+  the v1.18.0 icon-only verified/unverified pair (which only had hover
+  tooltips and didn't render `partial` or `unknown` states). The new badge
+  always shows:
+  - **Status label** color-coded: green "Verified sender" (all 3 pass),
+    amber "Partially verified" (some pass), red "Unverified sender" (all
+    fail), grey "Auth unknown" (sender publishes no records).
+  - **Per-check chips** inline: `SPF` `DKIM` `DMARC` each rendered with
+    pass/fail/none color (pass=green, fail=red strikethrough, none=muted).
+  - **Tooltip** on hover spelling out the exact value of each check
+    (e.g., "SPF: PASS\nDKIM: FAIL\nDMARC: PASS").
+  - **ARIA label** for screen readers reading the full breakdown.
+  Translated en/fr/es/de.
+- **`src/lib/senderVerification.ts`** (NEW) — renderer-side mirror of
+  `electron/authResults.ts` so the badge logic doesn't cross-import from
+  Electron main code. 8 tests pinning the `verified | partial | unverified
+  | unknown` enum mapping (notably: `softfail` does NOT count as pass).
+- **`tldts` dependency** added to `package.json` (~50 KB, Public Suffix
+  List parser).
+
+### Tests
+- `src/lib/phishingDetector.test.ts`: 25 → 31 (+6 PSL coverage tests:
+  Amazon storefronts not in any explicit list still accepted; suspicious
+  TLDs rejected; subdomain trick rejected; subdomains of regional sites
+  accepted; US-only brands stay restricted; US-only brands' `.com`
+  accepted).
+- `src/lib/senderVerification.ts`: 8 new tests for the enum mapping.
+- Net total: 1135 (was 1116).
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.4-psl-and-auth-badge.md`
+
+### Quality gate
+- ESLint: 0 warnings. TypeScript strict: clean.
+- Vitest: 1133/1135 (1 pre-existing cross-test pollution flake in
+  `ThreadList.test.tsx` Reply context-menu test — passes deterministically
+  in isolation; unrelated to this change).
+
+### Maintenance note
+The brand-spoofing detector is now structurally sound: adding a new
+brand to monitor is a one-line entry in `BRAND_CONFIGS` (declare aliases
++ algorithmic mode); the regional storefronts come for free via PSL.
+Future contributors who want to slim the explicit lists can do so without
+breaking regression tests as long as the algorithmic mode is enabled.
+
+---
+
 ## [1.18.3] - 2026-04-19
 
 User report after v1.18.2: "amazon.ca has been tagged as unsafe, why?" plus

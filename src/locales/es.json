@@ -524,6 +524,12 @@
     "added": "{{email}} añadido a los remitentes de confianza. La advertencia no se mostrará de nuevo para este remitente.",
     "addFailed": "Error al añadir remitente de confianza"
   },
+  "authBadge": {
+    "verified": "Remitente verificado",
+    "partial": "Parcialmente verificado",
+    "unverified": "Remitente no verificado",
+    "unknown": "Auth desconocida"
+  },
   "confirm": {
     "cancel": "Cancelar",
     "confirm": "Confirmar",

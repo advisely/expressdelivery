@@ -11,6 +11,8 @@ import { ipcInvoke } from '../lib/ipc';
 import { formatFileSize } from '../lib/formatFileSize';
 import { detectPhishing } from '../lib/phishingDetector';
 import { assessSenderRisk } from '../lib/senderRisk';
+import { readAuthResults, getSenderVerification } from '../lib/senderVerification';
+import type { VerificationStatus, AuthResults, AuthValue } from '../lib/senderVerification';
 import type { ToastType } from '../App';
 import DateTimePicker from './DateTimePicker';
 import { MessageSourceDialog } from './MessageSourceDialog';
@@ -116,6 +118,55 @@ function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false)
 function escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ─── Authentication-Result Badge (v1.18.4) ──────────────────────────────────
+// Visible badge near the sender info that summarizes SPF + DKIM + DMARC.
+// Replaces the v1.18.0 icon-only verified/unverified pair which only had
+// hover-tooltips and didn't surface 'partial' or 'unknown' states.
+const AUTH_BADGE_CONFIG: Record<VerificationStatus, { iconKey: 'check' | 'alert'; styleClass: string; labelKey: string }> = {
+    verified:   { iconKey: 'check', styleClass: 'auth-badge-verified',   labelKey: 'authBadge.verified'   },
+    partial:    { iconKey: 'alert', styleClass: 'auth-badge-partial',    labelKey: 'authBadge.partial'    },
+    unverified: { iconKey: 'alert', styleClass: 'auth-badge-unverified', labelKey: 'authBadge.unverified' },
+    unknown:    { iconKey: 'alert', styleClass: 'auth-badge-unknown',    labelKey: 'authBadge.unknown'    },
+};
+
+const AuthVerificationBadge = React.memo(function AuthVerificationBadge({
+    email,
+    t,
+}: {
+    email: { auth_spf?: string | null; auth_dkim?: string | null; auth_dmarc?: string | null; sender_verified?: string | null };
+    t: (key: string, opts?: Record<string, unknown>) => string;
+}) {
+    const auth: AuthResults = readAuthResults(email);
+    const status: VerificationStatus = getSenderVerification(auth);
+    const config = AUTH_BADGE_CONFIG[status];
+    const Icon = config.iconKey === 'check' ? ShieldCheck : ShieldAlert;
+    const renderResult = (label: string, val: AuthValue) => `${label}: ${val.toUpperCase()}`;
+    const tooltip = [
+        renderResult('SPF', auth.spf),
+        renderResult('DKIM', auth.dkim),
+        renderResult('DMARC', auth.dmarc),
+    ].join('\n');
+    return (
+        <span
+            className={`${styles['auth-badge']} ${styles[config.styleClass]}`}
+            title={tooltip}
+            data-status={status}
+            data-spf={auth.spf}
+            data-dkim={auth.dkim}
+            data-dmarc={auth.dmarc}
+            aria-label={`${t(config.labelKey)} — ${tooltip.replace(/\n/g, '; ')}`}
+        >
+            <Icon size={12} aria-hidden="true" />
+            <span className={styles['auth-badge-label']}>{t(config.labelKey)}</span>
+            <span className={styles['auth-badge-checks']} aria-hidden="true">
+                <span className={`${styles['auth-check']} ${styles[`auth-check-${auth.spf}`]}`}>SPF</span>
+                <span className={`${styles['auth-check']} ${styles[`auth-check-${auth.dkim}`]}`}>DKIM</span>
+                <span className={`${styles['auth-check']} ${styles[`auth-check-${auth.dmarc}`]}`}>DMARC</span>
+            </span>
+        </span>
+    );
+});
 
 // Sandboxed iframe for rendering email HTML — provides complete style isolation.
 // Uses postMessage for height resize (no allow-same-origin needed).
@@ -843,12 +894,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                         <div className={styles['sender-row']}>
                             <span className={styles['sender-name']}>{selectedEmail.from_name}</span>
                             <span className={styles['sender-email']}>&lt;{selectedEmail.from_email}&gt;</span>
-                            {selectedEmail.sender_verified === 'verified' && (
-                                <span className={styles['verified-badge']} title="SPF + DKIM + DMARC pass"><ShieldCheck size={14} /></span>
-                            )}
-                            {selectedEmail.sender_verified === 'unverified' && (
-                                <span className={styles['unverified-badge']} title="Authentication failed"><ShieldAlert size={14} /></span>
-                            )}
+                            <AuthVerificationBadge email={selectedEmail} t={t} />
                         </div>
                         <div className={styles['to-row']}>
                             <span className={styles['to-label']}>to {selectedEmail.to_email}</span>

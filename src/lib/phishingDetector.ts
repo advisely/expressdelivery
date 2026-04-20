@@ -1,5 +1,7 @@
 // Phishing detection heuristics for email URLs
 
+import { parse as parseTldts } from 'tldts';
+
 export interface PhishingResult {
     isPhishing: boolean;
     score: number; // 0–100
@@ -12,6 +14,12 @@ const SUSPICIOUS_TLDS = new Set([
     '.click', '.link', '.buzz', '.info', '.work', '.party',
 ]);
 
+// Bare-suffix lookup (without the leading dot) for comparisons against
+// tldts.parse(...).publicSuffix which never includes the leading dot.
+const SUSPICIOUS_TLDS_BARE = new Set(
+    [...SUSPICIOUS_TLDS].map(s => s.startsWith('.') ? s.slice(1) : s)
+);
+
 // Well-known brand names mapped to their LIST of official domains. A URL
 // whose hostname contains the brand name but does NOT match (exact or
 // subdomain of) any official domain is flagged as a spoofing indicator.
@@ -20,35 +28,73 @@ const SUSPICIOUS_TLDS = new Set([
 // per-country domains (amazon.ca, amazon.co.uk, google.de, microsoft.fr).
 // A naive `brand → 'brand.com'` map false-positives every regional storefront.
 // v1.18.3 expands the schema; new regional variants belong here.
-const BRAND_DOMAINS = new Map<string, readonly string[]>([
-    ['paypal',          ['paypal.com']],
-    ['apple',           ['apple.com']],
-    ['microsoft',       ['microsoft.com']],
-    ['google',          ['google.com']],
-    ['amazon',          [
-        'amazon.com', 'amazon.ca', 'amazon.co.uk', 'amazon.de', 'amazon.fr',
-        'amazon.es', 'amazon.it', 'amazon.co.jp', 'amazon.com.au', 'amazon.in',
-        'amazon.com.mx', 'amazon.com.br', 'amazon.nl', 'amazon.pl', 'amazon.se',
-        'amazon.sg', 'amazon.com.tr', 'amazon.ae', 'amazon.sa', 'amazon.eg',
-    ]],
-    ['netflix',         ['netflix.com']],
-    ['facebook',        ['facebook.com']],
-    ['instagram',       ['instagram.com']],
-    ['linkedin',        ['linkedin.com']],
-    ['twitter',         ['twitter.com', 'x.com']],
-    ['chase',           ['chase.com']],
-    ['wellsfargo',      ['wellsfargo.com']],
-    ['bankofamerica',   ['bankofamerica.com']],
+/**
+ * Per-brand acceptance config. v1.18.4 (Path B): replaces the hard-coded
+ * regional-domain enumeration with a Public Suffix List (tldts) algorithmic
+ * check. Each brand declares:
+ *
+ *   - `aliases`: always-allowed domains, used for non-pattern-matching
+ *     officially-owned aliases (Twitter's x.com) AND for single-domain
+ *     brands (US banks: chase.com, wellsfargo.com).
+ *   - `allowAlgorithmic`: when true, any hostname whose registrable
+ *     domain is `<brand>.<safe-tld>` is accepted. This covers every
+ *     regional storefront automatically (amazon.ca, google.de,
+ *     apple.co.uk, microsoft.fr, paypal.me, ...) without enumerating.
+ *     Suspicious TLDs (`.tk`, `.ml`, `.gq`, etc. — see SUSPICIOUS_TLDS)
+ *     are excluded so `amazon.tk` is still flagged.
+ *
+ * For US-only brands (Chase, Wells Fargo, Bank of America) the algorithmic
+ * mode is disabled because `chase.de` etc. are NOT legitimate — the brand
+ * does not operate regional country sites, so any non-`.com` is suspicious.
+ */
+interface BrandConfig {
+    readonly aliases: readonly string[];
+    readonly allowAlgorithmic: boolean;
+}
+
+const BRAND_CONFIGS = new Map<string, BrandConfig>([
+    ['paypal',          { aliases: [],                       allowAlgorithmic: true  }],
+    ['apple',           { aliases: [],                       allowAlgorithmic: true  }],
+    ['microsoft',       { aliases: [],                       allowAlgorithmic: true  }],
+    ['google',          { aliases: [],                       allowAlgorithmic: true  }],
+    ['amazon',          { aliases: [],                       allowAlgorithmic: true  }],
+    ['netflix',         { aliases: [],                       allowAlgorithmic: true  }],
+    ['facebook',        { aliases: [],                       allowAlgorithmic: true  }],
+    ['instagram',       { aliases: [],                       allowAlgorithmic: true  }],
+    ['linkedin',        { aliases: [],                       allowAlgorithmic: true  }],
+    ['twitter',         { aliases: ['x.com'],                allowAlgorithmic: true  }],
+    ['chase',           { aliases: ['chase.com'],            allowAlgorithmic: false }],
+    ['wellsfargo',      { aliases: ['wellsfargo.com'],       allowAlgorithmic: false }],
+    ['bankofamerica',   { aliases: ['bankofamerica.com'],    allowAlgorithmic: false }],
 ]);
 
-/** Returns true if `hostname` matches any of the brand's official domains
- * (exact match or legitimate subdomain). Centralizes the matching rule used
- * by both URL analysis and display-name spoof detection. */
-function hostnameMatchesAnyBrandDomain(hostname: string, officialDomains: readonly string[]): boolean {
-    for (const dom of officialDomains) {
-        if (hostname === dom || hostname.endsWith('.' + dom)) return true;
+/**
+ * Returns true if `hostname` is a legitimate official domain for `brand`.
+ *
+ * Two acceptance paths:
+ *   1. Hostname exact-matches or is a subdomain of any brand alias.
+ *   2. (Algorithmic mode only) Hostname's registrable domain has the brand
+ *      name as its SLD (e.g., `amazon` in `amazon.ca`) and the public
+ *      suffix is not in our suspicious-TLD denylist.
+ *
+ * Used by both Rule 4 (URL spoofing) and Check 1 (display-name spoofing).
+ */
+function isLegitimateBrandDomain(hostname: string, brand: string): boolean {
+    const config = BRAND_CONFIGS.get(brand);
+    if (!config) return false;
+
+    for (const alias of config.aliases) {
+        if (hostname === alias || hostname.endsWith('.' + alias)) return true;
     }
-    return false;
+
+    if (!config.allowAlgorithmic) return false;
+
+    const parsed = parseTldts(hostname);
+    if (!parsed.domainWithoutSuffix || !parsed.publicSuffix) return false;
+    if (parsed.domainWithoutSuffix !== brand) return false;
+    if (SUSPICIOUS_TLDS_BARE.has(parsed.publicSuffix)) return false;
+
+    return true;
 }
 
 /** Extract all href URLs that use http/https from raw HTML. */
@@ -98,11 +144,10 @@ function analyzeUrl(url: string): { score: number; reasons: string[] } {
     }
 
     // Rule 4: Brand name in hostname but not the official brand domain.
-    // Allow exact match (paypal.com), legitimate subdomains (secure.paypal.com),
-    // AND regional variants (amazon.ca, amazon.co.uk, google.de). Flag
-    // mypaypal.com or paypal.com.evil.com as spoofing attempts.
-    for (const [brand, officialDomains] of BRAND_DOMAINS) {
-        if (hostname.includes(brand) && !hostnameMatchesAnyBrandDomain(hostname, officialDomains)) {
+    // PSL-aware: amazon.ca, google.de, apple.co.uk auto-accepted via tldts;
+    // amazon.com.evil.com, amazon.tk, my-paypal-account.tk still flagged.
+    for (const brand of BRAND_CONFIGS.keys()) {
+        if (hostname.includes(brand) && !isLegitimateBrandDomain(hostname, brand)) {
             score += 35;
             reasons.push(`Brand "${brand}" in URL but not the official domain`);
             break;
@@ -157,9 +202,9 @@ export function detectDisplayNameSpoofing(fromName: string, fromEmail: string): 
     const emailDomain = emailLower.split('@')[1] ?? '';
 
     // Check 1: Display name contains a known brand but email domain doesn't
-    // match any of the brand's official regional domains.
-    for (const [brand, officialDomains] of BRAND_DOMAINS) {
-        if (nameLower.includes(brand) && !hostnameMatchesAnyBrandDomain(emailDomain, officialDomains)) {
+    // match any of the brand's official regional domains (PSL-aware).
+    for (const brand of BRAND_CONFIGS.keys()) {
+        if (nameLower.includes(brand) && !isLegitimateBrandDomain(emailDomain, brand)) {
             return {
                 isSpoofed: true,
                 reason: `Display name contains "${brand}" but email is from ${emailDomain}`,

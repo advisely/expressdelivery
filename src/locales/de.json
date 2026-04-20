@@ -524,6 +524,12 @@
     "added": "{{email}} zu vertrauenswürdigen Absendern hinzugefügt. Die Warnung wird für diesen Absender nicht mehr angezeigt.",
     "addFailed": "Hinzufügen des vertrauenswürdigen Absenders fehlgeschlagen"
   },
+  "authBadge": {
+    "verified": "Verifizierter Absender",
+    "partial": "Teilweise verifiziert",
+    "unverified": "Nicht verifizierter Absender",
+    "unknown": "Auth unbekannt"
+  },
   "confirm": {
     "cancel": "Abbrechen",
     "confirm": "Bestätigen",

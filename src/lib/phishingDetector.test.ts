@@ -179,4 +179,153 @@ describe('detectPhishing', () => {
         const result = detectPhishing(makeHtml(['https://x.com/elonmusk']));
         expect(result.reasons.filter(r => r.includes('twitter'))).toHaveLength(0);
     });
+
+    // ── REGRESSION: regional brand domains, full coverage (v1.18.4) ─────────
+    // v1.18.3 fixed amazon.* and twitter+x.com. v1.18.4 extends to Apple,
+    // Google, Microsoft, PayPal regional storefronts. Pinned here so future
+    // contributors who shrink the lists break tests named after the regions.
+
+    it('does NOT flag Apple regional domains (.de, .co.uk, .fr, .com.au, .com.br, .cn, .co.jp)', () => {
+        const regional = [
+            'https://www.apple.de/iphone', 'https://www.apple.co.uk/store',
+            'https://www.apple.fr/support', 'https://www.apple.com.au/shop',
+            'https://www.apple.com.br/iphone', 'https://www.apple.cn/macbook',
+            'https://www.apple.co.jp/iphone',
+        ];
+        for (const url of regional) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => r.includes('apple'))).toHaveLength(0);
+        }
+    });
+
+    it('does NOT flag Google regional domains (.ca, .co.uk, .de, .fr, .com.au, .co.jp, .com.br)', () => {
+        const regional = [
+            'https://www.google.ca/search', 'https://www.google.co.uk/maps',
+            'https://www.google.de/maps', 'https://www.google.fr/photos',
+            'https://www.google.com.au/drive', 'https://www.google.co.jp/calendar',
+            'https://www.google.com.br/translate',
+        ];
+        for (const url of regional) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => r.includes('google'))).toHaveLength(0);
+        }
+    });
+
+    it('does NOT flag Microsoft regional domains (.de, .co.uk, .fr, .com.au, .co.jp)', () => {
+        const regional = [
+            'https://www.microsoft.de/office', 'https://www.microsoft.co.uk/azure',
+            'https://www.microsoft.fr/teams', 'https://www.microsoft.com.au/azure',
+            'https://www.microsoft.co.jp/office',
+        ];
+        for (const url of regional) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => r.includes('microsoft'))).toHaveLength(0);
+        }
+    });
+
+    it('does NOT flag PayPal regional + paypal.me short-link domain', () => {
+        const regional = [
+            'https://paypal.me/jdoe', 'https://www.paypal.de/welcome',
+            'https://www.paypal.co.uk/account', 'https://www.paypal.fr/help',
+            'https://www.paypal.com.au/login', 'https://www.paypal.ca/checkout',
+        ];
+        for (const url of regional) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => r.includes('paypal'))).toHaveLength(0);
+        }
+    });
+
+    it('STILL flags fake regional spoofs (e.g., apple-secure.tk, paypal.com.evil.com)', () => {
+        const spoofs = [
+            'https://apple-secure.tk/login',
+            'https://google-account-verify.tk/check',
+            'https://paypal.com.evil.com/payment',
+            'https://microsoft-365-renewal.ml/billing',
+        ];
+        for (const url of spoofs) {
+            const result = detectPhishing(makeHtml([url]));
+            // Each spoof should trigger SOME reason (brand spoof OR suspicious TLD).
+            expect(result.reasons.length).toBeGreaterThan(0);
+        }
+    });
+
+    // ── PSL-aware Path B (v1.18.4) ──────────────────────────────────────────
+    // Replaces the hard-coded regional-domain enumeration with a Public Suffix
+    // List (tldts) check. These tests prove the algorithmic mode catches
+    // regional storefronts NOT enumerated in any explicit list AND still
+    // rejects spoofs.
+
+    it('PSL accepts Amazon storefronts NOT in any explicit list (auto-future-proof)', () => {
+        // amazon.lu (Luxembourg), amazon.cl (Chile-style), amazon.co.za (S. Africa)
+        // — none enumerated in v1.18.3 or v1.18.4. PSL recognizes them as
+        // <brand>.<safe-tld> patterns automatically.
+        const futureRegional = [
+            'https://www.amazon.lu/account',
+            'https://www.amazon.co.za/orders',
+            'https://www.google.lt/maps',          // Google Lithuania
+            'https://www.microsoft.gr/azure',      // Microsoft Greece
+        ];
+        for (const url of futureRegional) {
+            const result = detectPhishing(makeHtml([url]));
+            // No brand-spoof reason should appear for these.
+            expect(result.reasons.filter(r => /Brand "/.test(r))).toHaveLength(0);
+        }
+    });
+
+    it('PSL rejects brand on suspicious TLD (amazon.tk, paypal.ml)', () => {
+        const suspicious = [
+            'https://amazon.tk/deals',
+            'https://paypal.ml/login',
+            'https://google.gq/search',
+        ];
+        for (const url of suspicious) {
+            const result = detectPhishing(makeHtml([url]));
+            // Should flag — either brand spoof, suspicious TLD, or both.
+            expect(result.reasons.length).toBeGreaterThan(0);
+        }
+    });
+
+    it('PSL rejects subdomain trick (amazon.com.evil.com) — registrable domain is evil.com', () => {
+        const result = detectPhishing(makeHtml(['https://amazon.com.evil.com/checkout']));
+        expect(result.reasons.some(r => r.includes('amazon'))).toBe(true);
+    });
+
+    it('PSL accepts subdomains of regional storefronts (orders.amazon.de, secure.amazon.co.uk)', () => {
+        const subdomained = [
+            'https://orders.amazon.de/track',
+            'https://secure.amazon.co.uk/payment',
+            'https://accounts.google.fr/signin',
+        ];
+        for (const url of subdomained) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => /Brand "/.test(r))).toHaveLength(0);
+        }
+    });
+
+    it('US-only brands (chase, wellsfargo, bankofamerica) STAY restricted (allowAlgorithmic=false)', () => {
+        // chase.de is NOT a legitimate Chase domain — Chase is US-only.
+        // The PSL check would naively accept "chase.de" as <brand>.<safe-tld>;
+        // our config marks chase as allowAlgorithmic=false to prevent this.
+        const fakes = [
+            'https://chase.de/login',
+            'https://wellsfargo.co.uk/account',
+            'https://bankofamerica.fr/payment',
+        ];
+        for (const url of fakes) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.some(r => /chase|wells|bankof/i.test(r))).toBe(true);
+        }
+    });
+
+    it('US-only brands still accept their official .com (chase.com, wellsfargo.com)', () => {
+        const officials = [
+            'https://www.chase.com/personal',
+            'https://wellsfargo.com/online-banking',
+            'https://www.bankofamerica.com/login',
+        ];
+        for (const url of officials) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => /chase|wells|bankof/i.test(r))).toHaveLength(0);
+        }
+    });
 });
