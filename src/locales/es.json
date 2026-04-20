@@ -129,7 +129,9 @@
     "snooze": "Posponer",
     "reminder": "Recordatorio",
     "loadImages": "Cargar imágenes",
+    "loadImagesAnyway": "Cargar de todos modos",
     "remoteImagesBlocked": "Imágenes remotas bloqueadas por privacidad",
+    "remoteImagesUnsafe": "NO se recomienda cargar imágenes remotas en este correo — se detectaron indicadores de riesgo:",
     "emailDeleted": "Correo movido a la papelera",
     "emailArchived": "Correo archivado",
     "emailMoved": "Correo movido",
@@ -257,6 +259,8 @@
     "ruleSaveFailed": "Error al guardar",
     "dynamicFolderSwitch": "Navegación contextual de carpetas",
     "dynamicFolderSwitchDesc": "En la vista de todas las cuentas, hacer clic en un email muestra las carpetas de esa cuenta",
+    "showThreadPreview": "Mostrar vista previa de la primera línea",
+    "showThreadPreviewDesc": "Muestra un fragmento del cuerpo del correo bajo el asunto en la lista",
     "undoSendDelay": "Retraso de deshacer",
     "undoSendOff": "Desactivado",
     "undoSendSeconds": "{{seconds}}s",
@@ -495,7 +499,8 @@
     "mailto": "Enviar correo para cancelar suscripción"
   },
   "dragDrop": {
-    "moveToFolder": "{{count}} correo(s) movido(s) a {{folder}}"
+    "moveToFolder": "{{count}} correo(s) movido(s) a {{folder}}",
+    "crossAccountUnsupported": "Mover correos entre cuentas diferentes no está soportado. Arrastra a una carpeta de la misma cuenta."
   },
   "spam": {
     "reportSpam": "Reportar como spam",
@@ -507,6 +512,23 @@
   "phishing": {
     "warning": "Advertencia: Este correo puede contener enlaces de phishing",
     "reasons": "Indicadores sospechosos encontrados:"
+  },
+  "attachmentRisk": {
+    "title": "Este archivo adjunto puede ser inseguro",
+    "saveAnyway": "Guardar de todos modos"
+  },
+  "trustedSenders": {
+    "trustSender": "Confiar en este remitente",
+    "trustHint": "Añadir {{email}} a tu lista de remitentes de confianza — no volverá a mostrar esta advertencia.",
+    "adding": "Añadiendo…",
+    "added": "{{email}} añadido a los remitentes de confianza. La advertencia no se mostrará de nuevo para este remitente.",
+    "addFailed": "Error al añadir remitente de confianza"
+  },
+  "authBadge": {
+    "verified": "Remitente verificado",
+    "partial": "Parcialmente verificado",
+    "unverified": "Remitente no verificado",
+    "unknown": "Auth desconocida"
   },
   "confirm": {
     "cancel": "Cancelar",

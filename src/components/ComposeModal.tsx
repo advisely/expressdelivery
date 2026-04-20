@@ -54,6 +54,9 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
     const [error, setError] = useState<string | null>(null);
     const [currentDraftId, setCurrentDraftId] = useState<string | null>(draftId ?? null);
     const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
+    const [enteringAttIds, setEnteringAttIds] = useState<Set<string>>(() => new Set());
+    const [exitingAttIds, setExitingAttIds] = useState<Set<string>>(() => new Set());
+    const attEnterTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
     const [showSchedulePicker, setShowSchedulePicker] = useState(false);
     const [busiestHours, setBusiestHours] = useState<Array<{ hour: number; count: number }>>([]);
     const [templates, setTemplates] = useState<Array<{ id: string; name: string; body_html: string }>>([]);
@@ -118,11 +121,46 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
         }
         const withIds = files.map((f, i) => ({ ...f, id: `${Date.now()}-${i}` }));
         setAttachments(prev => [...prev, ...withIds]);
+        // Animate the new chips in.
+        const newIds = withIds.map(w => w.id);
+        setEnteringAttIds(prev => {
+            const next = new Set(prev);
+            newIds.forEach(id => next.add(id));
+            return next;
+        });
+        const timer = setTimeout(() => {
+            attEnterTimersRef.current.delete(timer);
+            setEnteringAttIds(prev => {
+                const next = new Set(prev);
+                newIds.forEach(id => next.delete(id));
+                return next;
+            });
+        }, 350);
+        attEnterTimersRef.current.add(timer);
     };
 
     const handleRemoveAttachment = (id: string) => {
-        setAttachments(prev => prev.filter(a => a.id !== id));
+        // Animate the chip out, then actually remove from state. The timer
+        // is tracked in the same ref as enter timers so it gets cleared on
+        // unmount and never fires against a stale React tree.
+        setExitingAttIds(prev => new Set(prev).add(id));
+        const timer = setTimeout(() => {
+            attEnterTimersRef.current.delete(timer);
+            setAttachments(prev => prev.filter(a => a.id !== id));
+            setExitingAttIds(prev => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+            });
+        }, 220);
+        attEnterTimersRef.current.add(timer);
     };
+
+    // Cleanup outstanding chip-animation timers on unmount.
+    useEffect(() => {
+        const timers = attEnterTimersRef.current;
+        return () => { timers.forEach(clearTimeout); timers.clear(); };
+    }, []);
 
     // Auto-save draft every 2 seconds when content changes
     useEffect(() => {
@@ -445,7 +483,10 @@ export const ComposeModal: FC<ComposeModalProps> = ({ onClose, onSendPending, in
                     {attachments.length > 0 && (
                         <div className={styles['compose-attachments']}>
                             {attachments.map(att => (
-                                <div key={att.id} className={styles['compose-attachment-chip']}>
+                                <div
+                                    key={att.id}
+                                    className={`${styles['compose-attachment-chip']} ${enteringAttIds.has(att.id) ? styles['compose-attachment-chip-entering'] : ''} ${exitingAttIds.has(att.id) ? styles['compose-attachment-chip-exiting'] : ''}`}
+                                >
                                     <Paperclip size={12} />
                                     <span className={styles['compose-att-name']}>{att.filename}</span>
                                     <span className={styles['compose-att-size']}>{formatFileSize(att.size)}</span>

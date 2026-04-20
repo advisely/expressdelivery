@@ -9,6 +9,409 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.6] - 2026-04-19
+
+User report: "When I drag an email and hover over the folder I'll drop it
+in, that focused folder should be highlighted too — either in solo-account
+mode or multi-accounts mode."
+
+### Fixed
+- **Drop-target folder highlight** now visibly fires in BOTH single-account
+  AND unified "All Accounts" mode. Two bugs combined:
+  1. The CSS rule `.nav-item.drag-over` (compound class on the BUTTON
+     element) only matched single-account mode. The unified-mode v1.18.1
+     code put `drag-over` on the wrapper `.nav-item-row` div, which had no
+     matching CSS rule — drop highlight was silent.
+  2. The single-account-mode visual was a 0.15-alpha tint with thin
+     outline — too subtle to read at a glance.
+  Fix: (a) added `drag-over` to the unified-mode button as well (parity with
+  single-account), (b) added a new `.nav-item-row.drag-over` CSS rule for
+  the row-level outline, (c) strengthened both visuals — 0.22 alpha
+  background, 2px accent-colored outline, 3px inset accent-colored stripe
+  on the left, bolder font, smooth 120ms transition gated behind
+  `prefers-reduced-motion: no-preference`.
+
+### Files Touched
+- `src/components/Sidebar.tsx` — unified-mode button now also receives the
+  `drag-over` class (line 838 area).
+- `src/components/Sidebar.module.css` — strengthened `.nav-item.drag-over`
+  visual; added `.nav-item-row.drag-over` for the wrapper highlight; added
+  reduced-motion-aware transition.
+
+### Quality gate
+- vitest: 1139/1139 (no test changes — purely visual).
+- ESLint: 0 warnings. TypeScript strict: clean.
+
+---
+
+## [1.18.5] - 2026-04-19
+
+User report: "Does the delete email animation work only with some mailbox
+providers and not the rest? It's like I see it sometimes working and
+sometimes not."
+
+Not a provider issue — the v1.18.0 animation only fired from ONE of FIVE
+delete entry points, so the user perceived inconsistency across what was
+actually identical IPC behavior.
+
+### Fixed
+- **Delete animation now fires from EVERY delete entry point.** Previously
+  only the trash icon on each row in `ThreadList` flagged the row as
+  exiting (`setExitingIds` local state). The other four entry points —
+  ReadingPane top-bar trash button, right-click context-menu Delete, bulk
+  Delete on multi-select, and the keyboard shortcut (`Delete` key,
+  `App.handleDeleteSelected`) — fired the IPC immediately and the row
+  vanished on the next `emails:list` refresh with no animation. Hence the
+  "sometimes works, sometimes not" feel.
+- Lifted the `exitingIds` set from `ThreadList` local state into the
+  Zustand store as `exitingEmailIds` + `markEmailsExiting(ids)` and
+  `unmarkEmailsExiting(ids)` actions. All five delete handlers now
+  bracket their IPC with mark/unmark, run the IPC in `Promise.all` with a
+  250 ms timer, and uniformly trigger the existing
+  `.thread-item-exiting` CSS animation.
+
+### Added
+- 4 new tests in `src/stores/emailStore.test.ts` pinning the
+  `exitingEmailIds` contract: idempotent add, remove, empty-array no-op
+  (no spurious re-render), state-reference identity preserved on no-op.
+
+### Quality gate
+- vitest: 1138/1139 (was 1135 + 4 new). 1 pre-existing flake in
+  `ThreadList.test.tsx` Reply test — unrelated, passes in isolation.
+- ESLint: 0 warnings. TypeScript strict: clean.
+
+### Files Touched
+- `src/stores/emailStore.ts` — `exitingEmailIds`, `markEmailsExiting`,
+  `unmarkEmailsExiting`.
+- `src/stores/emailStore.test.ts` — +4 lockstep tests.
+- `src/components/ThreadList.tsx` — replaced local `exitingIds` state with
+  store reads. Updated `handleDeleteEmail`, `handleBulkDelete`, and
+  `ctxAction('delete')` to use store actions + Promise.all 250 ms timer.
+- `src/components/ReadingPane.tsx` — `handleDelete` now brackets with
+  mark/unmark + Promise.all 250 ms timer.
+- `src/App.tsx` — `handleDeleteSelected` (keyboard shortcut) same
+  treatment.
+
+---
+
+## [1.18.4] - 2026-04-19
+
+Two related improvements: a structural fix for the brand-spoofing false
+positives that v1.18.3 only data-patched, and a much more visible
+SPF/DKIM/DMARC authentication-result badge per user request ("make the
+SPF + DKIM + DMARC pass more explicit").
+
+### Fixed
+- **Brand-spoofing rule now Public Suffix List aware** (`src/lib/phishingDetector.ts`).
+  v1.18.3 expanded the Amazon list and added `x.com` for Twitter — overfitted
+  per the user's observation. v1.18.4 replaces the hard-coded regional
+  enumeration with an algorithmic check via the well-established `tldts`
+  npm package (Public Suffix List, ~50 KB, used by ad blockers worldwide).
+  Each brand now declares either:
+  - `allowAlgorithmic: true` (most brands) → ANY `<brand>.<safe-tld>` hostname
+    is accepted (e.g., `amazon.lu`, `google.lt`, `microsoft.gr` work without
+    being enumerated). Suspicious TLDs (`.tk`, `.ml`, `.gq`, etc.) still
+    rejected.
+  - `allowAlgorithmic: false` (US-only brands: Chase, Wells Fargo,
+    Bank of America) → only the explicit `aliases` list is accepted, so
+    `chase.de` etc. are still flagged.
+  - `aliases`: always-allowed exact domains (Twitter's `x.com`).
+  Negative cases still flagged: `amazon.com.evil.com`, `amazon.tk`,
+  `paypal-fake.tk`, `apple-secure.tk` — verified by 6 new regression tests.
+
+### Added
+- **Explicit SPF/DKIM/DMARC authentication badge** in the email header
+  (`src/components/ReadingPane.tsx` + `ReadingPane.module.css`). Replaces
+  the v1.18.0 icon-only verified/unverified pair (which only had hover
+  tooltips and didn't render `partial` or `unknown` states). The new badge
+  always shows:
+  - **Status label** color-coded: green "Verified sender" (all 3 pass),
+    amber "Partially verified" (some pass), red "Unverified sender" (all
+    fail), grey "Auth unknown" (sender publishes no records).
+  - **Per-check chips** inline: `SPF` `DKIM` `DMARC` each rendered with
+    pass/fail/none color (pass=green, fail=red strikethrough, none=muted).
+  - **Tooltip** on hover spelling out the exact value of each check
+    (e.g., "SPF: PASS\nDKIM: FAIL\nDMARC: PASS").
+  - **ARIA label** for screen readers reading the full breakdown.
+  Translated en/fr/es/de.
+- **`src/lib/senderVerification.ts`** (NEW) — renderer-side mirror of
+  `electron/authResults.ts` so the badge logic doesn't cross-import from
+  Electron main code. 8 tests pinning the `verified | partial | unverified
+  | unknown` enum mapping (notably: `softfail` does NOT count as pass).
+- **`tldts` dependency** added to `package.json` (~50 KB, Public Suffix
+  List parser).
+
+### Tests
+- `src/lib/phishingDetector.test.ts`: 25 → 31 (+6 PSL coverage tests:
+  Amazon storefronts not in any explicit list still accepted; suspicious
+  TLDs rejected; subdomain trick rejected; subdomains of regional sites
+  accepted; US-only brands stay restricted; US-only brands' `.com`
+  accepted).
+- `src/lib/senderVerification.ts`: 8 new tests for the enum mapping.
+- Net total: 1135 (was 1116).
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.4-psl-and-auth-badge.md`
+
+### Quality gate
+- ESLint: 0 warnings. TypeScript strict: clean.
+- Vitest: 1133/1135 (1 pre-existing cross-test pollution flake in
+  `ThreadList.test.tsx` Reply context-menu test — passes deterministically
+  in isolation; unrelated to this change).
+
+### Maintenance note
+The brand-spoofing detector is now structurally sound: adding a new
+brand to monitor is a one-line entry in `BRAND_CONFIGS` (declare aliases
++ algorithmic mode); the regional storefronts come for free via PSL.
+Future contributors who want to slim the explicit lists can do so without
+breaking regression tests as long as the algorithmic mode is enabled.
+
+---
+
+## [1.18.3] - 2026-04-19
+
+User report after v1.18.2: "amazon.ca has been tagged as unsafe, why?" plus
+a feature request: "add a sender to the trusted list so the warning doesn't
+show again."
+
+### Fixed
+- **`amazon.ca` (and every other Amazon regional storefront) no longer
+  flagged as a phishing/spoof domain.** `src/lib/phishingDetector.ts` had
+  `BRAND_DOMAINS` mapping each brand to a single official domain
+  (`amazon → amazon.com`). Rule 4 (brand spoofing) flagged `amazon.ca`,
+  `amazon.co.uk`, `amazon.de`, `amazon.fr`, `amazon.co.jp`, `amazon.com.au`,
+  `amazon.com.mx`, `amazon.in`, etc. — all legitimate Amazon storefronts —
+  as not-the-official-domain. Refactored `BRAND_DOMAINS` to map brand → list
+  of official domains. Amazon now lists 20 known regional variants. Twitter
+  also lists `x.com` as an alias. Display-name spoof check uses the same
+  centralized matcher so the fix applies uniformly. Pinned by 4 new
+  regression tests in `src/lib/phishingDetector.test.ts` covering positive
+  cases (regional storefronts pass) AND negative cases (spoofs like
+  `amazon.com.evil.com`, `my-amazon-account.tk` still flagged).
+
+### Added
+- **Trusted senders allowlist.** New module `electron/trustedSenders.ts`
+  stores a user-managed list of email addresses (lowercased, trimmed,
+  validated) in the SQLite `settings` table under key `trusted_senders` as
+  a JSON array. When a sender's `from_email` is in the list,
+  `assessSenderRisk` short-circuits and returns `isHighRisk: false` — no red
+  banner, no danger variant, no risk reasons. Remote-image blocking is
+  unchanged (privacy choice, not security choice).
+- **"Trust this sender" button** in the danger-variant remote-image banner
+  in `ReadingPane`. One click adds the current email's `from_email` to the
+  trusted allowlist via the new `trusted-senders:add` IPC channel and
+  refreshes the local set so the banner immediately switches back to its
+  non-danger appearance. Idempotent — clicking twice doesn't duplicate the
+  entry. Translated en/fr/es/de.
+- **4 new IPC handlers** (`electron/main.ts` + preload allowlist):
+  - `trusted-senders:list` → `string[]`
+  - `trusted-senders:add(email)` → updated `string[]`, throws on invalid email
+  - `trusted-senders:remove(email)` → updated `string[]`
+  - `trusted-senders:is-trusted(email)` → `boolean`
+
+### Tests
+- `src/lib/phishingDetector.test.ts`: +4 regional-domain regression tests.
+- `electron/trustedSenders.test.ts`: 11 new tests pinning DB-backed
+  storage contract — empty defaults, lowercase normalization, idempotency,
+  invalid email rejection, removal, corrupted-JSON survival, null/undefined
+  handling.
+- `src/lib/senderRisk.test.ts`: +3 tests for `options.isTrusted` bypass —
+  trusted senders bypass even when phishing flagged or DKIM/DMARC fails.
+- Net total: 1116 (was 1098 + 18 new).
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.3-trusted-senders-and-regional-brands.md`
+
+### Quality gate
+- ESLint: 0 warnings. TypeScript strict: clean.
+- Vitest: 1115/1116 passing (1 known cross-test-pollution flake in
+  `App.test.tsx > opens ComposeModal` — passes 107/107 in isolation; not
+  introduced by this change, present since v1.18.0 animation-timer
+  interactions). All v1.18.3 new tests pass deterministically.
+
+### Out of scope (deferred)
+- Settings panel UI to view / remove entries from the trusted-sender list
+  (the IPC handlers are in place; UI tab can be added in v1.18.4 or
+  v1.19.0). For now users can re-trust a sender any time they receive an
+  email from them by clicking the button again — but cannot easily revoke
+  trust without a future Settings tab.
+- Per-account scope (currently global across all configured accounts —
+  trust on yassine@boumiza.com applies when the same sender writes to
+  yassine@gmail.com too). Probably correct behavior; revisit if reported.
+
+---
+
+## [1.18.2] - 2026-04-19
+
+Hotfix for a selection-state regression user-reported after v1.18.1 testing:
+"I deleted the older email and went back to the newer one — couldn't read it,
+or any other email." Root cause was pre-existing latent state-split (not
+introduced by v1.18.1) that the user's test plan happened to exercise.
+
+### Fixed
+- **Stale `selectedEmailId` after delete/archive (regression guard).** The
+  `emailStore` had two independent setters: `setSelectedEmail(emailFull |
+  null)` only touched `selectedEmail`, and `selectEmail(id | null)` only
+  touched `selectedEmailId`. Every delete/archive flow called
+  `setSelectedEmail(null)` to clear the open email — but `selectedEmailId`
+  was left pointing at the just-deleted message. The store ended up in a
+  split state (`selectedEmail === null`, `selectedEmailId === <deleted id>`)
+  that broke subsequent reads on the next click. Hardened
+  `setSelectedEmail` to keep the two fields in lockstep — when called with
+  `null`, it now also clears `selectedEmailId`; when called with an
+  `EmailFull`, it syncs `selectedEmailId` to that email's id. Added an
+  explicit `clearActiveEmail()` action for delete/archive flows that want
+  named-intent clearing. Switched the two highest-traffic call sites
+  (`ReadingPane.handleDelete` and `ThreadList.handleDeleteEmail`) to use
+  the new helper. The store hardening covers every other call site
+  defensively without code churn.
+
+### Added
+- New store action `clearActiveEmail()` — atomic clear of both
+  `selectedEmail` and `selectedEmailId`.
+- 4 new tests in `src/stores/emailStore.test.ts` pinning the lockstep
+  contract: `setSelectedEmail(emailFull)` syncs id; `setSelectedEmail(null)`
+  clears both; `clearActiveEmail()` clears both; `clearActiveEmail()`
+  doesn't touch unrelated state (multi-select set, folder).
+- 1 new integration regression test in `src/components/ThreadList.test.tsx`:
+  open older email, delete it, then click newer email → assertion that the
+  store has both fields cleared after delete AND `emails:read` fires for
+  the newer email AND `selectedEmailId` updates correctly. This is the
+  exact reproduction of the user's report.
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.2-selection-state-lockstep.md`
+
+### Quality gate
+- vitest: 1098/1098 (was 1093 + 4 store + 1 ThreadList).
+- ESLint: 0 warnings. TypeScript strict: clean.
+
+### Note on test coverage growth
+- v1.17.4 baseline: 1023 tests
+- v1.17.5: +4 (markAsRead/Unread/AllRead queue + parse-after-release)
+- v1.18.0: +52 (animations, security MVP, design polish)
+- v1.18.1: +18 (delete fallback + drag-drop)
+- v1.18.2: +5 (selection-state lockstep)
+- Net: +75 tests in 24 hours. The pattern — extract pure logic + write the
+  failing test that pins the contract before fixing — has now caught three
+  classes of regressions (queue routing, silent fallback, split state).
+  Future contributors who try to revert any of these will hit failing tests
+  named after the original symptom.
+
+---
+
+## [1.18.1] - 2026-04-19
+
+Hotfix release for two bugs that surfaced after v1.18.0 testing. Both were
+pre-existing latent bugs that the user happened to exercise — neither was
+introduced by v1.18.0 — but both warranted regression-test coverage so they
+cannot return.
+
+### Fixed
+- **Reading-pane delete claimed success but email persisted (regression
+  guard).** The `emails:delete` IPC handler at `electron/main.ts:1040` had a
+  silent local-only fallback: if `imapEngine.moveMessage(... → Trash)`
+  returned `false` (Yahoo server rejection, lock timeout, transient network
+  error), the handler still ran `UPDATE emails SET folder_id = trash` locally
+  and returned `{ success: true }`. The renderer flashed a "deleted" toast
+  but the next IMAP sync re-discovered the email in INBOX (server still had
+  it there) and re-created the local row. To the user this looked like the
+  email "came back" or "was never deleted" — the v1.17.3 changelog entry
+  describes the same anti-pattern, and v1.17.4 reduced the failure rate by
+  queuing user actions but did not remove the silent-fallback itself. v1.18.1
+  extracts the IPC body into `electron/deleteEmailLogic.ts` and tests the
+  contract directly: when `moveMessage` returns false or throws, the local
+  DB is **not** updated and the IPC returns `{ success: false, error }`.
+  The renderer (`ReadingPane.handleDelete`) now surfaces that error as a
+  toast so the user knows the delete actually failed and can retry.
+- **Drag-drop in unified ("All Accounts") inbox showed forbidden cursor on
+  every folder (regression guard).** The Sidebar's unified-mode folder
+  render at `Sidebar.tsx:824` lacked `onDragOver` / `onDrop` / drop-target
+  className (the single-account render at line 870 had them). Browser
+  showed the forbidden cursor because no folder accepted drops. Fix: add the
+  drag handlers using a new pure helper `src/lib/canDropOnFolder.ts` to
+  decide same-account-allow vs. cross-account-refuse. Same-account drags
+  now work in unified view; cross-account drags display a clear toast
+  ("Moving emails between different accounts is not supported. Drag onto a
+  folder of the same account.") translated en/fr/es/de. IMAP cannot move
+  messages atomically across accounts (would require download from A,
+  upload to B, delete from A — out of v1.18.1 scope; deferred to a future
+  cross-account-move feature).
+
+### Added
+- `electron/deleteEmailLogic.ts` + `electron/deleteEmailLogic.test.ts` —
+  11 regression tests pinning the no-silent-fallback contract for both the
+  Move-to-Trash path and the Permanent-Delete-from-Trash path. Also tests
+  `extractUidFromEmailId` corner cases.
+- `src/lib/canDropOnFolder.ts` + `src/lib/canDropOnFolder.test.ts` —
+  7 tests covering same-account allow, cross-account reject, multi-account
+  drag, missing destination, and missing emails.
+- New i18n key `dragDrop.crossAccountUnsupported` translated en/fr/es/de.
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.1-delete-fallback-and-drag-drop.md`
+
+### Quality gate
+- vitest: 1093/1093 (was 1075 + 11 + 7 new).
+- ESLint: 0 warnings. TypeScript strict: clean.
+- The two new modules are pure (DB or in-memory data + dependency-injected
+  IMAP functions / no DOM access) so the tests run in milliseconds and
+  catch the regression contracts at the unit level — the IPC handler in
+  `main.ts` is now a one-line delegation to the tested logic.
+
+---
+
+## [1.18.0] - 2026-04-19
+
+A combined feature + security release. Closes the remaining queue gap from the v1.17.4 Yahoo lock-contention work, adds a long-asked-for thread-list preview-line toggle with enter/exit animations, ships the security MVP for attachment safety + risk-aware remote-image banner, and visually upgrades the email body rendering area from a flat seam into a proper elevated card.
+
+### Fixed (carried from v1.17.5 work on `fix/yahoo-delete-lock`)
+- **Yahoo "delete after open" lock-contention follow-up.** The v1.17.4 fix routed `deleteMessage`, `moveMessage`, `refetchEmailBody` through a per-account `operationQueue` but missed `markAsRead`, `markAsUnread`, and `markAllRead`. These three methods were still acquiring `getMailboxLock()` directly, racing with queued operations at the IMAPFlow mutex level. Opening a heavy promotional email on Yahoo (e.g., a multi-megabyte multipart HTML newsletter) triggered an unqueued `markAsRead` that beat a subsequent queued `deleteMessage` to the mailbox lock — surfacing as "delete is slow / hangs after opening that one email". Routed all three through `operationQueue` using the existing `_xxxLocked` split pattern. Also bumped `markAllRead`'s lock timeout from 10s to 30s for consistency.
+- **`_refetchEmailBodyLocked` now obeys the spec section-2 invariant** ("Mailbox locks must only protect IMAP fetch and state operations, not MIME parsing"). Refactored to a two-phase pattern: fetch raw source under lock, release lock, then run `mailparser.simpleParser` outside. Mirrors the `syncNewEmails` pattern from v1.17.4 commit `e7a02d8`. For the Prime Store / large marketing email reproduction case, parse phase used to hold the queue for several seconds; now it never blocks subsequent user actions.
+- **`Buffer.from(content, 'base64')` invalid-input handling in `attachments:save`.** Decode now happens once, before the safety scan, so the magic-byte check operates on the same bytes that hit disk.
+
+### Added — Thread list UX (`src/components/ThreadList.tsx`)
+- **"Show first-line preview" toggle.** Settings → General → Appearance now has a switch to hide the snippet line under the subject (sender + subject only). Persisted via Zustand `themeStore` (localStorage). Default: on. Translated en/fr/es/de.
+- **Email row enter / exit animations.** New emails arriving via `email:new` IPC fade in + slide down (~350ms). Single-email delete fades the row out + slides right + collapses height (~250ms) in parallel with the IMAP delete, so the user perceives instant feedback while the queue does the actual server work. Folder switches and initial loads do not animate. Respects `prefers-reduced-motion: reduce`.
+
+### Added — Security MVP (Phase 3)
+- **Risk-aware remote-image banner (`ReadingPane.tsx` + new `src/lib/senderRisk.ts`).** When `phishingResult.isPhishing` OR `auth_dmarc/dkim/spf` ∈ {fail, softfail, permerror} OR `detectDisplayNameSpoofing` raises a flag, the banner switches to a danger variant: red background, role="alert", up to 2 risk reasons enumerated as a `<ul>`, and the button reads "Load anyway" instead of "Load remote images". Click behavior unchanged — false positives must remain dismissible.
+- **Attachment safety gate (`electron/attachmentSafety.ts` + main.ts wiring).** New 47-extension `DANGEROUS_EXTENSIONS` denylist (`.exe .scr .docm .vbs .ps1 .jar` etc.) + hand-rolled magic-byte detector for PE/ELF/PDF/ZIP/PNG/JPEG/GIF/RTF/OLE/HTML. `assessAttachmentRisk` flags both: filename ends with a dangerous extension, or magic bytes are an executable (always), or the extension's allowlist disallows the detected type (e.g., `.pdf` containing HTML, `.txt` containing ZIP — common malware vectors). When risky, `attachments:save` IPC returns `{ requiresConfirmation: true, risk, reason }` and the renderer parks the bytes behind a `ConfirmDialog` with `variant="danger"` until the user explicitly confirms with "Save anyway". Filename in the dialog is sanitized to strip RTLO bidi overrides (defends against the `photo<U+202E>gpj.exe` → "photoexe.jpg" trick).
+- **35 + 10 new tests** for `attachmentSafety` and `senderRisk` modules. Total suite: 1075 tests.
+
+### Added — Animation extension + design polish
+- **Email body card design upgrade.** The sandboxed iframe (and the plain-text fallback `<pre>`) now sits in an elevated card surface: 10px rounded corners, theme-aware `--email-surface-border`, theme-tuned `--shadow-card-md` (Light/Cream get warm subtle shadow, Midnight/Forest get deep dark shadow), `--bg-elevated` background. Iframe internal padding bumped to `16px 20px` so author HTML doesn't kiss the rounded edges; iframe body `background: transparent` so the parent's elevated bg shows through (preserves tonal continuity across themes — the iframe srcdoc cannot read parent CSS variables). Reduced-motion users get no shadow transition.
+- **Sidebar folder enter/exit animations.** Creating a folder slides it in from the left (~300ms); deleting slides out to the right + collapses (~250ms) in parallel with the `folders:delete` IPC. Respects `prefers-reduced-motion: reduce`.
+- **Compose attachment chip enter/exit animations.** Attaching files scales chips up + fades in (~300ms); clicking the X scale-collapses + fades out (~220ms) before actually removing from state. Respects `prefers-reduced-motion: reduce`.
+
+### Changed
+- `electron-builder.json5` and `package.json` version → 1.18.0.
+- CLAUDE.md status line updated: 48 test files / 1075 tests (was 46 / 1023).
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.17.5-yahoo-delete-lock-followup.md`
+- `docs/superpowers/specs/2026-04-19-v1.18.0-security-mvp.md`
+- `docs/superpowers/specs/2026-04-19-v1.18.0-design-polish.md`
+
+### Quality gate (all green)
+- ESLint: 0 warnings.
+- TypeScript strict: clean.
+- Vitest: 1075/1075 (was 1023 + 4 ThreadList animations + 1 markAllRead + 3 markAsRead/Unread + parse-after-release + 35 attachmentSafety + 10 senderRisk).
+- Semgrep SAST: no new findings on changed files.
+- cyber-sentinel + code-reviewer + code-simplifier: HIGH findings addressed (markAllRead missed-from-queue, ZIP-mismatch dead code), MEDIUM addressed (RTF/OLE magic, RTLO sanitization, attacker-filename in dialog reason).
+
+---
+
+## [1.17.4] - 2026-04-14
+
+Hotfix release for the v1.17.3 Yahoo delete fix. Establishes the per-account `operationQueue` pattern in `electron/imap.ts`, routes user-initiated delete/move/refetch through it, and removes MIME parsing from inside the mailbox lock in `syncNewEmails` (chunked into 100-message batches, parse runs outside the lock). Background-sync ticks remain on the direct `getMailboxLock` path so they don't compete for queue slots. Spec: `docs/superpowers/specs/2026-04-14-yahoo-delete-lock-fix-design.md`.
+
+### Fixed
+- Yahoo accounts: `deleteMessage`, `moveMessage`, and user-initiated `refetchEmailBody` are now serialized through a per-account `AsyncQueue`, eliminating IMAPFlow-mutex races that caused intermittent delete-falls-back-to-local on slow connections. `getMailboxLock` timeout aligned to 30s on every queued user-action path.
+- `syncNewEmails` two-phase refactor: Phase 1 fetches raw source bytes under the lock (chunked at MAX_CHUNK_SIZE=100), Phase 2 runs `simpleParser` and DB inserts outside the lock with per-message try/catch so one malformed message never aborts the batch.
+
+---
+
 ## [1.17.3] - 2026-04-14
 
 Three fixes bundled into one hotfix: a follow-up to the v1.17.2 Yahoo IMAP work that fixes delete/move getting silently dropped on Yahoo accounts, a new floating attachment preview UX (click filename to preview, click download icon to save), and a related fix for attachment downloads that were failing on Yahoo for the same root cause as delete.

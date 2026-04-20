@@ -132,7 +132,9 @@
     "emailArchived": "Email archived",
     "emailMoved": "Email moved",
     "loadImages": "Load remote images",
+    "loadImagesAnyway": "Load anyway",
     "remoteImagesBlocked": "Remote images are blocked for privacy",
+    "remoteImagesUnsafe": "Loading remote images is NOT recommended for this email — risk indicators were detected:",
     "attachments": "Attachments",
     "download": "Download",
     "moveTo": "Move to...",
@@ -257,6 +259,8 @@
     "ruleSaveFailed": "Failed to save rule",
     "dynamicFolderSwitch": "Contextual folder navigation",
     "dynamicFolderSwitchDesc": "In All Accounts view, clicking an email switches the folder list to that email's account",
+    "showThreadPreview": "Show first-line preview",
+    "showThreadPreviewDesc": "Display a snippet of the email body under the subject in the email list",
     "undoSendDelay": "Undo send delay",
     "undoSendOff": "Off",
     "undoSendSeconds": "{{seconds}}s",
@@ -495,7 +499,8 @@
     "mailto": "Send unsubscribe email"
   },
   "dragDrop": {
-    "moveToFolder": "Moved {{count}} email(s) to {{folder}}"
+    "moveToFolder": "Moved {{count}} email(s) to {{folder}}",
+    "crossAccountUnsupported": "Moving emails between different accounts is not supported. Drag onto a folder of the same account."
   },
   "spam": {
     "reportSpam": "Report as spam",
@@ -507,6 +512,23 @@
   "phishing": {
     "warning": "Warning: This email may contain phishing links",
     "reasons": "Suspicious indicators found:"
+  },
+  "attachmentRisk": {
+    "title": "This attachment may be unsafe",
+    "saveAnyway": "Save anyway"
+  },
+  "trustedSenders": {
+    "trustSender": "Trust this sender",
+    "trustHint": "Add {{email}} to your trusted-sender allowlist — won't show this warning again.",
+    "adding": "Adding…",
+    "added": "{{email}} added to trusted senders. The warning won't show for this sender again.",
+    "addFailed": "Failed to add trusted sender"
+  },
+  "authBadge": {
+    "verified": "Verified sender",
+    "partial": "Partially verified",
+    "unverified": "Unverified sender",
+    "unknown": "Auth unknown"
   },
   "confirm": {
     "cancel": "Cancel",

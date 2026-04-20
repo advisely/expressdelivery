@@ -96,6 +96,51 @@
   gap: 8px;
 }
 
+.thread-item-entering {
+  animation: thread-item-in 0.35s ease-out both;
+}
+
+.thread-item-exiting {
+  animation: thread-item-out 0.25s ease-in both;
+  pointer-events: none;
+}
+
+@keyframes thread-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 200px;
+  }
+}
+
+@keyframes thread-item-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 200px;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(40px);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-item-entering,
+  .thread-item-exiting {
+    animation: none;
+  }
+}
+
 .thread-item-body {
   flex: 1;
   min-width: 0;

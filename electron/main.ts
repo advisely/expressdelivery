@@ -60,6 +60,9 @@ import { initDatabase, getDatabase, closeDatabase } from './db.js'
 import { maybeRevokeOAuthCredentials } from './auth/accountRevoke.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
+import { assessAttachmentRisk } from './attachmentSafety.js'
+import { deleteEmailLogic } from './deleteEmailLogic.js'
+import { listTrustedSenders, addTrustedSender, removeTrustedSender, isSenderTrusted } from './trustedSenders.js'
 import { sendMail } from './sendMail.js'
 import type { SendMailParams } from './sendMail.js'
 import { encryptData, decryptData } from './crypto.js'
@@ -1037,58 +1040,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('emails:delete', async (_event, emailId: string) => {
-    const email = db.prepare(
-      'SELECT id, account_id, folder_id FROM emails WHERE id = ?'
-    ).get(emailId) as { id: string; account_id: string; folder_id: string } | undefined;
-    if (!email) return { success: false };
-
-    // Check if already in Trash — permanent delete
-    const currentFolder = db.prepare(
-      'SELECT type, path FROM folders WHERE id = ?'
-    ).get(email.folder_id) as { type: string; path: string } | undefined;
-
-    if (currentFolder?.type === 'trash') {
-      // Permanent delete from Trash: delete on IMAP server + local DB
-      const uid = extractUid(email.id);
-      if (uid > 0) {
-        await imapEngine.deleteMessage(email.account_id, uid, currentFolder.path.replace(/^\//, '')).catch(() => {});
-      }
-      db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
-      return { success: true };
-    }
-
-    // Move to Trash folder
-    const trashFolder = db.prepare(
-      "SELECT id, path FROM folders WHERE account_id = ? AND type = 'trash'"
-    ).get(email.account_id) as { id: string; path: string } | undefined;
-
-    if (!trashFolder) {
-      // No trash folder found — fallback to permanent delete
-      db.prepare('DELETE FROM emails WHERE id = ?').run(emailId);
-      return { success: true };
-    }
-
-    const sourceFolder = db.prepare(
-      'SELECT path FROM folders WHERE id = ?'
-    ).get(email.folder_id) as { path: string } | undefined;
-
-    const uid = extractUid(email.id);
-
-    if (uid > 0 && sourceFolder) {
-      const moved = await imapEngine.moveMessage(
-        email.account_id, uid,
-        sourceFolder.path.replace(/^\//, ''),
-        trashFolder.path.replace(/^\//, '')
-      );
-      if (moved) {
-        db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(trashFolder.id, emailId);
-        return { success: true };
-      }
-    }
-
-    // IMAP move failed — fallback to local-only move
-    db.prepare('UPDATE emails SET folder_id = ? WHERE id = ?').run(trashFolder.id, emailId);
-    return { success: true };
+    // Delegated to electron/deleteEmailLogic.ts so the no-silent-fallback
+    // contract is regression-tested at the unit level. NEVER inline this
+    // handler again — see electron/deleteEmailLogic.test.ts for the rules
+    // we must preserve (do NOT update local DB when the IMAP move/delete
+    // returns false or throws; surface the error to the renderer so the
+    // user sees an error toast instead of a misleading success).
+    return deleteEmailLogic(db, emailId, imapEngine);
   });
 
   ipcMain.handle('emails:purge-trash', async (_event, accountId: string) => {
@@ -1549,24 +1507,72 @@ function registerIpcHandlers() {
   ipcMain.handle('attachments:save', async (_event, params: {
     filename: string;
     content: string;
+    mimeType?: string;
+    confirmed?: boolean;
   }) => {
     if (!win) throw new Error('No window available');
     if (!params?.filename || !params?.content) throw new Error('Missing parameters');
 
     const safeName = path.basename(params.filename).slice(0, 255);
+
+    // Decode once so the safety scan and the disk write share the same bytes.
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(params.content, 'base64');
+      if (buffer.length === 0) throw new Error('Empty content');
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Decode failed' };
+    }
+
+    // Security gate: extension denylist + magic-byte impersonation check.
+    // If the file is risky and the renderer has not yet shown the user a
+    // confirmation dialog, return a "requiresConfirmation" response so the
+    // renderer can surface the warning. The save itself is deferred until
+    // the renderer re-invokes with confirmed: true.
+    const assessment = assessAttachmentRisk(safeName, params.mimeType ?? 'application/octet-stream', buffer);
+    if (assessment.risk !== 'safe' && params.confirmed !== true) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        risk: assessment.risk,
+        reason: assessment.reason,
+        detectedType: assessment.detectedType,
+      } as const;
+    }
+
     const result = await dialog.showSaveDialog(win, {
       defaultPath: safeName,
     });
     if (result.canceled || !result.filePath) return { success: false };
 
     try {
-      const buffer = Buffer.from(params.content, 'base64');
-      if (buffer.length === 0) throw new Error('Empty content');
       fs.writeFileSync(result.filePath, buffer);
       return { success: true, path: result.filePath };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Write failed' };
     }
+  });
+
+  // ── Trusted senders allowlist (v1.18.3) ─────────────────────────────────
+  // User-managed list of email addresses that bypass the senderRisk danger
+  // banner. See electron/trustedSenders.ts + electron/trustedSenders.test.ts
+  // for the storage and contract; src/lib/senderRisk.ts for the bypass.
+  ipcMain.handle('trusted-senders:list', () => {
+    return listTrustedSenders(db);
+  });
+
+  ipcMain.handle('trusted-senders:add', (_event, email: string) => {
+    if (!email || typeof email !== 'string') throw new Error('Invalid email address');
+    return addTrustedSender(db, email);
+  });
+
+  ipcMain.handle('trusted-senders:remove', (_event, email: string) => {
+    if (!email || typeof email !== 'string') throw new Error('Invalid email address');
+    return removeTrustedSender(db, email);
+  });
+
+  ipcMain.handle('trusted-senders:is-trusted', (_event, email: string) => {
+    return isSenderTrusted(db, email);
   });
 
   ipcMain.handle('dialog:open-file', async () => {

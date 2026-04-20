@@ -123,6 +123,25 @@ interface EmailState {
     setFolders: (folders: Folder[]) => void
     setEmails: (emails: EmailSummary[]) => void
     setSelectedEmail: (email: EmailFull | null) => void
+    /**
+     * Clear BOTH `selectedEmail` and `selectedEmailId` atomically. Use this
+     * after delete/archive/move-out-of-folder operations so the store does
+     * not end up in a split state (`selectedEmailId` pointing at a deleted
+     * row while `selectedEmail` is null), which broke subsequent reads on
+     * the next click. Pinned by emailStore.test.ts regression suite.
+     */
+    clearActiveEmail: () => void
+    /**
+     * Set of email IDs currently animating their exit (delete/archive). The
+     * ThreadList renders these rows with the `.thread-item-exiting` class.
+     * v1.18.5: lifted from local ThreadList state into the store so EVERY
+     * delete entry point (row icon, context menu, bulk action, reading-pane
+     * top bar, keyboard shortcut) can flag exits and the animation fires
+     * uniformly. Use `markEmailsExiting`/`unmarkEmailsExiting` to mutate.
+     */
+    exitingEmailIds: Set<string>
+    markEmailsExiting: (ids: readonly string[]) => void
+    unmarkEmailsExiting: (ids: readonly string[]) => void
     selectAccount: (id: string | null) => void
     selectFolder: (id: string | null) => void
     selectEmail: (id: string | null) => void
@@ -152,6 +171,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     selectedFolderId: null,
     selectedEmailId: null,
     selectedEmailIds: new Set<string>(),
+    exitingEmailIds: new Set<string>(),
     isLoading: false,
     searchQuery: '',
     drafts: [],
@@ -186,7 +206,26 @@ export const useEmailStore = create<EmailState>()((set) => ({
     }),
     setFolders: (folders) => set({ folders }),
     setEmails: (emails) => set({ emails: Array.isArray(emails) ? emails : [] }),
-    setSelectedEmail: (selectedEmail) => set({ selectedEmail }),
+    // Hardened to keep selectedEmail and selectedEmailId in lockstep. When
+    // the email object is set, sync the id; when cleared, clear the id too.
+    // Prevents the v1.18.1 split-state regression where `setSelectedEmail(null)`
+    // left `selectedEmailId` pointing at a deleted email, breaking subsequent
+    // reads. See emailStore.test.ts "selection state stays in lockstep".
+    setSelectedEmail: (selectedEmail) =>
+        set({ selectedEmail, selectedEmailId: selectedEmail ? selectedEmail.id : null }),
+    clearActiveEmail: () => set({ selectedEmail: null, selectedEmailId: null }),
+    markEmailsExiting: (ids) => set((state) => {
+        if (ids.length === 0) return {};
+        const next = new Set(state.exitingEmailIds);
+        for (const id of ids) next.add(id);
+        return { exitingEmailIds: next };
+    }),
+    unmarkEmailsExiting: (ids) => set((state) => {
+        if (ids.length === 0) return {};
+        const next = new Set(state.exitingEmailIds);
+        for (const id of ids) next.delete(id);
+        return { exitingEmailIds: next };
+    }),
     selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>(), contextAccountId: null }),
     selectFolder: (selectedFolderId) => set({ selectedFolderId, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
     selectEmail: (selectedEmailId) => set({ selectedEmailId }),

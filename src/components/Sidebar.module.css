@@ -559,6 +559,50 @@
   gap: 2px;
 }
 
+.nav-item-row-entering {
+  animation: nav-item-row-in 0.3s ease-out both;
+}
+
+.nav-item-row-exiting {
+  animation: nav-item-row-out 0.25s ease-in both;
+  pointer-events: none;
+}
+
+@keyframes nav-item-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 60px;
+  }
+}
+
+@keyframes nav-item-row-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 60px;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(20px);
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item-row-entering,
+  .nav-item-row-exiting {
+    animation: none;
+  }
+}
+
 /* The folder button inside a row shrinks to leave room for the purge button */
 .nav-item-trash {
   flex: 1;
@@ -931,10 +975,30 @@
   }
 }
 
-/* Drag-and-drop drop target highlight */
+/* Drag-and-drop drop target highlight (v1.18.6 — strengthened so the
+   focused folder is obviously the drop target while the user drags).
+   Applies to single-account mode (button.nav-item.drag-over) AND unified
+   "All Accounts" mode (the wrapper div.nav-item-row.drag-over carries
+   row-level outline; the inner button still highlights its own background). */
 .nav-item.drag-over {
-  background: rgba(var(--color-accent), 0.15);
+  background: rgba(var(--color-accent), 0.22);
   outline: 2px solid var(--accent-color);
   outline-offset: -2px;
   color: var(--accent-color);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent-color);
+}
+
+.nav-item-row.drag-over {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -1px;
+  border-radius: 6px;
+  background: rgba(var(--color-accent), 0.08);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-item,
+  .nav-item-row {
+    transition: background 0.12s ease, outline-color 0.12s ease, box-shadow 0.12s ease;
+  }
 }

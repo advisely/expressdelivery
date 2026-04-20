@@ -6,8 +6,10 @@ import { logDebug } from './logger.js';
 import { applyRulesToEmail } from './ruleEngine.js';
 import { parseAuthResults, getSenderVerification } from './authResults.js';
 import { getAuthTokenManager, PermanentAuthError } from './auth/tokenManager.js';
+import { AsyncQueue } from './asyncQueue.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB limit for body content
+const SYNC_CHUNK_SIZE = 100;
 
 export async function withImapTimeout<T>(
     operation: () => Promise<T>,
@@ -40,6 +42,20 @@ interface BodyStructureNode {
     parameters?: Record<string, string>;
     size?: number;
     childNodes?: BodyStructureNode[];
+}
+
+interface FetchedMessage {
+    uid: number;
+    envelope: {
+        subject?: string;
+        from?: Array<{ name?: string; address?: string }>;
+        to?: Array<{ address?: string }>;
+        date?: Date;
+        messageId?: string;
+        inReplyTo?: string | null;
+    } | null;
+    bodyStructure: BodyStructureNode | null;
+    source: Buffer | null;
 }
 
 function sanitizeAttFilename(raw: string): string {
@@ -134,9 +150,11 @@ export class AccountSyncController {
     /* newEmailCallback is stored here for future use by controller-driven sync.
        Currently, ImapEngine.syncNewEmails() calls the engine-level callback directly. */
     newEmailCb: ((accountId: string, folderId: string, count: number) => void) | null = null;
+    readonly operationQueue: AsyncQueue;
 
     constructor(accountId: string, settings?: Partial<SyncSettings>) {
         this.accountId = accountId;
+        this.operationQueue = new AsyncQueue(accountId);
         if (settings) {
             this.settings = { ...this.settings, ...settings };
         }
@@ -164,6 +182,7 @@ export class AccountSyncController {
         this.status = 'disconnected';
         this.syncing = false;
         this.syncingFolders.clear();
+        this.operationQueue.drain();
     }
 
     forceDisconnect(reason: 'health' | 'user' | 'shutdown' = 'health'): void {
@@ -176,6 +195,7 @@ export class AccountSyncController {
         if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
         if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        this.operationQueue.drain();
         logDebug(`[IMAP:${this.accountId}] Force disconnected (reason: ${reason})`);
         if (reason === 'health') {
             this.scheduleReconnect();
@@ -860,8 +880,6 @@ export class ImapEngine {
         const ctrl = this.controllers.get(accountId);
         const client = ctrl?.client;
 
-        // Per-folder syncing guard: one active sync per mailbox per account.
-        // Uses controller.syncingFolders (Set<string>) rather than the old global Map.
         const syncKey = mailbox;
         if (!ctrl) return 0;
         if (ctrl.syncingFolders.has(syncKey)) return 0;
@@ -869,176 +887,217 @@ export class ImapEngine {
 
         let insertedCount = 0;
         try {
-        if (!client) return 0;
+            if (!client) return 0;
 
-        const db = getDatabase();
-        const folder = db.prepare(
-            'SELECT id, type FROM folders WHERE account_id = ? AND path = ?'
-        ).get(accountId, `/${mailbox}`) as { id: string; type: string | null } | undefined;
-        if (!folder) return 0;
-        const isInbox = folder.type === 'inbox';
+            const db = getDatabase();
+            const folder = db.prepare(
+                'SELECT id, type FROM folders WHERE account_id = ? AND path = ?'
+            ).get(accountId, `/${mailbox}`) as { id: string; type: string | null } | undefined;
+            if (!folder) return 0;
+            const isInbox = folder.type === 'inbox';
 
-        const lastUid = ctrl.lastSeenUid.get(mailbox) ?? 0;
-        const range = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
+            const lastUid = ctrl.lastSeenUid.get(mailbox) ?? 0;
 
-        const lock = await withImapTimeout(
-            () => client.getMailboxLock(mailbox),
-            10_000,
-            `getMailboxLock(${mailbox})`
-        );
-        try {
-            const insertStmt = db.prepare(
-                `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
-                 from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe,
-                 auth_spf, auth_dkim, auth_dmarc, sender_verified)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
-            );
-            const insertAttStmt = db.prepare(
-                `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`
-            );
-            const markAttStmt = db.prepare(
-                'UPDATE emails SET has_attachments = 1 WHERE id = ?'
-            );
-            const updateBodyStmt = db.prepare(
-                `UPDATE emails SET body_text = ?, body_html = ?
-                 WHERE id = ? AND (body_html IS NULL OR body_html = '')`
-            );
+            // ── Phase 1+2 interleaved: fetch up to SYNC_CHUNK_SIZE per lock hold ───
+            let nextRangeStart = lastUid + 1;
+            let largeDeltaLogged = false;
 
-            // Fetch envelope + bodyStructure + full message source in ONE command.
-            // Individual UID FETCH commands fail on some servers (e.g. privateemail.com)
-            // with "Invalid messageset", so we must get everything in the batch fetch.
-            // source maxLength caps download to 2MB per message to avoid OOM on huge emails.
-            // IMAPFlow throws "Command failed" if the UID range has no matches.
-            try { for await (const message of client.fetch(range, {
-                envelope: true,
-                bodyStructure: true,
-                source: { maxLength: MAX_BODY_BYTES },
-                uid: true,
-            })) {
-                const uid = message.uid;
-                if (lastUid > 0 && uid <= lastUid) continue;
+            while (true) {
+                if ((ctrl.status as string) === 'disconnected') break;
 
-                // IMAP UIDs are per-mailbox; include folder ID for non-INBOX to avoid collisions.
-                // INBOX keeps legacy format (${accountId}_${uid}) for backward compatibility.
-                const emailId = isInbox ? `${accountId}_${uid}` : `${folder.id}_${uid}`;
-                const env = message.envelope;
-                if (!env) continue;
+                const chunkRange = `${nextRangeStart}:*`;
+                const chunk: FetchedMessage[] = [];
 
-                // Parse body from raw RFC822 source using mailparser
-                let bodyText = '';
-                let bodyHtml: string | null = null;
-                let listUnsubscribe: string | null = null;
-                let authResultsHeader: string | null = null;
-                if (message.source && message.source.length > 0) {
+                const lock = await withImapTimeout(
+                    () => client.getMailboxLock(mailbox),
+                    10_000,
+                    `getMailboxLock(${mailbox})`
+                );
+                try {
                     try {
-                        const parsed = await simpleParser(message.source, {
-                            skipHtmlToText: true,
-                            skipTextToHtml: true,
-                            skipImageLinks: true,
-                        });
-                        bodyText = parsed.text ?? '';
-                        bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
-                        const listUnsubVal = parsed.headers?.get('list-unsubscribe');
-                        if (typeof listUnsubVal === 'string' && listUnsubVal.trim()) {
-                            listUnsubscribe = listUnsubVal.slice(0, 500);
+                        for await (const message of client.fetch(chunkRange, {
+                            envelope: true,
+                            bodyStructure: true,
+                            source: { maxLength: MAX_BODY_BYTES },
+                            uid: true,
+                        })) {
+                            const uid = message.uid;
+                            if (uid < nextRangeStart) continue;
+                            chunk.push({
+                                uid,
+                                envelope: (message.envelope ?? null) as FetchedMessage['envelope'],
+                                bodyStructure: (message.bodyStructure as BodyStructureNode | undefined) ?? null,
+                                source: message.source ?? null,
+                            });
+                            if (chunk.length >= SYNC_CHUNK_SIZE) break;
                         }
-                        // Extract Authentication-Results header for SPF/DKIM/DMARC
-                        const authVal = parsed.headers?.get('authentication-results');
-                        if (typeof authVal === 'string' && authVal.trim()) {
-                            authResultsHeader = authVal.slice(0, 2000);
+                    } catch (fetchErr) {
+                        // "Command failed" is normal when there are no new messages
+                        // (UID range beyond existing messages). Only log non-standard errors.
+                        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                        if (msg !== 'Command failed') {
+                            logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
                         }
-                    } catch (parseErr) {
-                        logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
                     }
+                } finally {
+                    lock.release();
                 }
 
-                // Compute thread_id: inherit from parent via In-Reply-To, otherwise use own messageId
-                const messageId = env.messageId ?? emailId;
-                let threadId = messageId;
-                if (env.inReplyTo) {
-                    const parent = db.prepare(
-                        'SELECT thread_id FROM emails WHERE message_id = ?'
-                    ).get(env.inReplyTo) as { thread_id: string } | undefined;
-                    if (parent?.thread_id) threadId = parent.thread_id;
+                if (chunk.length === 0) break;
+
+                if (chunk.length >= SYNC_CHUNK_SIZE && !largeDeltaLogged) {
+                    logDebug(`[SYNC] large delta detected: chunking account=${accountId} folder=${mailbox}`);
+                    largeDeltaLogged = true;
                 }
 
-                // Parse authentication results
-                const authResults = parseAuthResults(authResultsHeader);
-                const senderVerified = getSenderVerification(authResults);
-
-                const result = insertStmt.run(
-                    emailId, accountId, folder.id,
-                    threadId, messageId,
-                    env.subject ?? '(no subject)',
-                    env.from?.[0]?.name ?? '',
-                    env.from?.[0]?.address ?? '',
-                    env.to?.[0]?.address ?? '',
-                    env.date?.toISOString() ?? new Date().toISOString(),
-                    (bodyText || '').replace(/\s+/g, ' ').trim().slice(0, 150),
-                    bodyText,
-                    bodyHtml,
-                    listUnsubscribe,
-                    authResults.spf,
-                    authResults.dkim,
-                    authResults.dmarc,
-                    senderVerified,
+                insertedCount += await this.persistFetchedMessages(
+                    accountId, folder, isInbox, ctrl, mailbox, chunk
                 );
 
-                if (result.changes > 0) {
-                    insertedCount++;
+                // Advance start past the last uid we saw.
+                const lastInChunk = chunk[chunk.length - 1].uid;
+                nextRangeStart = lastInChunk + 1;
 
-                    // Parse attachment metadata from bodyStructure
-                    if (message.bodyStructure) {
-                        const atts = extractAttachments(message.bodyStructure as BodyStructureNode);
-                        if (atts.length > 0) {
-                            markAttStmt.run(emailId);
-                            for (const att of atts) {
-                                const attId = `${emailId}_att_${att.partNumber}`;
-                                insertAttStmt.run(attId, emailId, att.filename, att.mimeType, att.size, att.partNumber, att.contentId);
-                            }
-                        }
-                    }
+                // If chunk didn't fill, we're done — no more messages in this range.
+                if (chunk.length < SYNC_CHUNK_SIZE) break;
 
-                    // Apply mail rules to newly inserted email
-                    applyRulesToEmail(emailId, accountId);
-
-                    // Auto-spam classification: score the email and update spam_score
-                    try {
-                        const { classifyEmail } = await import('./spamFilter.js');
-                        const spamScore = classifyEmail(accountId, `${env.subject ?? ''} ${bodyText}`);
-                        if (spamScore !== null) {
-                            db.prepare('UPDATE emails SET spam_score = ? WHERE id = ?').run(spamScore, emailId);
-                        }
-                    } catch { /* spam classifier not trained yet — skip */ }
-                } else if (bodyText || bodyHtml) {
-                    // Row already exists but may have empty body from a previous sync
-                    // that didn't fetch source. Backfill the body content.
-                    updateBodyStmt.run(bodyText, bodyHtml, emailId);
-                }
-
-                if (uid > (ctrl.lastSeenUid.get(mailbox) ?? 0)) {
-                    ctrl.lastSeenUid.set(mailbox, uid);
-                }
+                // Yield to microtask queue between chunks so user-queued ops can interleave.
+                await Promise.resolve();
             }
-            } catch (fetchErr) {
-                // "Command failed" is normal when there are no new messages
-                // (UID range beyond existing messages). Only log non-standard errors.
-                const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-                if (msg !== 'Command failed') {
-                    logDebug(`[syncNewEmails] fetch error for ${accountId}: ${msg}`);
-                }
-            }
-        } finally {
-            lock.release();
-        }
 
-        if (insertedCount > 0) {
-            this.newEmailCallback?.(accountId, folder.id, insertedCount);
-        }
+            if (insertedCount > 0) {
+                this.newEmailCallback?.(accountId, folder.id, insertedCount);
+            }
         } finally {
             ctrl.syncingFolders.delete(syncKey);
         }
+        return insertedCount;
+    }
+
+    private async persistFetchedMessages(
+        accountId: string,
+        folder: { id: string; type: string | null },
+        isInbox: boolean,
+        ctrl: AccountSyncController,
+        mailbox: string,
+        fetched: FetchedMessage[],
+    ): Promise<number> {
+        if (fetched.length === 0) return 0;
+        const db = getDatabase();
+
+        const insertStmt = db.prepare(
+            `INSERT OR IGNORE INTO emails (id, account_id, folder_id, thread_id, message_id, subject,
+             from_name, from_email, to_email, date, snippet, body_text, body_html, is_read, list_unsubscribe,
+             auth_spf, auth_dkim, auth_dmarc, sender_verified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+        );
+        const insertAttStmt = db.prepare(
+            `INSERT OR IGNORE INTO attachments (id, email_id, filename, mime_type, size, part_number, content_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        const markAttStmt = db.prepare(
+            'UPDATE emails SET has_attachments = 1 WHERE id = ?'
+        );
+        const updateBodyStmt = db.prepare(
+            `UPDATE emails SET body_text = ?, body_html = ?
+             WHERE id = ? AND (body_html IS NULL OR body_html = '')`
+        );
+
+        let insertedCount = 0;
+        for (const msg of fetched) {
+            const emailId = isInbox ? `${accountId}_${msg.uid}` : `${folder.id}_${msg.uid}`;
+            const env = msg.envelope;
+            if (!env) continue;
+
+            let bodyText = '';
+            let bodyHtml: string | null = null;
+            let listUnsubscribe: string | null = null;
+            let authResultsHeader: string | null = null;
+            if (msg.source && msg.source.length > 0) {
+                try {
+                    const parsed = await simpleParser(msg.source, {
+                        skipHtmlToText: true,
+                        skipTextToHtml: true,
+                        skipImageLinks: true,
+                    });
+                    bodyText = parsed.text ?? '';
+                    bodyHtml = typeof parsed.html === 'string' ? parsed.html : null;
+                    const listUnsubVal = parsed.headers?.get('list-unsubscribe');
+                    if (typeof listUnsubVal === 'string' && listUnsubVal.trim()) {
+                        listUnsubscribe = listUnsubVal.slice(0, 500);
+                    }
+                    const authVal = parsed.headers?.get('authentication-results');
+                    if (typeof authVal === 'string' && authVal.trim()) {
+                        authResultsHeader = authVal.slice(0, 2000);
+                    }
+                } catch (parseErr) {
+                    logDebug(`[syncNewEmails] mailparser error for ${emailId}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+                    continue;
+                }
+            }
+
+            const messageId = env.messageId ?? emailId;
+            let threadId = messageId;
+            if (env.inReplyTo) {
+                const parent = db.prepare(
+                    'SELECT thread_id FROM emails WHERE message_id = ?'
+                ).get(env.inReplyTo) as { thread_id: string } | undefined;
+                if (parent?.thread_id) threadId = parent.thread_id;
+            }
+
+            const authResults = parseAuthResults(authResultsHeader);
+            const senderVerified = getSenderVerification(authResults);
+
+            const result = insertStmt.run(
+                emailId, accountId, folder.id,
+                threadId, messageId,
+                env.subject ?? '(no subject)',
+                env.from?.[0]?.name ?? '',
+                env.from?.[0]?.address ?? '',
+                env.to?.[0]?.address ?? '',
+                env.date?.toISOString() ?? new Date().toISOString(),
+                (bodyText || '').replace(/\s+/g, ' ').trim().slice(0, 150),
+                bodyText,
+                bodyHtml,
+                listUnsubscribe,
+                authResults.spf,
+                authResults.dkim,
+                authResults.dmarc,
+                senderVerified,
+            );
+
+            if (result.changes > 0) {
+                insertedCount++;
+
+                if (msg.bodyStructure) {
+                    const atts = extractAttachments(msg.bodyStructure);
+                    if (atts.length > 0) {
+                        markAttStmt.run(emailId);
+                        for (const att of atts) {
+                            const attId = `${emailId}_att_${att.partNumber}`;
+                            insertAttStmt.run(attId, emailId, att.filename, att.mimeType, att.size, att.partNumber, att.contentId);
+                        }
+                    }
+                }
+
+                applyRulesToEmail(emailId, accountId);
+
+                try {
+                    const { classifyEmail } = await import('./spamFilter.js');
+                    const spamScore = classifyEmail(accountId, `${env.subject ?? ''} ${bodyText}`);
+                    if (spamScore !== null) {
+                        db.prepare('UPDATE emails SET spam_score = ? WHERE id = ?').run(spamScore, emailId);
+                    }
+                } catch { /* spam classifier not trained yet — skip */ }
+            } else if (bodyText || bodyHtml) {
+                updateBodyStmt.run(bodyText, bodyHtml, emailId);
+            }
+
+            if (msg.uid > (ctrl.lastSeenUid.get(mailbox) ?? 0)) {
+                ctrl.lastSeenUid.set(mailbox, msg.uid);
+            }
+        }
+
         return insertedCount;
     }
 
@@ -1080,8 +1139,20 @@ export class ImapEngine {
 
     async moveMessage(accountId: string, emailUid: number, sourceMailbox: string, destMailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
-        if (!client) throw new Error('Account not connected');
+        if (!ctrl?.client) throw new Error('Account not connected');
+        return ctrl.operationQueue.enqueue(() =>
+            this._moveMessageLocked(ctrl, emailUid, sourceMailbox, destMailbox)
+        );
+    }
+
+    private async _moveMessageLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        sourceMailbox: string,
+        destMailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
+        if (!client) return false;
 
         // 30s lock acquisition budget — user-initiated move/delete needs to
         // survive a concurrent runFullSync iteration on a large folder
@@ -1169,7 +1240,18 @@ export class ImapEngine {
 
     async markAsRead(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._markAsReadLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _markAsReadLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -1180,7 +1262,8 @@ export class ImapEngine {
         try {
             await client.messageFlagsAdd(String(emailUid), ['\\Seen'], { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[markAsRead] error for uid=${emailUid} on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();
@@ -1189,7 +1272,18 @@ export class ImapEngine {
 
     async markAsUnread(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._markAsUnreadLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _markAsUnreadLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -1200,7 +1294,8 @@ export class ImapEngine {
         try {
             await client.messageFlagsRemove(String(emailUid), ['\\Seen'], { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[markAsUnread] error for uid=${emailUid} on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();
@@ -1209,7 +1304,18 @@ export class ImapEngine {
 
     async deleteMessage(accountId: string, emailUid: number, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._deleteMessageLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _deleteMessageLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
 
         const lock = await withImapTimeout(
@@ -1221,7 +1327,8 @@ export class ImapEngine {
             await client.messageFlagsAdd(String(emailUid), ['\\Deleted'], { uid: true });
             await client.messageDelete(String(emailUid), { uid: true });
             return true;
-        } catch {
+        } catch (err) {
+            logDebug(`[deleteMessage] error for uid=${emailUid} on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();
@@ -1235,20 +1342,31 @@ export class ImapEngine {
         mailbox: string
     ): Promise<{ bodyText: string; bodyHtml: string | null } | null> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return null;
+        return ctrl.operationQueue.enqueue(() =>
+            this._refetchEmailBodyLocked(ctrl, emailUid, mailbox)
+        );
+    }
+
+    private async _refetchEmailBodyLocked(
+        ctrl: AccountSyncController,
+        emailUid: number,
+        mailbox: string,
+    ): Promise<{ bodyText: string; bodyHtml: string | null } | null> {
+        const client = ctrl.client;
         if (!client) return null;
 
+        // Phase 1: fetch raw source under the mailbox lock — IMAP-only work.
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
+        let source: Buffer | null = null;
         try {
             // Use range format "uid:uid" and fetch full source — some IMAP servers
             // (e.g. privateemail.com) reject single-UID FETCH but accept ranges.
-            // Parse the RFC822 source with mailparser for charset-aware body extraction.
             const uidRange = `${emailUid}:${emailUid}`;
-            let source: Buffer | null = null;
             for await (const message of client.fetch(uidRange, {
                 source: { maxLength: MAX_BODY_BYTES },
                 uid: true,
@@ -1257,9 +1375,17 @@ export class ImapEngine {
                     source = message.source;
                 }
             }
+        } catch (err) {
+            logDebug(`[refetchEmailBody] fetch error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            lock.release();
+        }
 
-            if (!source) return null;
+        if (!source) return null;
 
+        // Phase 2: parse the RFC822 source outside the mailbox lock — simpleParser
+        // is CPU-bound and must not block other queued user actions (spec §2).
+        try {
             const parsed = await simpleParser(source, {
                 skipHtmlToText: true,
                 skipTextToHtml: true,
@@ -1272,10 +1398,8 @@ export class ImapEngine {
             if (!bodyText && !bodyHtml) return null;
             return { bodyText, bodyHtml };
         } catch (err) {
-            logDebug(`[refetchEmailBody] error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
+            logDebug(`[refetchEmailBody] parse error for uid=${emailUid}: ${err instanceof Error ? err.message : String(err)}`);
             return null;
-        } finally {
-            lock.release();
         }
     }
 
@@ -1391,18 +1515,28 @@ export class ImapEngine {
 
     async markAllRead(accountId: string, mailbox: string): Promise<boolean> {
         const ctrl = this.controllers.get(accountId);
-        const client = ctrl?.client;
+        if (!ctrl?.client) return false;
+        return ctrl.operationQueue.enqueue(() =>
+            this._markAllReadLocked(ctrl, mailbox)
+        );
+    }
+
+    private async _markAllReadLocked(
+        ctrl: AccountSyncController,
+        mailbox: string,
+    ): Promise<boolean> {
+        const client = ctrl.client;
         if (!client) return false;
         const lock = await withImapTimeout(
             () => client.getMailboxLock(mailbox),
-            10_000,
+            30_000,
             `getMailboxLock(${mailbox})`
         );
         try {
             await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: true });
             return true;
         } catch (err) {
-            logDebug(`[markAllRead] error: ${err instanceof Error ? err.message : String(err)}`);
+            logDebug(`[markAllRead] error on ${mailbox}: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
             lock.release();

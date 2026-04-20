@@ -35,6 +35,7 @@ import { useEmailStore, type EmailSummary, type Tag, type SavedSearch, type Fold
 import { useThemeStore } from '../stores/themeStore';
 import { getProviderIcon } from '../lib/providerIcons';
 import { ipcInvoke, ipcOn } from '../lib/ipc';
+import { canDropEmailsOnFolder } from '../lib/canDropOnFolder';
 import type { ToastType } from '../App';
 import styles from './Sidebar.module.css';
 
@@ -73,6 +74,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast }) => {
   const { t } = useTranslation();
   const { accounts, folders, selectedFolderId, selectFolder, selectedAccountId, selectAccount, appVersion, setEmails, setSelectedEmail } = useEmailStore();
+  const emails = useEmailStore(s => s.emails);
   const setAccounts = useEmailStore(s => s.setAccounts);
   const tags = useEmailStore(s => s.tags);
   const setTags = useEmailStore(s => s.setTags);
@@ -158,6 +160,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
   const [newFolderName, setNewFolderName] = useState('');
   const [colorPickerFolderId, setColorPickerFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [enteringFolderIds, setEnteringFolderIds] = useState<Set<string>>(() => new Set());
+  const [exitingFolderIds, setExitingFolderIds] = useState<Set<string>>(() => new Set());
+  const folderEnterTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const [allAccountFolders, setAllAccountFolders] = useState<Record<string, Folder[]>>({});
   const [allUnreadCounts, setAllUnreadCounts] = useState<Record<string, number>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(() => {
@@ -182,11 +187,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
 
   const { setFolders } = useEmailStore();
 
+  // Cleanup outstanding folder-animation timers on unmount.
+  useEffect(() => {
+    const timers = folderEnterTimersRef.current;
+    return () => { timers.forEach(clearTimeout); timers.clear(); };
+  }, []);
+
+  const flagFoldersAsEntering = useCallback((newIds: string[]) => {
+    if (newIds.length === 0) return;
+    setEnteringFolderIds(prev => {
+      const next = new Set(prev);
+      newIds.forEach(id => next.add(id));
+      return next;
+    });
+    const timer = setTimeout(() => {
+      folderEnterTimersRef.current.delete(timer);
+      setEnteringFolderIds(prev => {
+        const next = new Set(prev);
+        newIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }, 400);
+    folderEnterTimersRef.current.add(timer);
+  }, []);
+
   const refreshFolders = useCallback(async () => {
     if (!selectedAccountId || selectedAccountId === '__all') return;
     const result = await ipcInvoke<Array<{ id: string; name: string; path: string; type: string }>>('folders:list', selectedAccountId);
-    if (result) setFolders(result);
-  }, [selectedAccountId, setFolders]);
+    if (result) {
+      // Diff for newcomers BEFORE updating the store so we can animate them in.
+      const priorIds = new Set(useEmailStore.getState().folders.map(f => f.id));
+      const newcomers = result.filter(f => !priorIds.has(f.id)).map(f => f.id);
+      setFolders(result);
+      flagFoldersAsEntering(newcomers);
+    }
+  }, [selectedAccountId, setFolders, flagFoldersAsEntering]);
 
   const handleSetFolderColor = useCallback(async (folderId: string, color: string | null) => {
     await ipcInvoke('folders:set-color', folderId, color);
@@ -223,7 +258,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
     const countResult = await ipcInvoke<{ count: number; childCount: number }>('folders:email-count', folderId);
 
     const doDelete = async (recursive: boolean) => {
-      const result = await ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId, recursive);
+      // Apply exit animation in parallel with the IPC delete so the row fades
+      // out immediately while the server-side delete completes.
+      setExitingFolderIds(prev => new Set(prev).add(folderId));
+      const [result] = await Promise.all([
+        ipcInvoke<{ success: boolean; error?: string }>('folders:delete', folderId, recursive),
+        new Promise<void>(resolve => setTimeout(resolve, 250)),
+      ]);
       if (result?.success) {
         await refreshFolders();
         if (selectedFolderId === folderId) selectFolder(null);
@@ -231,6 +272,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
       } else if (result?.error) {
         onToast?.(result.error, undefined, 'error');
       }
+      setExitingFolderIds(prev => {
+        const next = new Set(prev);
+        next.delete(folderId);
+        return next;
+      });
     };
 
     if (countResult && countResult.childCount > 0) {
@@ -782,12 +828,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                     const allCount = allUnreadCounts[folder.id] ?? 0;
                     const showAllBadge = allCount > 0 && folder.type !== 'trash' && folder.type !== 'junk';
                     return (
-                      <div key={folder.id} className={styles['nav-item-row']}>
+                      <div
+                        key={folder.id}
+                        data-folder-id={folder.id}
+                        data-account-id={acc.id}
+                        className={`${styles['nav-item-row']} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
+                      >
                         <button
-                          className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
+                          className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
                           onClick={() => selectFolder(folder.id)}
                           title={sidebarCollapsed ? folder.name : undefined}
                           style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}
+                          onDragOver={(e) => {
+                            // In unified ("All Accounts") mode, only allow drops
+                            // when every dragged email belongs to the same
+                            // account as this folder. Cross-account moves are
+                            // not supported by IMAP atomically.
+                            const assessment = canDropEmailsOnFolder(acc.id, draggedEmailIds, emails);
+                            if (assessment === 'allow') {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                              setDragOverFolderId(folder.id);
+                            } else {
+                              e.dataTransfer.dropEffect = 'none';
+                            }
+                          }}
+                          onDragLeave={() => setDragOverFolderId(null)}
+                          onDrop={(e) => {
+                            const assessment = canDropEmailsOnFolder(acc.id, draggedEmailIds, emails);
+                            if (assessment === 'allow') {
+                              handleFolderDrop(e, folder.id, folder.name);
+                            } else {
+                              e.preventDefault();
+                              setDragOverFolderId(null);
+                              setDraggedEmailIds([]);
+                              onToast?.(t('dragDrop.crossAccountUnsupported'), undefined, 'warning');
+                            }
+                          }}
                         >
                           <Icon size={18} className={styles['nav-icon']} />
                           {!sidebarCollapsed && <span className={styles['nav-label']}>{folder.name}</span>}
@@ -848,7 +925,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
               const pathSegments = (folder.path ?? '').split('/').filter(Boolean);
               const depth = Math.min(Math.max(0, pathSegments.length - 1), 6);
               return (
-                <div key={folder.id} className={styles['nav-item-row']} style={depth > 0 && !sidebarCollapsed ? { paddingLeft: `${depth * 16}px` } : undefined}>
+                <div
+                  key={folder.id}
+                  data-folder-id={folder.id}
+                  className={`${styles['nav-item-row']} ${enteringFolderIds.has(folder.id) ? styles['nav-item-row-entering'] : ''} ${exitingFolderIds.has(folder.id) ? styles['nav-item-row-exiting'] : ''}`}
+                  style={depth > 0 && !sidebarCollapsed ? { paddingLeft: `${depth * 16}px` } : undefined}
+                >
                   {isRenaming ? (
                     <form
                       className={styles['rename-form']}

@@ -316,6 +316,80 @@ describe('emailStore folder and email selection', () => {
         expect(useEmailStore.getState().selectedEmail).toBeNull();
     });
 
+    // ── Regression suite: selection state stays in lockstep ─────────────────
+    // Before v1.18.2, setSelectedEmail and selectEmail were independent
+    // setters. After delete/archive flows that called only setSelectedEmail(null),
+    // selectedEmailId stayed pointing at the just-deleted email — a stale-id
+    // split state that broke subsequent reads. These tests pin the lockstep.
+
+    it('setSelectedEmail(emailFull) syncs selectedEmailId to that email\'s id', () => {
+        useEmailStore.setState({ selectedEmailId: 'stale-id' });
+        useEmailStore.getState().setSelectedEmail(mockEmailFull);
+        expect(useEmailStore.getState().selectedEmailId).toBe(mockEmailFull.id);
+    });
+
+    it('setSelectedEmail(null) clears BOTH selectedEmail and selectedEmailId (regression)', () => {
+        useEmailStore.setState({ selectedEmail: mockEmailFull, selectedEmailId: mockEmailFull.id });
+        useEmailStore.getState().setSelectedEmail(null);
+        expect(useEmailStore.getState().selectedEmail).toBeNull();
+        expect(useEmailStore.getState().selectedEmailId).toBeNull();
+    });
+
+    it('clearActiveEmail() clears BOTH fields (named-intent helper for delete/archive flows)', () => {
+        useEmailStore.setState({ selectedEmail: mockEmailFull, selectedEmailId: mockEmailFull.id });
+        useEmailStore.getState().clearActiveEmail();
+        expect(useEmailStore.getState().selectedEmail).toBeNull();
+        expect(useEmailStore.getState().selectedEmailId).toBeNull();
+    });
+
+    it('clearActiveEmail() does NOT touch the multi-select set or other unrelated state', () => {
+        const checkedIds = new Set(['e1', 'e2']);
+        useEmailStore.setState({
+            selectedEmail: mockEmailFull,
+            selectedEmailId: mockEmailFull.id,
+            selectedEmailIds: checkedIds,
+            selectedFolderId: 'folder-inbox',
+        });
+        useEmailStore.getState().clearActiveEmail();
+        expect(useEmailStore.getState().selectedEmailIds).toBe(checkedIds);
+        expect(useEmailStore.getState().selectedFolderId).toBe('folder-inbox');
+    });
+
+    // ── REGRESSION: exitingEmailIds shared across all delete entry points (v1.18.5)
+    // Lifted from ThreadList local state so reading-pane delete, context-menu delete,
+    // bulk delete, and keyboard shortcut all flag exits and animate uniformly.
+    it('markEmailsExiting adds IDs to exitingEmailIds (idempotent)', () => {
+        useEmailStore.getState().markEmailsExiting(['e1', 'e2']);
+        useEmailStore.getState().markEmailsExiting(['e2', 'e3']);
+        const set = useEmailStore.getState().exitingEmailIds;
+        expect(set.has('e1')).toBe(true);
+        expect(set.has('e2')).toBe(true);
+        expect(set.has('e3')).toBe(true);
+        expect(set.size).toBe(3);
+    });
+
+    it('unmarkEmailsExiting removes IDs from exitingEmailIds', () => {
+        useEmailStore.setState({ exitingEmailIds: new Set(['e1', 'e2', 'e3']) });
+        useEmailStore.getState().unmarkEmailsExiting(['e1', 'e3']);
+        const set = useEmailStore.getState().exitingEmailIds;
+        expect(set.has('e1')).toBe(false);
+        expect(set.has('e2')).toBe(true);
+        expect(set.has('e3')).toBe(false);
+    });
+
+    it('markEmailsExiting with empty array is a no-op (no spurious re-render)', () => {
+        const before = useEmailStore.getState().exitingEmailIds;
+        useEmailStore.getState().markEmailsExiting([]);
+        expect(useEmailStore.getState().exitingEmailIds).toBe(before);
+    });
+
+    it('unmarkEmailsExiting with empty array is a no-op', () => {
+        useEmailStore.setState({ exitingEmailIds: new Set(['x']) });
+        const before = useEmailStore.getState().exitingEmailIds;
+        useEmailStore.getState().unmarkEmailsExiting([]);
+        expect(useEmailStore.getState().exitingEmailIds).toBe(before);
+    });
+
     it('setFolders replaces the folders array', () => {
         useEmailStore.getState().setFolders([{ id: 'f1', name: 'Inbox', path: 'INBOX', type: 'inbox' }]);
         expect(useEmailStore.getState().folders).toHaveLength(1);

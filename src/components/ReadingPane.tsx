@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, ShieldCheck, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, RotateCcw, Code, Mail, Sparkles } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -10,10 +10,14 @@ import { useThemeStore } from '../stores/themeStore';
 import { ipcInvoke } from '../lib/ipc';
 import { formatFileSize } from '../lib/formatFileSize';
 import { detectPhishing } from '../lib/phishingDetector';
+import { assessSenderRisk } from '../lib/senderRisk';
+import { readAuthResults, getSenderVerification } from '../lib/senderVerification';
+import type { VerificationStatus, AuthResults, AuthValue } from '../lib/senderVerification';
 import type { ToastType } from '../App';
 import DateTimePicker from './DateTimePicker';
 import { MessageSourceDialog } from './MessageSourceDialog';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
+import { ConfirmDialog } from './ConfirmDialog';
 import styles from './ReadingPane.module.css';
 
 // Track which emails the user has consented to show remote images for.
@@ -96,8 +100,8 @@ function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false)
         '<meta charset="utf-8">',
         `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; ${imgSrc} frame-ancestors 'none';">`,
         '<style>',
-        'body{margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;',
-        'font-size:14px;line-height:1.6;color:#1a1a1a;background:#fff;',
+        'body{margin:0;padding:16px 20px;font-family:system-ui,-apple-system,sans-serif;',
+        'font-size:14px;line-height:1.6;color:#1a1a1a;background:transparent;',
         'word-wrap:break-word;overflow-wrap:break-word}',
         'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5}',
         '</style>',
@@ -114,6 +118,55 @@ function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false)
 function escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ─── Authentication-Result Badge (v1.18.4) ──────────────────────────────────
+// Visible badge near the sender info that summarizes SPF + DKIM + DMARC.
+// Replaces the v1.18.0 icon-only verified/unverified pair which only had
+// hover-tooltips and didn't surface 'partial' or 'unknown' states.
+const AUTH_BADGE_CONFIG: Record<VerificationStatus, { iconKey: 'check' | 'alert'; styleClass: string; labelKey: string }> = {
+    verified:   { iconKey: 'check', styleClass: 'auth-badge-verified',   labelKey: 'authBadge.verified'   },
+    partial:    { iconKey: 'alert', styleClass: 'auth-badge-partial',    labelKey: 'authBadge.partial'    },
+    unverified: { iconKey: 'alert', styleClass: 'auth-badge-unverified', labelKey: 'authBadge.unverified' },
+    unknown:    { iconKey: 'alert', styleClass: 'auth-badge-unknown',    labelKey: 'authBadge.unknown'    },
+};
+
+const AuthVerificationBadge = React.memo(function AuthVerificationBadge({
+    email,
+    t,
+}: {
+    email: { auth_spf?: string | null; auth_dkim?: string | null; auth_dmarc?: string | null; sender_verified?: string | null };
+    t: (key: string, opts?: Record<string, unknown>) => string;
+}) {
+    const auth: AuthResults = readAuthResults(email);
+    const status: VerificationStatus = getSenderVerification(auth);
+    const config = AUTH_BADGE_CONFIG[status];
+    const Icon = config.iconKey === 'check' ? ShieldCheck : ShieldAlert;
+    const renderResult = (label: string, val: AuthValue) => `${label}: ${val.toUpperCase()}`;
+    const tooltip = [
+        renderResult('SPF', auth.spf),
+        renderResult('DKIM', auth.dkim),
+        renderResult('DMARC', auth.dmarc),
+    ].join('\n');
+    return (
+        <span
+            className={`${styles['auth-badge']} ${styles[config.styleClass]}`}
+            title={tooltip}
+            data-status={status}
+            data-spf={auth.spf}
+            data-dkim={auth.dkim}
+            data-dmarc={auth.dmarc}
+            aria-label={`${t(config.labelKey)} — ${tooltip.replace(/\n/g, '; ')}`}
+        >
+            <Icon size={12} aria-hidden="true" />
+            <span className={styles['auth-badge-label']}>{t(config.labelKey)}</span>
+            <span className={styles['auth-badge-checks']} aria-hidden="true">
+                <span className={`${styles['auth-check']} ${styles[`auth-check-${auth.spf}`]}`}>SPF</span>
+                <span className={`${styles['auth-check']} ${styles[`auth-check-${auth.dkim}`]}`}>DKIM</span>
+                <span className={`${styles['auth-check']} ${styles[`auth-check-${auth.dmarc}`]}`}>DMARC</span>
+            </span>
+        </span>
+    );
+});
 
 // Sandboxed iframe for rendering email HTML — provides complete style isolation.
 // Uses postMessage for height resize (no allow-same-origin needed).
@@ -150,7 +203,7 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
                 e.data?.type === 'iframe-height' &&
                 typeof e.data.height === 'number'
             ) {
-                setContentHeight(e.data.height + 16);
+                setContentHeight(e.data.height + 32);
             }
         }
         window.addEventListener('message', handleMessage);
@@ -193,11 +246,17 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const folders = useEmailStore(s => s.folders);
     const tags = useEmailStore(s => s.tags);
     const { setSelectedEmail, setEmails } = useEmailStore();
+    const clearActiveEmail = useEmailStore(s => s.clearActiveEmail);
+    const markEmailsExiting = useEmailStore(s => s.markEmailsExiting);
+    const unmarkEmailsExiting = useEmailStore(s => s.unmarkEmailsExiting);
     const readingPaneZoom = useThemeStore(s => s.readingPaneZoom);
     const setReadingPaneZoom = useThemeStore(s => s.setReadingPaneZoom);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+    const [pendingRiskySave, setPendingRiskySave] = useState<{
+        filename: string; content: string; mimeType: string; reason: string;
+    } | null>(null);
     const [cidMap, setCidMap] = useState<Record<string, string>>({});
     const [remoteImagesBlocked, setRemoteImagesBlocked] = useState(true);
     const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -216,6 +275,15 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const [unsubCopied, setUnsubCopied] = useState(false);
     const [aiReplyLoading, setAiReplyLoading] = useState(false);
     const [aiTone, setAiTone] = useState<'professional' | 'casual' | 'friendly' | 'formal' | 'concise'>('professional');
+    const [trustedSenders, setTrustedSenders] = useState<Set<string>>(() => new Set());
+    const [trustingSender, setTrustingSender] = useState(false);
+
+    // Load trusted-sender allowlist on mount and refresh when needed.
+    const refreshTrustedSenders = useCallback(async () => {
+        const list = await ipcInvoke<string[]>('trusted-senders:list');
+        if (Array.isArray(list)) setTrustedSenders(new Set(list.map(e => e.toLowerCase())));
+    }, []);
+    useEffect(() => { refreshTrustedSenders(); }, [refreshTrustedSenders]);
 
     // Load saved AI tone preference
     useEffect(() => {
@@ -331,16 +399,44 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 filename: string; mimeType: string; content: string;
             }>('attachments:download', { attachmentId: att.id, emailId: att.email_id });
             if (result) {
-                await ipcInvoke('attachments:save', {
+                const saveResult = await ipcInvoke<{
+                    success: boolean;
+                    requiresConfirmation?: boolean;
+                    risk?: 'extension' | 'mismatch';
+                    reason?: string;
+                    error?: string;
+                }>('attachments:save', {
                     filename: result.filename,
                     content: result.content,
+                    mimeType: result.mimeType,
                 });
+                if (saveResult?.requiresConfirmation && saveResult.reason) {
+                    // Park the bytes and let the user confirm via ConfirmDialog.
+                    setPendingRiskySave({
+                        filename: result.filename,
+                        content: result.content,
+                        mimeType: result.mimeType,
+                        reason: saveResult.reason,
+                    });
+                }
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             onToast?.(`${t('readingPane.downloadFailed')}: ${msg}`, undefined, 'error');
         } finally {
             setDownloadingId(null);
+        }
+    };
+
+    const handleConfirmRiskySave = async () => {
+        if (!pendingRiskySave) return;
+        const { filename, content, mimeType } = pendingRiskySave;
+        setPendingRiskySave(null);
+        try {
+            await ipcInvoke('attachments:save', { filename, content, mimeType, confirmed: true });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            onToast?.(`${t('readingPane.downloadFailed')}: ${msg}`, undefined, 'error');
         }
     };
 
@@ -358,15 +454,29 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     const handleDelete = async () => {
         if (!selectedEmail) return;
+        const emailId = selectedEmail.id;
+        // v1.18.5: flag the email's row as exiting so ThreadList animates
+        // it out — the same way the row's own trash icon does.
+        markEmailsExiting([emailId]);
         try {
-            const result = await ipcInvoke<{ success: boolean }>('emails:delete', selectedEmail.id);
+            const [result] = await Promise.all([
+                ipcInvoke<{ success: boolean; error?: string }>('emails:delete', emailId),
+                new Promise<void>(resolve => setTimeout(resolve, 250)),
+            ]);
             if (result?.success) {
-                setSelectedEmail(null);
+                clearActiveEmail();
                 await refreshEmailList();
                 onToast?.(t('readingPane.emailDeleted'), undefined, 'success');
+            } else {
+                // IPC handler explicitly refused — show the server's reason so
+                // the user knows the email was NOT actually deleted (vs. the
+                // pre-v1.18.1 silent-fallback behavior that misled the user).
+                onToast?.(result?.error ?? t('toast.deleteFailed'), undefined, 'error');
             }
         } catch {
             onToast?.(t('toast.deleteFailed'), undefined, 'error');
+        } finally {
+            unmarkEmailsExiting([emailId]);
         }
     };
 
@@ -480,6 +590,35 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const phishingResult = useMemo(() => {
         return detectPhishing(selectedEmail?.body_html ?? null);
     }, [selectedEmail?.body_html]);
+
+    // Combined sender-trust assessment — phishing + SPF/DKIM/DMARC + display-name
+    // spoofing. When isHighRisk is true, the remote-image banner switches to a
+    // danger variant with explicit warning copy. Trusted senders bypass the
+    // assessment entirely (returns isHighRisk: false) per the user-managed
+    // allowlist (electron/trustedSenders.ts).
+    const isCurrentSenderTrusted = useMemo(() => {
+        const addr = selectedEmail?.from_email?.toLowerCase();
+        return !!addr && trustedSenders.has(addr);
+    }, [selectedEmail?.from_email, trustedSenders]);
+    const senderRisk = useMemo(() => {
+        if (!selectedEmail) return { isHighRisk: false, reasons: [] };
+        return assessSenderRisk(selectedEmail, phishingResult, { isTrusted: isCurrentSenderTrusted });
+    }, [selectedEmail, phishingResult, isCurrentSenderTrusted]);
+
+    const handleTrustCurrentSender = useCallback(async () => {
+        if (!selectedEmail?.from_email || trustingSender) return;
+        setTrustingSender(true);
+        try {
+            await ipcInvoke<string[]>('trusted-senders:add', selectedEmail.from_email);
+            await refreshTrustedSenders();
+            onToast?.(t('trustedSenders.added', { email: selectedEmail.from_email }), undefined, 'success');
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            onToast?.(`${t('trustedSenders.addFailed')}: ${msg}`, undefined, 'error');
+        } finally {
+            setTrustingSender(false);
+        }
+    }, [selectedEmail?.from_email, trustingSender, refreshTrustedSenders, onToast, t]);
 
     const handleLoadRemoteImages = () => {
         setRemoteImagesBlocked(false);
@@ -764,12 +903,7 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                         <div className={styles['sender-row']}>
                             <span className={styles['sender-name']}>{selectedEmail.from_name}</span>
                             <span className={styles['sender-email']}>&lt;{selectedEmail.from_email}&gt;</span>
-                            {selectedEmail.sender_verified === 'verified' && (
-                                <span className={styles['verified-badge']} title="SPF + DKIM + DMARC pass"><ShieldCheck size={14} /></span>
-                            )}
-                            {selectedEmail.sender_verified === 'unverified' && (
-                                <span className={styles['unverified-badge']} title="Authentication failed"><ShieldAlert size={14} /></span>
-                            )}
+                            <AuthVerificationBadge email={selectedEmail} t={t} />
                         </div>
                         <div className={styles['to-row']}>
                             <span className={styles['to-label']}>to {selectedEmail.to_email}</span>
@@ -858,10 +992,47 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                 )}
 
                 {detectedRemoteCount > 0 && remoteImagesBlocked && (
-                    <div className={styles['remote-images-banner']} role="status">
+                    <div
+                        className={`${styles['remote-images-banner']} ${senderRisk.isHighRisk ? styles['remote-images-banner-danger'] : ''}`}
+                        role={senderRisk.isHighRisk ? 'alert' : 'status'}
+                        data-risk={senderRisk.isHighRisk ? 'high' : 'normal'}
+                    >
                         <ShieldAlert size={16} />
-                        <span>{t('readingPane.remoteImagesBlocked')}</span>
-                        <button className={styles['load-images-btn']} onClick={handleLoadRemoteImages}>{t('readingPane.loadImages')}</button>
+                        <div className={styles['remote-images-banner-body']}>
+                            <span>
+                                {senderRisk.isHighRisk
+                                    ? t('readingPane.remoteImagesUnsafe')
+                                    : t('readingPane.remoteImagesBlocked')}
+                            </span>
+                            {senderRisk.isHighRisk && senderRisk.reasons.length > 0 && (
+                                <ul className={styles['remote-images-reasons']}>
+                                    {senderRisk.reasons.slice(0, 2).map((r, i) => (
+                                        <li key={i}>{r}</li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                        <div className={styles['remote-images-banner-actions']}>
+                            {senderRisk.isHighRisk && selectedEmail?.from_email && (
+                                <button
+                                    type="button"
+                                    className={styles['trust-sender-btn']}
+                                    onClick={handleTrustCurrentSender}
+                                    disabled={trustingSender}
+                                    title={t('trustedSenders.trustHint', { email: selectedEmail.from_email })}
+                                >
+                                    {trustingSender ? t('trustedSenders.adding') : t('trustedSenders.trustSender')}
+                                </button>
+                            )}
+                            <button
+                                className={`${styles['load-images-btn']} ${senderRisk.isHighRisk ? styles['load-images-btn-danger'] : ''}`}
+                                onClick={handleLoadRemoteImages}
+                            >
+                                {senderRisk.isHighRisk
+                                    ? t('readingPane.loadImagesAnyway')
+                                    : t('readingPane.loadImages')}
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -992,9 +1163,9 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                                 <SandboxedEmailBody html={processedHtml} allowRemoteImages={!remoteImagesBlocked} />
                             </div>
                         ) : selectedEmail.body_text ? (
-                            <div style={{ whiteSpace: 'pre-wrap' }}>
+                            <pre className={styles['plain-text-card']}>
                                 {selectedEmail.body_text}
-                            </div>
+                            </pre>
                         ) : (
                             <div style={{ whiteSpace: 'pre-wrap', color: 'rgba(var(--color-text), 0.5)', fontStyle: 'italic' }}>
                                 {selectedEmail.bodyFetchStatus === 'imap_disconnected'
@@ -1066,6 +1237,17 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             onOpenChange={(open) => { if (!open) setPreviewAttachment(null); }}
             attachment={previewAttachment}
             onDownloadError={(msg) => onToast?.(`${t('readingPane.downloadFailed')}: ${msg}`, undefined, 'error')}
+        />
+
+        <ConfirmDialog
+            open={pendingRiskySave !== null}
+            onOpenChange={(open) => { if (!open) setPendingRiskySave(null); }}
+            variant="danger"
+            title={t('attachmentRisk.title')}
+            description={pendingRiskySave?.reason ?? ''}
+            confirmLabel={t('attachmentRisk.saveAnyway')}
+            cancelLabel={t('confirm.cancel')}
+            onConfirm={handleConfirmRiskySave}
         />
         </>
     );

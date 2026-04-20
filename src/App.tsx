@@ -314,10 +314,17 @@ function App() {
   const handleDeleteSelected = useCallback(async () => {
     const email = useEmailStore.getState().selectedEmail;
     if (!email) return;
+    const emailId = email.id;
+    // v1.18.5: keyboard-shortcut delete now triggers the same animation as
+    // the row trash icon. Store-level exitingEmailIds.
+    useEmailStore.getState().markEmailsExiting([emailId]);
     try {
-      const result = await ipcInvoke<{ success: boolean }>('emails:delete', email.id);
+      const [result] = await Promise.all([
+        ipcInvoke<{ success: boolean }>('emails:delete', emailId),
+        new Promise<void>(resolve => setTimeout(resolve, 250)),
+      ]);
       if (result?.success) {
-        setSelectedEmail(null);
+        useEmailStore.getState().clearActiveEmail();
         const folderId = useEmailStore.getState().selectedFolderId;
         if (folderId) {
           const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', folderId);
@@ -325,7 +332,8 @@ function App() {
         }
       }
     } catch { showToast(t('toast.deleteFailed')); }
-  }, [setSelectedEmail, setEmails, showToast, t]);
+    finally { useEmailStore.getState().unmarkEmailsExiting([emailId]); }
+  }, [setEmails, showToast, t]);
 
   const handleArchiveSelected = useCallback(async () => {
     const email = useEmailStore.getState().selectedEmail;

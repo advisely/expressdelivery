@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ThreadList } from './ThreadList';
 import { ThemeProvider } from './ThemeContext';
 import { useEmailStore } from '../stores/emailStore';
+import { useThemeStore } from '../stores/themeStore';
 import type { EmailSummary, EmailFull, Folder } from '../stores/emailStore';
 
 // ---------------------------------------------------------------------------
@@ -927,20 +928,23 @@ describe('ThreadList', () => {
     // 13. Context menu — Reply / Forward
     // -----------------------------------------------------------------------
     describe('Context menu: Reply and Forward', () => {
+        // v1.18.7: switched from .mockResolvedValueOnce chains (order-dependent
+        // and flaky when the component mounts a new selector that adds an extra
+        // IPC call) to .mockImplementation channel-based dispatch (order-
+        // independent). This eliminates the cross-test flake that tripped CI
+        // intermittently from v1.18.0 onward.
         it('calls emails:read and then onReply when reply is clicked', async () => {
             const full = makeFullEmail({ id: 'email-1' });
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
             const onReply = vi.fn();
-
-            // mount emails:list → folders:sync (background) → emails:read (context reply)
-            mockIpcInvoke
-                .mockResolvedValueOnce(null)                         // mount emails:list
-                .mockResolvedValueOnce({ success: true, synced: 0 }) // folders:sync
-                .mockResolvedValueOnce(full);                        // context menu: emails:read
+            mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+                if (channel === 'emails:read' && args[0] === 'email-1') return full;
+                if (channel === 'folders:sync') return { success: true, synced: 0 };
+                return null;
+            });
 
             renderThreadList({ onReply });
 
-            // Wait for mount to settle
             await waitFor(() =>
                 expect(mockIpcInvoke).toHaveBeenCalledWith('emails:list', 'folder-inbox')
             );
@@ -958,12 +962,11 @@ describe('ThreadList', () => {
             const full = makeFullEmail({ id: 'email-1' });
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
             const onForward = vi.fn();
-
-            // mount emails:list → folders:sync (background) → emails:read (context reply)
-            mockIpcInvoke
-                .mockResolvedValueOnce(null)                         // mount emails:list
-                .mockResolvedValueOnce({ success: true, synced: 0 }) // folders:sync
-                .mockResolvedValueOnce(full);                        // context menu: emails:read
+            mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+                if (channel === 'emails:read' && args[0] === 'email-1') return full;
+                if (channel === 'folders:sync') return { success: true, synced: 0 };
+                return null;
+            });
 
             renderThreadList({ onForward });
 
@@ -982,9 +985,10 @@ describe('ThreadList', () => {
 
         it('does not call onReply if emails:read returns null (guard)', async () => {
             setupStoreWithEmails([makeSummary({ id: 'email-1' })]);
-            mockIpcInvoke
-                .mockResolvedValueOnce(null) // mount emails:list
-                .mockResolvedValueOnce(null); // context menu: emails:read → null
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'folders:sync') return { success: true, synced: 0 };
+                return null; // emails:read also returns null → guard test
+            });
             const onReply = vi.fn();
 
             renderThreadList({ onReply });
@@ -1468,6 +1472,67 @@ describe('ThreadList', () => {
             expect(screen.getByText('Preview text here...')).toBeInTheDocument();
         });
 
+        it('hides snippet preview when themeStore.showThreadPreview is false', () => {
+            useThemeStore.setState({ showThreadPreview: false });
+            try {
+                setupStoreWithEmails([
+                    makeSummary({ subject: 'My Subject', snippet: 'Preview text here...' }),
+                ]);
+                renderThreadList();
+
+                expect(screen.queryByText('Preview text here...')).not.toBeInTheDocument();
+                expect(screen.getByText('My Subject')).toBeInTheDocument();
+            } finally {
+                useThemeStore.setState({ showThreadPreview: true });
+            }
+        });
+
+        it('shows snippet preview again when themeStore.showThreadPreview is toggled back on', () => {
+            useThemeStore.setState({ showThreadPreview: true });
+            setupStoreWithEmails([
+                makeSummary({ subject: 'My Subject', snippet: 'Preview text here...' }),
+            ]);
+            renderThreadList();
+
+            expect(screen.getByText('Preview text here...')).toBeInTheDocument();
+        });
+
+        it('applies the exit-animation class to a row when delete is requested', async () => {
+            const email = makeSummary({ id: 'email-1', subject: 'Doomed Email' });
+            setupStoreWithEmails([email]);
+            // Make the delete IPC resolve quickly so the test cleans up promptly.
+            mockIpcInvoke.mockImplementation(async (channel: string) => {
+                if (channel === 'emails:delete') return { success: true };
+                if (channel === 'emails:list') return [email]; // keep the row mounted briefly
+                return null;
+            });
+
+            renderThreadList();
+
+            const row = screen.getByText('Doomed Email').closest('[data-thread-id="email-1"]') as HTMLElement;
+            expect(row).not.toBeNull();
+            expect(row.className).not.toMatch(/thread-item-exiting/);
+
+            const deleteBtn = row.querySelector('button[aria-label="Delete email"]') as HTMLButtonElement;
+            expect(deleteBtn).not.toBeNull();
+            // The exit class is added synchronously before any await in handleDeleteEmail,
+            // so a single act() flush is enough to observe it.
+            await act(async () => {
+                fireEvent.click(deleteBtn);
+            });
+
+            expect(row.className).toMatch(/thread-item-exiting/);
+
+            // Wait for the exit class to clear (handleDeleteEmail's Promise.all
+            // resolves at ~250ms, then setExitingIds(prev => prev - id) runs).
+            // Asserting the absence of the class guarantees the timer + state
+            // update have completed before the test exits, preventing pollution
+            // of subsequent tests in the suite.
+            await waitFor(() => {
+                expect(row.className).not.toMatch(/thread-item-exiting/);
+            }, { timeout: 1500 });
+        });
+
         it('Space key on thread row triggers selection', async () => {
             const email = makeSummary({ id: 'email-1' });
             const full = makeFullEmail({ id: 'email-1' });
@@ -1481,6 +1546,59 @@ describe('ThreadList', () => {
             await waitFor(() =>
                 expect(mockIpcInvoke).toHaveBeenCalledWith('emails:read', 'email-1')
             );
+        });
+
+        // ── REGRESSION: delete-then-reopen-different-email lockstep ─────────
+        // Before v1.18.2 the delete handler called only setSelectedEmail(null),
+        // leaving selectedEmailId pointing at the deleted email. On the next
+        // click of a different email, the selection state was inconsistent.
+        // This test pins the contract: after deleting the active email, the
+        // store has BOTH fields cleared, AND a subsequent click on a new email
+        // fires emails:read for that new id.
+        it('clears BOTH selectedEmail and selectedEmailId after deleting the active email, then can read another', async () => {
+            const older = makeSummary({ id: 'email-older', subject: 'Older' });
+            const newer = makeSummary({ id: 'email-newer', subject: 'Newer' });
+            const newerFull = makeFullEmail({ id: 'email-newer', subject: 'Newer' });
+            setupStoreWithEmails([older, newer]);
+            // Pretend the user had the older email open at the moment of delete.
+            useEmailStore.setState({ selectedEmailId: 'email-older', selectedEmail: makeFullEmail({ id: 'email-older' }) });
+
+            mockIpcInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+                if (channel === 'emails:delete') return { success: true };
+                if (channel === 'emails:list') return [newer]; // older is gone
+                if (channel === 'emails:read' && args[0] === 'email-newer') return newerFull;
+                return null;
+            });
+
+            renderThreadList();
+
+            // Trigger the delete on the older email (the active one).
+            const olderRow = screen.getByText('Older').closest('[data-thread-id="email-older"]') as HTMLElement;
+            const deleteBtn = olderRow.querySelector('button[aria-label="Delete email"]') as HTMLButtonElement;
+            await act(async () => { fireEvent.click(deleteBtn); });
+
+            // Wait for the delete + refresh + animation cleanup to settle.
+            await waitFor(() => {
+                expect(useEmailStore.getState().selectedEmail).toBeNull();
+                expect(useEmailStore.getState().selectedEmailId).toBeNull();
+            }, { timeout: 1500 });
+
+            // Now click the newer email. emails:read should fire and selection
+            // state should update for the newer email — the regression scenario
+            // showed reads silently failing here.
+            await waitFor(() => {
+                expect(screen.queryByText('Newer')).toBeInTheDocument();
+            });
+            const newerRow = screen.getByText('Newer').closest('[role="button"]') as HTMLElement;
+            await act(async () => { fireEvent.click(newerRow); });
+
+            await waitFor(() => {
+                expect(mockIpcInvoke).toHaveBeenCalledWith('emails:read', 'email-newer');
+            });
+            await waitFor(() => {
+                expect(useEmailStore.getState().selectedEmailId).toBe('email-newer');
+                expect(useEmailStore.getState().selectedEmail?.id).toBe('email-newer');
+            });
         });
     });
 

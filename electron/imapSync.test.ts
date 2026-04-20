@@ -15,7 +15,8 @@ vi.mock('./logger.js', () => ({
 }));
 
 const { mockDbPrepare, mockGetOAuthCredential } = vi.hoisted(() => ({
-    mockDbPrepare: vi.fn(() => ({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mockDbPrepare: vi.fn((_sql: string) => ({
         all: vi.fn().mockReturnValue([]),
         get: vi.fn().mockReturnValue(null),
         run: vi.fn().mockReturnValue({ changes: 0 }),
@@ -69,6 +70,21 @@ vi.mock('imapflow', () => {
 vi.mock('./crypto.js', () => ({
     decryptData: vi.fn((buf: Buffer) => buf.toString('utf-8')),
     encryptData: vi.fn((s: string) => Buffer.from(s, 'utf-8')),
+}));
+
+// Mock mailparser so syncNewEmails tests can track when simpleParser is invoked.
+// ESM exports cannot be spied on directly (vi.spyOn throws "module namespace
+// is not configurable"), so we mock the module and expose a settable impl.
+const { mockSimpleParser } = vi.hoisted(() => ({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mockSimpleParser: vi.fn(async (_input: unknown): Promise<{
+        text?: string;
+        html?: string | false;
+        headers?: Map<string, unknown>;
+    }> => ({ text: '', html: false, headers: new Map() })),
+}));
+vi.mock('mailparser', () => ({
+    simpleParser: mockSimpleParser,
 }));
 
 import { AccountSyncController } from './imap.js';
@@ -801,5 +817,613 @@ describe('AccountSyncController', () => {
             expect(ctrl2.lastSeenUid.get('INBOX')).toBe(200);
             ctrl2.stop();
         });
+    });
+
+    describe('AccountSyncController.operationQueue', () => {
+        beforeEach(() => {
+            vi.useRealTimers(); // these tests rely on real setTimeout for blocker tasks
+        });
+
+        it('exposes an operationQueue instance on the controller', () => {
+            const ctrl = new AccountSyncController('acct-queue-1');
+            expect(ctrl.operationQueue).toBeDefined();
+            expect(typeof ctrl.operationQueue.enqueue).toBe('function');
+            expect(typeof ctrl.operationQueue.drain).toBe('function');
+        });
+
+        it('drains the operation queue on forceDisconnect', async () => {
+            const ctrl = new AccountSyncController('acct-queue-2');
+            ctrl.status = 'connected';
+
+            // Seed a blocking task so subsequent enqueues remain pending.
+            const blocker = ctrl.operationQueue.enqueue(() =>
+                new Promise<string>(resolve => setTimeout(() => resolve('done'), 50))
+            );
+            const pending = ctrl.operationQueue.enqueue(async () => 'never-runs');
+
+            ctrl.forceDisconnect('user');
+
+            await expect(blocker).resolves.toBe('done');
+            await expect(pending).rejects.toThrow(/drained/);
+        });
+
+        it('drains the operation queue on stop()', async () => {
+            const ctrl = new AccountSyncController('acct-queue-3');
+            ctrl.status = 'connected';
+
+            // Seed a blocking task so the subsequent enqueue remains pending.
+            const blocker = ctrl.operationQueue.enqueue(() =>
+                new Promise<string>(resolve => setTimeout(() => resolve('done'), 50))
+            );
+            const pending = ctrl.operationQueue.enqueue(async () => 'never-runs');
+
+            ctrl.stop();
+
+            await expect(blocker).resolves.toBe('done');
+            await expect(pending).rejects.toThrow(/drained/);
+        });
+
+        it('routes deleteMessage through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-delete-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsAdd: vi.fn(async () => { callOrder.push('flags-add'); }),
+                messageDelete: vi.fn(async () => { callOrder.push('delete'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-delete-1', ctrl);
+
+            // Seed a blocker so the delete has to wait for it to finish.
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+
+            const deletePromise = imapEngine.deleteMessage('acct-delete-1', 42, 'INBOX');
+            await Promise.all([blocker, deletePromise]);
+
+            // The delete must not begin until the blocker finishes.
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsAddIdx = callOrder.indexOf('flags-add');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsAddIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsAddIdx);
+
+            imapEngine['controllers'].delete('acct-delete-1');
+        });
+
+        it('routes moveMessage through the operation queue', async () => {
+            const ctrl = new AccountSyncController('acct-move-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageMove: vi.fn(async () => { callOrder.push('move'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-move-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const movePromise = imapEngine.moveMessage('acct-move-1', 42, 'INBOX', 'Trash');
+            await Promise.all([blocker, movePromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const moveIdx = callOrder.indexOf('move');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(moveIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(moveIdx);
+
+            imapEngine['controllers'].delete('acct-move-1');
+        });
+
+        it('routes refetchEmailBody through the queue and uses 30s lock timeout', async () => {
+            const ctrl = new AccountSyncController('acct-refetch-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                fetch: vi.fn(async function* () {
+                    yield { source: Buffer.from('Subject: test\r\n\r\nhello') };
+                }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-refetch-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const refetchPromise = imapEngine.refetchEmailBody('acct-refetch-1', 42, 'INBOX');
+            await Promise.all([blocker, refetchPromise]);
+
+            // Serialization: lock must not be acquired until after the blocker finishes.
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const lockAcquireIdx = callOrder.indexOf('lock-acquired');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(lockAcquireIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(lockAcquireIdx);
+
+            imapEngine['controllers'].delete('acct-refetch-1');
+        });
+
+        it('refetchEmailBody uses a 30-second mailbox lock timeout', async () => {
+            // Static-source assertion: verify the timeout constant is 30_000, not 10_000.
+            // This guards against accidental regression on the timeout bump.
+            const fs = await import('node:fs');
+            const src = fs.readFileSync('electron/imap.ts', 'utf-8');
+
+            // Locate the _refetchEmailBodyLocked (or refetchEmailBody if not yet extracted) method body
+            // and find its first withImapTimeout call.
+            const refetchStart = src.indexOf('refetchEmailBody');
+            expect(refetchStart).toBeGreaterThan(-1);
+            const slice = src.slice(refetchStart);
+            // The timeout in the next withImapTimeout call must be 30_000.
+            const match = /withImapTimeout\s*\(\s*\(\)\s*=>\s*client\.getMailboxLock\([^)]+\),\s*(\d+)_000/.exec(slice);
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe('30');
+        });
+
+        it('routes markAsRead through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-mark-read-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsAdd: vi.fn(async () => { callOrder.push('flags-add'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-mark-read-1', ctrl);
+
+            // Blocker enqueued FIRST. markAsRead must wait for it to finish.
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const markPromise = imapEngine.markAsRead('acct-mark-read-1', 42, 'INBOX');
+            await Promise.all([blocker, markPromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsAddIdx = callOrder.indexOf('flags-add');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsAddIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsAddIdx);
+
+            imapEngine['controllers'].delete('acct-mark-read-1');
+        });
+
+        it('routes markAsUnread through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-mark-unread-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsRemove: vi.fn(async () => { callOrder.push('flags-remove'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-mark-unread-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const markPromise = imapEngine.markAsUnread('acct-mark-unread-1', 42, 'INBOX');
+            await Promise.all([blocker, markPromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsRemoveIdx = callOrder.indexOf('flags-remove');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsRemoveIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsRemoveIdx);
+
+            imapEngine['controllers'].delete('acct-mark-unread-1');
+        });
+
+        it('routes markAllRead through the operation queue (serial against other user ops)', async () => {
+            const ctrl = new AccountSyncController('acct-mark-all-1');
+            ctrl.status = 'connected';
+
+            const callOrder: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    callOrder.push('lock-acquired');
+                    return { release: () => { callOrder.push('lock-released'); } };
+                }),
+                messageFlagsAdd: vi.fn(async () => { callOrder.push('flags-add-all'); }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-mark-all-1', ctrl);
+
+            const blocker = ctrl.operationQueue.enqueue(async () => {
+                callOrder.push('blocker-start');
+                await new Promise(resolve => setTimeout(resolve, 20));
+                callOrder.push('blocker-end');
+            });
+            const markAllPromise = imapEngine.markAllRead('acct-mark-all-1', 'INBOX');
+            await Promise.all([blocker, markAllPromise]);
+
+            const blockerEndIdx = callOrder.indexOf('blocker-end');
+            const flagsAddIdx = callOrder.indexOf('flags-add-all');
+            expect(blockerEndIdx).toBeGreaterThanOrEqual(0);
+            expect(flagsAddIdx).toBeGreaterThanOrEqual(0);
+            expect(blockerEndIdx).toBeLessThan(flagsAddIdx);
+
+            imapEngine['controllers'].delete('acct-mark-all-1');
+        });
+
+        it('releases the mailbox lock before running simpleParser in refetchEmailBody', async () => {
+            // Spec section 2 invariant: mailbox locks must only protect IMAP fetch
+            // and state operations, not MIME parsing. This test enforces the
+            // invariant for refetchEmailBody, which had previously held the lock
+            // across the simpleParser call.
+            const ctrl = new AccountSyncController('acct-refetch-parse-1');
+            ctrl.status = 'connected';
+
+            const events: string[] = [];
+            const fakeClient = {
+                getMailboxLock: vi.fn(async () => {
+                    events.push('lock-acquired');
+                    return { release: () => { events.push('lock-released'); } };
+                }),
+                fetch: vi.fn(async function* () {
+                    yield { source: Buffer.from('Subject: test\r\n\r\nhello') };
+                }),
+            } as unknown as ImapFlow;
+            ctrl.client = fakeClient;
+            imapEngine['controllers'].set('acct-refetch-parse-1', ctrl);
+
+            mockSimpleParser.mockImplementationOnce(async () => {
+                events.push('simple-parser-invoked');
+                return { text: 'hello', html: false, headers: new Map() };
+            });
+
+            await imapEngine.refetchEmailBody('acct-refetch-parse-1', 42, 'INBOX');
+
+            imapEngine['controllers'].delete('acct-refetch-parse-1');
+
+            const releaseIdx = events.indexOf('lock-released');
+            const parseIdx = events.indexOf('simple-parser-invoked');
+            expect(releaseIdx).toBeGreaterThan(-1);
+            expect(parseIdx).toBeGreaterThan(-1);
+            expect(releaseIdx).toBeLessThan(parseIdx);
+        });
+    });
+});
+
+describe('syncNewEmails two-phase parsing', () => {
+    it('releases the mailbox lock before running simpleParser', async () => {
+        const ctrl = new AccountSyncController('acct-sync-1');
+        ctrl.status = 'connected';
+
+        const events: string[] = [];
+        const fakeFetchIterator = async function* () {
+            yield {
+                uid: 101,
+                envelope: {
+                    subject: 'Test',
+                    from: [{ name: 'A', address: 'a@example.com' }],
+                    to: [{ address: 'b@example.com' }],
+                    date: new Date('2026-04-14T00:00:00Z'),
+                    messageId: '<msg-101@example.com>',
+                    inReplyTo: null,
+                },
+                bodyStructure: null,
+                source: Buffer.from('Subject: Test\r\nFrom: a@example.com\r\n\r\nhi'),
+            };
+        };
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => {
+                events.push('lock-acquired');
+                return {
+                    release: () => events.push('lock-released'),
+                };
+            }),
+            fetch: vi.fn(() => fakeFetchIterator()),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-sync-1', ctrl);
+
+        // Seed folder row via the db mock.
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 1 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        // Instrument mailparser mock to record when simpleParser is invoked.
+        mockSimpleParser.mockImplementationOnce(async () => {
+            events.push('simple-parser-invoked');
+            return { text: 'hi', html: false, headers: new Map() };
+        });
+
+        await imapEngine.syncNewEmails('acct-sync-1', 'INBOX');
+
+        imapEngine['controllers'].delete('acct-sync-1');
+
+        const releaseIdx = events.indexOf('lock-released');
+        const parseIdx = events.indexOf('simple-parser-invoked');
+        expect(releaseIdx).toBeGreaterThan(-1);
+        expect(parseIdx).toBeGreaterThan(-1);
+        // The critical invariant: lock is released BEFORE simpleParser runs.
+        expect(releaseIdx).toBeLessThan(parseIdx);
+    });
+
+    it('processes a large delta in chunks of 100 messages, releasing the lock between chunks', async () => {
+        const ctrl = new AccountSyncController('acct-chunk-1');
+        ctrl.status = 'connected';
+
+        let lockAcquireCount = 0;
+        const fetchBatches: number[][] = [];
+        // Simulate a mailbox with 250 messages across 3 chunks (100, 100, 50).
+        const TOTAL_MESSAGES = 250;
+
+        const makeFetchIterator = (range: string) => {
+            const m = /^(\d+):(\d+|\*)$/.exec(range);
+            const start = m ? parseInt(m[1], 10) : 1;
+            const capOfServer = TOTAL_MESSAGES;
+            const batchUids: number[] = [];
+            for (let uid = start; uid <= capOfServer; uid++) batchUids.push(uid);
+            fetchBatches.push([...batchUids]);
+
+            return (async function* () {
+                for (const uid of batchUids) {
+                    yield {
+                        uid,
+                        envelope: {
+                            subject: `Msg ${uid}`,
+                            from: [{ address: `sender${uid}@example.com` }],
+                            to: [{ address: 'b@example.com' }],
+                            date: new Date('2026-04-14T00:00:00Z'),
+                            messageId: `<msg-${uid}@example.com>`,
+                            inReplyTo: null,
+                        },
+                        bodyStructure: null,
+                        source: Buffer.from(`Subject: Msg ${uid}\r\n\r\nhi ${uid}`),
+                    };
+                }
+            })();
+        };
+
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => {
+                lockAcquireCount++;
+                return { release: () => { /* intentional noop */ } };
+            }),
+            fetch: vi.fn((range: string) => makeFetchIterator(range)),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-chunk-1', ctrl);
+
+        // Seed folder row.
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 1 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        await imapEngine.syncNewEmails('acct-chunk-1', 'INBOX');
+
+        // 250 messages / 100 per chunk = 3 chunks → 3 lock acquisitions at minimum.
+        expect(lockAcquireCount).toBeGreaterThanOrEqual(3);
+
+        imapEngine['controllers'].delete('acct-chunk-1');
+    });
+
+    it('skips a malformed message mid-batch without aborting the rest', async () => {
+        const ctrl = new AccountSyncController('acct-bad-1');
+        ctrl.status = 'connected';
+
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => ({ release: () => undefined })),
+            fetch: vi.fn(() => (async function* () {
+                yield {
+                    uid: 1,
+                    envelope: { subject: 'good-1', from: [{ address: 'a@x' }], to: [{ address: 'b@x' }], date: new Date('2026-04-14T00:00:00Z'), messageId: '<1@x>', inReplyTo: null },
+                    bodyStructure: null,
+                    source: Buffer.from('Subject: good-1\r\n\r\nhi'),
+                };
+                yield {
+                    uid: 2,
+                    envelope: { subject: 'bad', from: [{ address: 'a@x' }], to: [{ address: 'b@x' }], date: new Date('2026-04-14T00:00:00Z'), messageId: '<2@x>', inReplyTo: null },
+                    bodyStructure: null,
+                    source: Buffer.from('THROW_PLEASE'),
+                };
+                yield {
+                    uid: 3,
+                    envelope: { subject: 'good-3', from: [{ address: 'a@x' }], to: [{ address: 'b@x' }], date: new Date('2026-04-14T00:00:00Z'), messageId: '<3@x>', inReplyTo: null },
+                    bodyStructure: null,
+                    source: Buffer.from('Subject: good-3\r\n\r\nhi'),
+                };
+            })()),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-bad-1', ctrl);
+
+        // Make mailparser throw when it sees the THROW_PLEASE sentinel, succeed otherwise.
+        mockSimpleParser.mockImplementation(async (input: unknown) => {
+            const buf = input as Buffer;
+            if (buf.toString().includes('THROW_PLEASE')) {
+                throw new Error('mailparser boom');
+            }
+            return { text: 'hi', html: false, headers: new Map() };
+        });
+
+        // Capture email-insert calls.
+        const inserts: string[] = [];
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            if (sql.startsWith('INSERT OR IGNORE INTO emails')) {
+                return {
+                    run: (id: string) => {
+                        inserts.push(id);
+                        return { changes: 1 };
+                    },
+                    get: () => null,
+                    all: () => [],
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 0 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        const count = await imapEngine.syncNewEmails('acct-bad-1', 'INBOX');
+
+        imapEngine['controllers'].delete('acct-bad-1');
+
+        // Messages 1 and 3 persisted, 2 skipped.
+        expect(count).toBe(2);
+        expect(inserts).toEqual(['acct-bad-1_1', 'acct-bad-1_3']);
+        // logDebug called with the malformed UID.
+        expect(mockLogDebug).toHaveBeenCalledWith(
+            expect.stringContaining('mailparser error for acct-bad-1_2')
+        );
+    });
+
+    it('persists identical fields (subject, from, to, thread, message_id) after refactor', async () => {
+        const ctrl = new AccountSyncController('acct-fields-1');
+        ctrl.status = 'connected';
+
+        const fixture = {
+            uid: 7,
+            envelope: {
+                subject: 'Quarterly Report',
+                from: [{ name: 'Alice Example', address: 'alice@example.com' }],
+                to: [{ address: 'bob@example.com' }],
+                date: new Date('2026-04-10T14:30:00Z'),
+                messageId: '<qr-7@example.com>',
+                inReplyTo: null,
+            },
+            bodyStructure: null,
+            source: Buffer.from(
+                'Subject: Quarterly Report\r\n' +
+                'From: Alice Example <alice@example.com>\r\n' +
+                'To: bob@example.com\r\n' +
+                'Date: Fri, 10 Apr 2026 14:30:00 +0000\r\n' +
+                '\r\n' +
+                'Q1 numbers attached.\r\n'
+            ),
+        };
+
+        const fakeClient = {
+            getMailboxLock: vi.fn(async () => ({ release: () => undefined })),
+            fetch: vi.fn(() => (async function* () { yield fixture; })()),
+        } as unknown as ImapFlow;
+        ctrl.client = fakeClient;
+        imapEngine['controllers'].set('acct-fields-1', ctrl);
+
+        // Parser returns a stable body text for assertion.
+        mockSimpleParser.mockImplementation(async () => ({
+            text: 'Q1 numbers attached.',
+            html: false,
+            headers: new Map(),
+        }));
+
+        const persistedRows: unknown[][] = [];
+        mockDbPrepare.mockImplementation((sql: string) => {
+            if (sql.includes('SELECT id, type FROM folders')) {
+                return {
+                    get: () => ({ id: 'folder-inbox', type: 'inbox' }),
+                    all: () => [],
+                    run: () => ({ changes: 1 }),
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            if (sql.startsWith('INSERT OR IGNORE INTO emails')) {
+                return {
+                    run: (...args: unknown[]) => {
+                        persistedRows.push(args);
+                        return { changes: 1 };
+                    },
+                    get: () => null,
+                    all: () => [],
+                } as unknown as ReturnType<typeof mockDbPrepare>;
+            }
+            return {
+                get: () => null,
+                all: () => [],
+                run: () => ({ changes: 0 }),
+            } as unknown as ReturnType<typeof mockDbPrepare>;
+        });
+
+        await imapEngine.syncNewEmails('acct-fields-1', 'INBOX');
+
+        expect(persistedRows.length).toBe(1);
+        const [
+            id,
+            accountId,
+            folderId,
+            threadId,
+            messageId,
+            subject,
+            fromName,
+            fromEmail,
+            toEmail,
+        ] = persistedRows[0];
+        expect(id).toBe('acct-fields-1_7');
+        expect(accountId).toBe('acct-fields-1');
+        expect(folderId).toBe('folder-inbox');
+        expect(threadId).toBe('<qr-7@example.com>');
+        expect(messageId).toBe('<qr-7@example.com>');
+        expect(subject).toBe('Quarterly Report');
+        expect(fromName).toBe('Alice Example');
+        expect(fromEmail).toBe('alice@example.com');
+        expect(toEmail).toBe('bob@example.com');
+
+        imapEngine['controllers'].delete('acct-fields-1');
     });
 });

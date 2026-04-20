@@ -129,7 +129,9 @@
     "snooze": "Reporter",
     "reminder": "Rappel",
     "loadImages": "Charger les images",
+    "loadImagesAnyway": "Charger quand même",
     "remoteImagesBlocked": "Images distantes bloquées pour la confidentialité",
+    "remoteImagesUnsafe": "Charger les images distantes n'est PAS recommandé pour cet email — indicateurs de risque détectés :",
     "emailDeleted": "E-mail déplacé dans la corbeille",
     "emailArchived": "E-mail archivé",
     "emailMoved": "E-mail déplacé",
@@ -257,6 +259,8 @@
     "ruleSaveFailed": "Échec de l'enregistrement",
     "dynamicFolderSwitch": "Navigation contextuelle des dossiers",
     "dynamicFolderSwitchDesc": "En mode Tous les comptes, cliquer sur un email affiche les dossiers de ce compte",
+    "showThreadPreview": "Afficher l'aperçu de la première ligne",
+    "showThreadPreviewDesc": "Affiche un extrait du corps de l'email sous le sujet dans la liste",
     "undoSendDelay": "Délai d'annulation",
     "undoSendOff": "Désactivé",
     "undoSendSeconds": "{{seconds}}s",
@@ -495,7 +499,8 @@
     "mailto": "Envoyer un e-mail de désabonnement"
   },
   "dragDrop": {
-    "moveToFolder": "{{count}} e-mail(s) déplacé(s) vers {{folder}}"
+    "moveToFolder": "{{count}} e-mail(s) déplacé(s) vers {{folder}}",
+    "crossAccountUnsupported": "Le déplacement d'emails entre comptes différents n'est pas pris en charge. Glissez vers un dossier du même compte."
   },
   "spam": {
     "reportSpam": "Signaler comme spam",
@@ -507,6 +512,23 @@
   "phishing": {
     "warning": "Attention : Cet e-mail peut contenir des liens de phishing",
     "reasons": "Indicateurs suspects trouvés :"
+  },
+  "attachmentRisk": {
+    "title": "Cette pièce jointe peut être dangereuse",
+    "saveAnyway": "Enregistrer quand même"
+  },
+  "trustedSenders": {
+    "trustSender": "Faire confiance à cet expéditeur",
+    "trustHint": "Ajouter {{email}} à votre liste d'expéditeurs de confiance — n'affichera plus cet avertissement.",
+    "adding": "Ajout en cours…",
+    "added": "{{email}} ajouté aux expéditeurs de confiance. L'avertissement ne s'affichera plus pour cet expéditeur.",
+    "addFailed": "Échec de l'ajout de l'expéditeur de confiance"
+  },
+  "authBadge": {
+    "verified": "Expéditeur vérifié",
+    "partial": "Partiellement vérifié",
+    "unverified": "Expéditeur non vérifié",
+    "unknown": "Auth inconnue"
   },
   "confirm": {
     "cancel": "Annuler",
