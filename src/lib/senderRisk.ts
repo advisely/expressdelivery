@@ -35,13 +35,22 @@ function isAuthFail(value: string | null | undefined): boolean {
  * 3. Display-name spoofing — sender name claims a brand the email domain
  *    does not match (e.g., "PayPal Support" from @evil.tk).
  *
+ * `options.isTrusted`: when true (sender is in the user-managed trusted
+ * allowlist; see `electron/trustedSenders.ts`), short-circuit and return
+ * `{ isHighRisk: false, reasons: [] }` regardless of the constituent
+ * signals. The user has explicitly accepted the risk for this sender.
+ * v1.18.3+.
+ *
  * Spec invariant: this function NEVER throws. Missing/undefined fields are
  * treated as "no signal" — the absence of evidence is not evidence of risk.
  */
 export function assessSenderRisk(
     email: Pick<EmailFull, 'from_name' | 'from_email' | 'auth_spf' | 'auth_dkim' | 'auth_dmarc'>,
     phishingResult: PhishingResult,
+    options?: { isTrusted?: boolean },
 ): SenderRiskAssessment {
+    if (options?.isTrusted) return { isHighRisk: false, reasons: [] };
+
     const reasons: string[] = [];
 
     if (phishingResult.isPhishing) {

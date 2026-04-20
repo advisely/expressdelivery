@@ -311,6 +311,36 @@
   filter: brightness(1.1);
 }
 
+.remote-images-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.trust-sender-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.trust-sender-btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--text-secondary);
+}
+
+.trust-sender-btn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
 .attachments-section {
   margin-top: 24px;
   padding-top: 16px;

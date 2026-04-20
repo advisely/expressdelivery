@@ -134,4 +134,49 @@ describe('detectPhishing', () => {
         // Official domains should not trigger brand spoofing
         expect(result.reasons.filter(r => r.includes('paypal') || r.includes('microsoft'))).toHaveLength(0);
     });
+
+    // ── REGRESSION: regional brand domains (v1.18.3) ────────────────────────
+    // User report: amazon.ca was being flagged as a phishing/spoof attempt.
+    // Root cause: BRAND_DOMAINS only knew amazon.com. Every regional
+    // storefront (amazon.ca, amazon.co.uk, amazon.de, ...) tripped Rule 4.
+    // Fix: BRAND_DOMAINS now maps brand → list of official domains. These
+    // tests pin that the regional storefronts are no longer flagged.
+    it('does NOT flag amazon.ca — Canadian Amazon regional storefront', () => {
+        const html = makeHtml(['https://www.amazon.ca/dp/B07XYZ']);
+        const result = detectPhishing(html);
+        expect(result.reasons.filter(r => r.includes('amazon'))).toHaveLength(0);
+    });
+
+    it('does NOT flag other Amazon regional domains (.co.uk, .de, .fr, .co.jp, .com.au, .com.mx)', () => {
+        const regional = [
+            'https://www.amazon.co.uk/orders',
+            'https://www.amazon.de/account',
+            'https://www.amazon.fr/help',
+            'https://www.amazon.co.jp/gp/browse',
+            'https://www.amazon.com.au/your-orders',
+            'https://www.amazon.com.mx/category',
+        ];
+        for (const url of regional) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.filter(r => r.includes('amazon'))).toHaveLength(0);
+        }
+    });
+
+    it('STILL flags amazon-spoofing domains (regression must not weaken security)', () => {
+        const spoofs = [
+            'https://amazon.com.evil.com/login',
+            'https://my-amazon-account.tk/verify',
+            'https://amaz0n.com/fake',  // typo squat with 0 (no brand match — score might be 0 from this rule, OK)
+        ];
+        // amazon.com.evil.com and my-amazon-account.tk should still trip Rule 4
+        for (const url of spoofs.slice(0, 2)) {
+            const result = detectPhishing(makeHtml([url]));
+            expect(result.reasons.some(r => r.includes('amazon'))).toBe(true);
+        }
+    });
+
+    it('treats x.com as a Twitter regional alias (does not flag twitter+x.com cross-mention)', () => {
+        const result = detectPhishing(makeHtml(['https://x.com/elonmusk']));
+        expect(result.reasons.filter(r => r.includes('twitter'))).toHaveLength(0);
+    });
 });

@@ -103,4 +103,29 @@ describe('assessSenderRisk', () => {
         const result = assessSenderRisk(email, noPhishing);
         expect(result.isHighRisk).toBe(true);
     });
+
+    // ── REGRESSION: trusted-sender bypass (v1.18.3) ─────────────────────────
+    // When the user marks a sender as trusted (electron/trustedSenders.ts),
+    // assessSenderRisk must short-circuit and return isHighRisk=false even if
+    // the constituent signals would otherwise raise the flag. The user has
+    // explicitly accepted the risk and does not want to see the danger banner
+    // for this sender again.
+    it('returns isHighRisk=false when options.isTrusted is true, even with phishing flagged', () => {
+        const email = makeEmail({ auth_dmarc: 'fail' });
+        const result = assessSenderRisk(email, yesPhishing, { isTrusted: true });
+        expect(result.isHighRisk).toBe(false);
+        expect(result.reasons).toEqual([]);
+    });
+
+    it('returns isHighRisk=false when options.isTrusted is true, even with display-name spoof', () => {
+        const email = makeEmail({ from_name: 'PayPal Support', from_email: 'support@randomsite.com' });
+        const result = assessSenderRisk(email, noPhishing, { isTrusted: true });
+        expect(result.isHighRisk).toBe(false);
+    });
+
+    it('still flags risk when options.isTrusted is false (explicit) or omitted', () => {
+        const email = makeEmail({ auth_dmarc: 'fail' });
+        expect(assessSenderRisk(email, noPhishing, { isTrusted: false }).isHighRisk).toBe(true);
+        expect(assessSenderRisk(email, noPhishing).isHighRisk).toBe(true);
+    });
 });

@@ -517,6 +517,13 @@
     "title": "This attachment may be unsafe",
     "saveAnyway": "Save anyway"
   },
+  "trustedSenders": {
+    "trustSender": "Trust this sender",
+    "trustHint": "Add {{email}} to your trusted-sender allowlist — won't show this warning again.",
+    "adding": "Adding…",
+    "added": "{{email}} added to trusted senders. The warning won't show for this sender again.",
+    "addFailed": "Failed to add trusted sender"
+  },
   "confirm": {
     "cancel": "Cancel",
     "confirm": "Confirm",

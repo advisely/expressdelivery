@@ -12,24 +12,44 @@ const SUSPICIOUS_TLDS = new Set([
     '.click', '.link', '.buzz', '.info', '.work', '.party',
 ]);
 
-// Well-known brand names mapped to their official domains.
-// A URL that contains the brand name in a hostname other than the official
-// domain is a strong spoofing indicator.
-const BRAND_DOMAINS = new Map([
-    ['paypal',          'paypal.com'],
-    ['apple',           'apple.com'],
-    ['microsoft',       'microsoft.com'],
-    ['google',          'google.com'],
-    ['amazon',          'amazon.com'],
-    ['netflix',         'netflix.com'],
-    ['facebook',        'facebook.com'],
-    ['instagram',       'instagram.com'],
-    ['linkedin',        'linkedin.com'],
-    ['twitter',         'twitter.com'],
-    ['chase',           'chase.com'],
-    ['wellsfargo',      'wellsfargo.com'],
-    ['bankofamerica',   'bankofamerica.com'],
+// Well-known brand names mapped to their LIST of official domains. A URL
+// whose hostname contains the brand name but does NOT match (exact or
+// subdomain of) any official domain is flagged as a spoofing indicator.
+//
+// Why a list per brand: Amazon, Google, Microsoft, Apple, etc. all run
+// per-country domains (amazon.ca, amazon.co.uk, google.de, microsoft.fr).
+// A naive `brand → 'brand.com'` map false-positives every regional storefront.
+// v1.18.3 expands the schema; new regional variants belong here.
+const BRAND_DOMAINS = new Map<string, readonly string[]>([
+    ['paypal',          ['paypal.com']],
+    ['apple',           ['apple.com']],
+    ['microsoft',       ['microsoft.com']],
+    ['google',          ['google.com']],
+    ['amazon',          [
+        'amazon.com', 'amazon.ca', 'amazon.co.uk', 'amazon.de', 'amazon.fr',
+        'amazon.es', 'amazon.it', 'amazon.co.jp', 'amazon.com.au', 'amazon.in',
+        'amazon.com.mx', 'amazon.com.br', 'amazon.nl', 'amazon.pl', 'amazon.se',
+        'amazon.sg', 'amazon.com.tr', 'amazon.ae', 'amazon.sa', 'amazon.eg',
+    ]],
+    ['netflix',         ['netflix.com']],
+    ['facebook',        ['facebook.com']],
+    ['instagram',       ['instagram.com']],
+    ['linkedin',        ['linkedin.com']],
+    ['twitter',         ['twitter.com', 'x.com']],
+    ['chase',           ['chase.com']],
+    ['wellsfargo',      ['wellsfargo.com']],
+    ['bankofamerica',   ['bankofamerica.com']],
 ]);
+
+/** Returns true if `hostname` matches any of the brand's official domains
+ * (exact match or legitimate subdomain). Centralizes the matching rule used
+ * by both URL analysis and display-name spoof detection. */
+function hostnameMatchesAnyBrandDomain(hostname: string, officialDomains: readonly string[]): boolean {
+    for (const dom of officialDomains) {
+        if (hostname === dom || hostname.endsWith('.' + dom)) return true;
+    }
+    return false;
+}
 
 /** Extract all href URLs that use http/https from raw HTML. */
 function extractUrls(html: string): string[] {
@@ -78,10 +98,11 @@ function analyzeUrl(url: string): { score: number; reasons: string[] } {
     }
 
     // Rule 4: Brand name in hostname but not the official brand domain.
-    // Allow exact match (paypal.com) and legitimate subdomains (secure.paypal.com).
-    // Flag mypaypal.com or paypal.com.evil.com as spoofing attempts.
-    for (const [brand, officialDomain] of BRAND_DOMAINS) {
-        if (hostname.includes(brand) && hostname !== officialDomain && !hostname.endsWith('.' + officialDomain)) {
+    // Allow exact match (paypal.com), legitimate subdomains (secure.paypal.com),
+    // AND regional variants (amazon.ca, amazon.co.uk, google.de). Flag
+    // mypaypal.com or paypal.com.evil.com as spoofing attempts.
+    for (const [brand, officialDomains] of BRAND_DOMAINS) {
+        if (hostname.includes(brand) && !hostnameMatchesAnyBrandDomain(hostname, officialDomains)) {
             score += 35;
             reasons.push(`Brand "${brand}" in URL but not the official domain`);
             break;
@@ -135,9 +156,10 @@ export function detectDisplayNameSpoofing(fromName: string, fromEmail: string): 
     const emailLower = fromEmail.toLowerCase();
     const emailDomain = emailLower.split('@')[1] ?? '';
 
-    // Check 1: Display name contains a known brand but email domain doesn't match
-    for (const [brand, officialDomain] of BRAND_DOMAINS) {
-        if (nameLower.includes(brand) && emailDomain !== officialDomain && !emailDomain.endsWith('.' + officialDomain)) {
+    // Check 1: Display name contains a known brand but email domain doesn't
+    // match any of the brand's official regional domains.
+    for (const [brand, officialDomains] of BRAND_DOMAINS) {
+        if (nameLower.includes(brand) && !hostnameMatchesAnyBrandDomain(emailDomain, officialDomains)) {
             return {
                 isSpoofed: true,
                 reason: `Display name contains "${brand}" but email is from ${emailDomain}`,

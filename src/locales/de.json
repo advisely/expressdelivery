@@ -517,6 +517,13 @@
     "title": "Dieser Anhang könnte unsicher sein",
     "saveAnyway": "Trotzdem speichern"
   },
+  "trustedSenders": {
+    "trustSender": "Diesem Absender vertrauen",
+    "trustHint": "{{email}} zur Liste vertrauenswürdiger Absender hinzufügen — diese Warnung wird nicht mehr angezeigt.",
+    "adding": "Hinzufügen…",
+    "added": "{{email}} zu vertrauenswürdigen Absendern hinzugefügt. Die Warnung wird für diesen Absender nicht mehr angezeigt.",
+    "addFailed": "Hinzufügen des vertrauenswürdigen Absenders fehlgeschlagen"
+  },
   "confirm": {
     "cancel": "Abbrechen",
     "confirm": "Bestätigen",

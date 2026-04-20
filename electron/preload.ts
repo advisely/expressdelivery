@@ -39,6 +39,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   'attachments:download',
   'attachments:save',
   'attachments:by-cid',
+  // v1.18.3: trusted senders allowlist (bypass for senderRisk danger banner)
+  'trusted-senders:list',
+  'trusted-senders:add',
+  'trusted-senders:remove',
+  'trusted-senders:is-trusted',
   'dialog:open-file',
   'mcp:connected-count',
   'apikeys:get-openrouter',

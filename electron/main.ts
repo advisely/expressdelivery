@@ -62,6 +62,7 @@ import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpS
 import { imapEngine } from './imap.js'
 import { assessAttachmentRisk } from './attachmentSafety.js'
 import { deleteEmailLogic } from './deleteEmailLogic.js'
+import { listTrustedSenders, addTrustedSender, removeTrustedSender, isSenderTrusted } from './trustedSenders.js'
 import { sendMail } from './sendMail.js'
 import type { SendMailParams } from './sendMail.js'
 import { encryptData, decryptData } from './crypto.js'
@@ -1550,6 +1551,28 @@ function registerIpcHandlers() {
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Write failed' };
     }
+  });
+
+  // ── Trusted senders allowlist (v1.18.3) ─────────────────────────────────
+  // User-managed list of email addresses that bypass the senderRisk danger
+  // banner. See electron/trustedSenders.ts + electron/trustedSenders.test.ts
+  // for the storage and contract; src/lib/senderRisk.ts for the bypass.
+  ipcMain.handle('trusted-senders:list', () => {
+    return listTrustedSenders(db);
+  });
+
+  ipcMain.handle('trusted-senders:add', (_event, email: string) => {
+    if (!email || typeof email !== 'string') throw new Error('Invalid email address');
+    return addTrustedSender(db, email);
+  });
+
+  ipcMain.handle('trusted-senders:remove', (_event, email: string) => {
+    if (!email || typeof email !== 'string') throw new Error('Invalid email address');
+    return removeTrustedSender(db, email);
+  });
+
+  ipcMain.handle('trusted-senders:is-trusted', (_event, email: string) => {
+    return isSenderTrusted(db, email);
   });
 
   ipcMain.handle('dialog:open-file', async () => {

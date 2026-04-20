@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Reply, Forward, Trash2, Star, Archive, FolderInput, Paperclip, Download, FileText, ShieldAlert, ShieldCheck, AlertTriangle, Clock, Bell, Printer, ZoomIn, ZoomOut, RotateCcw, Code, Mail, Sparkles } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -222,6 +222,15 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const [unsubCopied, setUnsubCopied] = useState(false);
     const [aiReplyLoading, setAiReplyLoading] = useState(false);
     const [aiTone, setAiTone] = useState<'professional' | 'casual' | 'friendly' | 'formal' | 'concise'>('professional');
+    const [trustedSenders, setTrustedSenders] = useState<Set<string>>(() => new Set());
+    const [trustingSender, setTrustingSender] = useState(false);
+
+    // Load trusted-sender allowlist on mount and refresh when needed.
+    const refreshTrustedSenders = useCallback(async () => {
+        const list = await ipcInvoke<string[]>('trusted-senders:list');
+        if (Array.isArray(list)) setTrustedSenders(new Set(list.map(e => e.toLowerCase())));
+    }, []);
+    useEffect(() => { refreshTrustedSenders(); }, [refreshTrustedSenders]);
 
     // Load saved AI tone preference
     useEffect(() => {
@@ -524,11 +533,32 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     // Combined sender-trust assessment — phishing + SPF/DKIM/DMARC + display-name
     // spoofing. When isHighRisk is true, the remote-image banner switches to a
-    // danger variant with explicit warning copy.
+    // danger variant with explicit warning copy. Trusted senders bypass the
+    // assessment entirely (returns isHighRisk: false) per the user-managed
+    // allowlist (electron/trustedSenders.ts).
+    const isCurrentSenderTrusted = useMemo(() => {
+        const addr = selectedEmail?.from_email?.toLowerCase();
+        return !!addr && trustedSenders.has(addr);
+    }, [selectedEmail?.from_email, trustedSenders]);
     const senderRisk = useMemo(() => {
         if (!selectedEmail) return { isHighRisk: false, reasons: [] };
-        return assessSenderRisk(selectedEmail, phishingResult);
-    }, [selectedEmail, phishingResult]);
+        return assessSenderRisk(selectedEmail, phishingResult, { isTrusted: isCurrentSenderTrusted });
+    }, [selectedEmail, phishingResult, isCurrentSenderTrusted]);
+
+    const handleTrustCurrentSender = useCallback(async () => {
+        if (!selectedEmail?.from_email || trustingSender) return;
+        setTrustingSender(true);
+        try {
+            await ipcInvoke<string[]>('trusted-senders:add', selectedEmail.from_email);
+            await refreshTrustedSenders();
+            onToast?.(t('trustedSenders.added', { email: selectedEmail.from_email }), undefined, 'success');
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            onToast?.(`${t('trustedSenders.addFailed')}: ${msg}`, undefined, 'error');
+        } finally {
+            setTrustingSender(false);
+        }
+    }, [selectedEmail?.from_email, trustingSender, refreshTrustedSenders, onToast, t]);
 
     const handleLoadRemoteImages = () => {
         setRemoteImagesBlocked(false);
@@ -927,14 +957,27 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
                                 </ul>
                             )}
                         </div>
-                        <button
-                            className={`${styles['load-images-btn']} ${senderRisk.isHighRisk ? styles['load-images-btn-danger'] : ''}`}
-                            onClick={handleLoadRemoteImages}
-                        >
-                            {senderRisk.isHighRisk
-                                ? t('readingPane.loadImagesAnyway')
-                                : t('readingPane.loadImages')}
-                        </button>
+                        <div className={styles['remote-images-banner-actions']}>
+                            {senderRisk.isHighRisk && selectedEmail?.from_email && (
+                                <button
+                                    type="button"
+                                    className={styles['trust-sender-btn']}
+                                    onClick={handleTrustCurrentSender}
+                                    disabled={trustingSender}
+                                    title={t('trustedSenders.trustHint', { email: selectedEmail.from_email })}
+                                >
+                                    {trustingSender ? t('trustedSenders.adding') : t('trustedSenders.trustSender')}
+                                </button>
+                            )}
+                            <button
+                                className={`${styles['load-images-btn']} ${senderRisk.isHighRisk ? styles['load-images-btn-danger'] : ''}`}
+                                onClick={handleLoadRemoteImages}
+                            >
+                                {senderRisk.isHighRisk
+                                    ? t('readingPane.loadImagesAnyway')
+                                    : t('readingPane.loadImages')}
+                            </button>
+                        </div>
                     </div>
                 )}
 

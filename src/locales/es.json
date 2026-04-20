@@ -517,6 +517,13 @@
     "title": "Este archivo adjunto puede ser inseguro",
     "saveAnyway": "Guardar de todos modos"
   },
+  "trustedSenders": {
+    "trustSender": "Confiar en este remitente",
+    "trustHint": "Añadir {{email}} a tu lista de remitentes de confianza — no volverá a mostrar esta advertencia.",
+    "adding": "Añadiendo…",
+    "added": "{{email}} añadido a los remitentes de confianza. La advertencia no se mostrará de nuevo para este remitente.",
+    "addFailed": "Error al añadir remitente de confianza"
+  },
   "confirm": {
     "cancel": "Cancelar",
     "confirm": "Confirmar",

@@ -9,6 +9,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.3] - 2026-04-19
+
+User report after v1.18.2: "amazon.ca has been tagged as unsafe, why?" plus
+a feature request: "add a sender to the trusted list so the warning doesn't
+show again."
+
+### Fixed
+- **`amazon.ca` (and every other Amazon regional storefront) no longer
+  flagged as a phishing/spoof domain.** `src/lib/phishingDetector.ts` had
+  `BRAND_DOMAINS` mapping each brand to a single official domain
+  (`amazon → amazon.com`). Rule 4 (brand spoofing) flagged `amazon.ca`,
+  `amazon.co.uk`, `amazon.de`, `amazon.fr`, `amazon.co.jp`, `amazon.com.au`,
+  `amazon.com.mx`, `amazon.in`, etc. — all legitimate Amazon storefronts —
+  as not-the-official-domain. Refactored `BRAND_DOMAINS` to map brand → list
+  of official domains. Amazon now lists 20 known regional variants. Twitter
+  also lists `x.com` as an alias. Display-name spoof check uses the same
+  centralized matcher so the fix applies uniformly. Pinned by 4 new
+  regression tests in `src/lib/phishingDetector.test.ts` covering positive
+  cases (regional storefronts pass) AND negative cases (spoofs like
+  `amazon.com.evil.com`, `my-amazon-account.tk` still flagged).
+
+### Added
+- **Trusted senders allowlist.** New module `electron/trustedSenders.ts`
+  stores a user-managed list of email addresses (lowercased, trimmed,
+  validated) in the SQLite `settings` table under key `trusted_senders` as
+  a JSON array. When a sender's `from_email` is in the list,
+  `assessSenderRisk` short-circuits and returns `isHighRisk: false` — no red
+  banner, no danger variant, no risk reasons. Remote-image blocking is
+  unchanged (privacy choice, not security choice).
+- **"Trust this sender" button** in the danger-variant remote-image banner
+  in `ReadingPane`. One click adds the current email's `from_email` to the
+  trusted allowlist via the new `trusted-senders:add` IPC channel and
+  refreshes the local set so the banner immediately switches back to its
+  non-danger appearance. Idempotent — clicking twice doesn't duplicate the
+  entry. Translated en/fr/es/de.
+- **4 new IPC handlers** (`electron/main.ts` + preload allowlist):
+  - `trusted-senders:list` → `string[]`
+  - `trusted-senders:add(email)` → updated `string[]`, throws on invalid email
+  - `trusted-senders:remove(email)` → updated `string[]`
+  - `trusted-senders:is-trusted(email)` → `boolean`
+
+### Tests
+- `src/lib/phishingDetector.test.ts`: +4 regional-domain regression tests.
+- `electron/trustedSenders.test.ts`: 11 new tests pinning DB-backed
+  storage contract — empty defaults, lowercase normalization, idempotency,
+  invalid email rejection, removal, corrupted-JSON survival, null/undefined
+  handling.
+- `src/lib/senderRisk.test.ts`: +3 tests for `options.isTrusted` bypass —
+  trusted senders bypass even when phishing flagged or DKIM/DMARC fails.
+- Net total: 1116 (was 1098 + 18 new).
+
+### Specs
+- `docs/superpowers/specs/2026-04-19-v1.18.3-trusted-senders-and-regional-brands.md`
+
+### Quality gate
+- ESLint: 0 warnings. TypeScript strict: clean.
+- Vitest: 1115/1116 passing (1 known cross-test-pollution flake in
+  `App.test.tsx > opens ComposeModal` — passes 107/107 in isolation; not
+  introduced by this change, present since v1.18.0 animation-timer
+  interactions). All v1.18.3 new tests pass deterministically.
+
+### Out of scope (deferred)
+- Settings panel UI to view / remove entries from the trusted-sender list
+  (the IPC handlers are in place; UI tab can be added in v1.18.4 or
+  v1.19.0). For now users can re-trust a sender any time they receive an
+  email from them by clicking the button again — but cannot easily revoke
+  trust without a future Settings tab.
+- Per-account scope (currently global across all configured accounts —
+  trust on yassine@boumiza.com applies when the same sender writes to
+  yassine@gmail.com too). Probably correct behavior; revisit if reported.
+
+---
+
 ## [1.18.2] - 2026-04-19
 
 Hotfix for a selection-state regression user-reported after v1.18.1 testing:
