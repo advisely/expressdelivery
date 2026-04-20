@@ -9,6 +9,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.6] - 2026-04-19
+
+User report: "When I drag an email and hover over the folder I'll drop it
+in, that focused folder should be highlighted too — either in solo-account
+mode or multi-accounts mode."
+
+### Fixed
+- **Drop-target folder highlight** now visibly fires in BOTH single-account
+  AND unified "All Accounts" mode. Two bugs combined:
+  1. The CSS rule `.nav-item.drag-over` (compound class on the BUTTON
+     element) only matched single-account mode. The unified-mode v1.18.1
+     code put `drag-over` on the wrapper `.nav-item-row` div, which had no
+     matching CSS rule — drop highlight was silent.
+  2. The single-account-mode visual was a 0.15-alpha tint with thin
+     outline — too subtle to read at a glance.
+  Fix: (a) added `drag-over` to the unified-mode button as well (parity with
+  single-account), (b) added a new `.nav-item-row.drag-over` CSS rule for
+  the row-level outline, (c) strengthened both visuals — 0.22 alpha
+  background, 2px accent-colored outline, 3px inset accent-colored stripe
+  on the left, bolder font, smooth 120ms transition gated behind
+  `prefers-reduced-motion: no-preference`.
+
+### Files Touched
+- `src/components/Sidebar.tsx` — unified-mode button now also receives the
+  `drag-over` class (line 838 area).
+- `src/components/Sidebar.module.css` — strengthened `.nav-item.drag-over`
+  visual; added `.nav-item-row.drag-over` for the wrapper highlight; added
+  reduced-motion-aware transition.
+
+### Quality gate
+- vitest: 1139/1139 (no test changes — purely visual).
+- ESLint: 0 warnings. TypeScript strict: clean.
+
+---
+
 ## [1.18.5] - 2026-04-19
 
 User report: "Does the delete email animation work only with some mailbox

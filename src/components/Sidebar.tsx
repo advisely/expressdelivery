@@ -835,7 +835,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCompose, onSettings, onToast
                         className={`${styles['nav-item-row']} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
                       >
                         <button
-                          className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''}`}
+                          className={`${styles['nav-item']} ${styles['nav-item-flex']} ${selectedFolderId === folder.id ? styles['active'] : ''} ${dragOverFolderId === folder.id ? styles['drag-over'] : ''}`}
                           onClick={() => selectFolder(folder.id)}
                           title={sidebarCollapsed ? folder.name : undefined}
                           style={folder.color ? { borderLeftColor: folder.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' } : undefined}

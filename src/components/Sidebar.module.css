@@ -975,10 +975,30 @@
   }
 }
 
-/* Drag-and-drop drop target highlight */
+/* Drag-and-drop drop target highlight (v1.18.6 — strengthened so the
+   focused folder is obviously the drop target while the user drags).
+   Applies to single-account mode (button.nav-item.drag-over) AND unified
+   "All Accounts" mode (the wrapper div.nav-item-row.drag-over carries
+   row-level outline; the inner button still highlights its own background). */
 .nav-item.drag-over {
-  background: rgba(var(--color-accent), 0.15);
+  background: rgba(var(--color-accent), 0.22);
   outline: 2px solid var(--accent-color);
   outline-offset: -2px;
   color: var(--accent-color);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent-color);
+}
+
+.nav-item-row.drag-over {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -1px;
+  border-radius: 6px;
+  background: rgba(var(--color-accent), 0.08);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-item,
+  .nav-item-row {
+    transition: background 0.12s ease, outline-color 0.12s ease, box-shadow 0.12s ease;
+  }
 }
