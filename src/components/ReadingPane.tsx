@@ -247,6 +247,8 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
     const tags = useEmailStore(s => s.tags);
     const { setSelectedEmail, setEmails } = useEmailStore();
     const clearActiveEmail = useEmailStore(s => s.clearActiveEmail);
+    const markEmailsExiting = useEmailStore(s => s.markEmailsExiting);
+    const unmarkEmailsExiting = useEmailStore(s => s.unmarkEmailsExiting);
     const readingPaneZoom = useThemeStore(s => s.readingPaneZoom);
     const setReadingPaneZoom = useThemeStore(s => s.setReadingPaneZoom);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -452,11 +454,16 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
 
     const handleDelete = async () => {
         if (!selectedEmail) return;
+        const emailId = selectedEmail.id;
+        // v1.18.5: flag the email's row as exiting so ThreadList animates
+        // it out — the same way the row's own trash icon does.
+        markEmailsExiting([emailId]);
         try {
-            const result = await ipcInvoke<{ success: boolean; error?: string }>('emails:delete', selectedEmail.id);
+            const [result] = await Promise.all([
+                ipcInvoke<{ success: boolean; error?: string }>('emails:delete', emailId),
+                new Promise<void>(resolve => setTimeout(resolve, 250)),
+            ]);
             if (result?.success) {
-                // clearActiveEmail clears BOTH selectedEmail and selectedEmailId
-                // — see emailStore.test.ts "selection state stays in lockstep".
                 clearActiveEmail();
                 await refreshEmailList();
                 onToast?.(t('readingPane.emailDeleted'), undefined, 'success');
@@ -468,6 +475,8 @@ export const ReadingPane: React.FC<ReadingPaneProps> = ({ onReply, onForward, on
             }
         } catch {
             onToast?.(t('toast.deleteFailed'), undefined, 'error');
+        } finally {
+            unmarkEmailsExiting([emailId]);
         }
     };
 

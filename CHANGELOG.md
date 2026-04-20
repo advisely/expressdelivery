@@ -9,6 +9,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.5] - 2026-04-19
+
+User report: "Does the delete email animation work only with some mailbox
+providers and not the rest? It's like I see it sometimes working and
+sometimes not."
+
+Not a provider issue — the v1.18.0 animation only fired from ONE of FIVE
+delete entry points, so the user perceived inconsistency across what was
+actually identical IPC behavior.
+
+### Fixed
+- **Delete animation now fires from EVERY delete entry point.** Previously
+  only the trash icon on each row in `ThreadList` flagged the row as
+  exiting (`setExitingIds` local state). The other four entry points —
+  ReadingPane top-bar trash button, right-click context-menu Delete, bulk
+  Delete on multi-select, and the keyboard shortcut (`Delete` key,
+  `App.handleDeleteSelected`) — fired the IPC immediately and the row
+  vanished on the next `emails:list` refresh with no animation. Hence the
+  "sometimes works, sometimes not" feel.
+- Lifted the `exitingIds` set from `ThreadList` local state into the
+  Zustand store as `exitingEmailIds` + `markEmailsExiting(ids)` and
+  `unmarkEmailsExiting(ids)` actions. All five delete handlers now
+  bracket their IPC with mark/unmark, run the IPC in `Promise.all` with a
+  250 ms timer, and uniformly trigger the existing
+  `.thread-item-exiting` CSS animation.
+
+### Added
+- 4 new tests in `src/stores/emailStore.test.ts` pinning the
+  `exitingEmailIds` contract: idempotent add, remove, empty-array no-op
+  (no spurious re-render), state-reference identity preserved on no-op.
+
+### Quality gate
+- vitest: 1138/1139 (was 1135 + 4 new). 1 pre-existing flake in
+  `ThreadList.test.tsx` Reply test — unrelated, passes in isolation.
+- ESLint: 0 warnings. TypeScript strict: clean.
+
+### Files Touched
+- `src/stores/emailStore.ts` — `exitingEmailIds`, `markEmailsExiting`,
+  `unmarkEmailsExiting`.
+- `src/stores/emailStore.test.ts` — +4 lockstep tests.
+- `src/components/ThreadList.tsx` — replaced local `exitingIds` state with
+  store reads. Updated `handleDeleteEmail`, `handleBulkDelete`, and
+  `ctxAction('delete')` to use store actions + Promise.all 250 ms timer.
+- `src/components/ReadingPane.tsx` — `handleDelete` now brackets with
+  mark/unmark + Promise.all 250 ms timer.
+- `src/App.tsx` — `handleDeleteSelected` (keyboard shortcut) same
+  treatment.
+
+---
+
 ## [1.18.4] - 2026-04-19
 
 Two related improvements: a structural fix for the brand-spoofing false

@@ -131,6 +131,17 @@ interface EmailState {
      * the next click. Pinned by emailStore.test.ts regression suite.
      */
     clearActiveEmail: () => void
+    /**
+     * Set of email IDs currently animating their exit (delete/archive). The
+     * ThreadList renders these rows with the `.thread-item-exiting` class.
+     * v1.18.5: lifted from local ThreadList state into the store so EVERY
+     * delete entry point (row icon, context menu, bulk action, reading-pane
+     * top bar, keyboard shortcut) can flag exits and the animation fires
+     * uniformly. Use `markEmailsExiting`/`unmarkEmailsExiting` to mutate.
+     */
+    exitingEmailIds: Set<string>
+    markEmailsExiting: (ids: readonly string[]) => void
+    unmarkEmailsExiting: (ids: readonly string[]) => void
     selectAccount: (id: string | null) => void
     selectFolder: (id: string | null) => void
     selectEmail: (id: string | null) => void
@@ -160,6 +171,7 @@ export const useEmailStore = create<EmailState>()((set) => ({
     selectedFolderId: null,
     selectedEmailId: null,
     selectedEmailIds: new Set<string>(),
+    exitingEmailIds: new Set<string>(),
     isLoading: false,
     searchQuery: '',
     drafts: [],
@@ -202,6 +214,18 @@ export const useEmailStore = create<EmailState>()((set) => ({
     setSelectedEmail: (selectedEmail) =>
         set({ selectedEmail, selectedEmailId: selectedEmail ? selectedEmail.id : null }),
     clearActiveEmail: () => set({ selectedEmail: null, selectedEmailId: null }),
+    markEmailsExiting: (ids) => set((state) => {
+        if (ids.length === 0) return {};
+        const next = new Set(state.exitingEmailIds);
+        for (const id of ids) next.add(id);
+        return { exitingEmailIds: next };
+    }),
+    unmarkEmailsExiting: (ids) => set((state) => {
+        if (ids.length === 0) return {};
+        const next = new Set(state.exitingEmailIds);
+        for (const id of ids) next.delete(id);
+        return { exitingEmailIds: next };
+    }),
     selectAccount: (selectedAccountId) => set({ selectedAccountId, selectedFolderId: null, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>(), contextAccountId: null }),
     selectFolder: (selectedFolderId) => set({ selectedFolderId, selectedEmailId: null, selectedEmail: null, selectedEmailIds: new Set<string>() }),
     selectEmail: (selectedEmailId) => set({ selectedEmailId }),

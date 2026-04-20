@@ -154,7 +154,9 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
     const [showBulkMove, setShowBulkMove] = useState(false);
     const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
-    const [exitingIds, setExitingIds] = useState<Set<string>>(() => new Set());
+    const exitingEmailIds = useEmailStore(s => s.exitingEmailIds);
+    const markEmailsExiting = useEmailStore(s => s.markEmailsExiting);
+    const unmarkEmailsExiting = useEmailStore(s => s.unmarkEmailsExiting);
     const enterTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
     const ctxRef = useRef<HTMLDivElement>(null);
 
@@ -314,15 +316,24 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const handleBulkDelete = useCallback(async () => {
         const ids = [...selectedEmailIds];
         if (ids.length === 0) return;
-        for (const id of ids) {
-            await ipcInvoke('emails:delete', id);
-        }
+        // v1.18.5: animate every selected row's exit in parallel with the
+        // IPC deletes so the user sees the bulk action visually.
+        markEmailsExiting(ids);
+        await Promise.all([
+            (async () => {
+                for (const id of ids) {
+                    await ipcInvoke('emails:delete', id);
+                }
+            })(),
+            new Promise<void>(resolve => setTimeout(resolve, 250)),
+        ]);
         if (selectedEmailIds.has(useEmailStore.getState().selectedEmailId ?? '')) {
-            setSelectedEmail(null);
+            useEmailStore.getState().clearActiveEmail();
         }
         clearSelection();
         await refreshList();
-    }, [selectedEmailIds, setSelectedEmail, clearSelection, refreshList]);
+        unmarkEmailsExiting(ids);
+    }, [selectedEmailIds, clearSelection, refreshList, markEmailsExiting, unmarkEmailsExiting]);
 
     const handleBulkMarkRead = useCallback(async () => {
         const ids = [...selectedEmailIds];
@@ -404,14 +415,22 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                 break;
             }
             case 'delete': {
-                const result = await ipcInvoke<{ success: boolean }>('emails:delete', email.id);
+                // v1.18.5: animate via the store-level exiting set.
+                markEmailsExiting([email.id]);
+                const [result] = await Promise.all([
+                    ipcInvoke<{ success: boolean }>('emails:delete', email.id),
+                    new Promise<void>(resolve => setTimeout(resolve, 250)),
+                ]);
                 if (result?.success) {
-                    if (useEmailStore.getState().selectedEmailId === email.id) setSelectedEmail(null);
+                    if (useEmailStore.getState().selectedEmailId === email.id) {
+                        useEmailStore.getState().clearActiveEmail();
+                    }
                     if (selectedFolderId) {
                         const refreshed = await ipcInvoke<EmailSummary[]>('emails:list', selectedFolderId);
                         if (Array.isArray(refreshed)) setEmails(refreshed);
                     }
                 }
+                unmarkEmailsExiting([email.id]);
                 break;
             }
             case 'star': {
@@ -429,7 +448,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                 break;
             }
         }
-    }, [ctxMenu, emails, selectedFolderId, setEmails, setSelectedEmail, selectEmail, onReply, onForward]);
+    }, [ctxMenu, emails, selectedFolderId, setEmails, setSelectedEmail, selectEmail, onReply, onForward, markEmailsExiting, unmarkEmailsExiting]);
 
     const handleMoveToFolder = useCallback(async (destFolderId: string) => {
         if (!ctxMenu) return;
@@ -446,15 +465,16 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
     const handleDeleteEmail = useCallback(async (emailId: string) => {
         // Apply exit animation in parallel with the IPC delete so the user sees
         // the row fade out immediately while the IMAP queue does its work.
-        setExitingIds(prev => new Set(prev).add(emailId));
+        // v1.18.5: exit-flag state lives in emailStore so EVERY delete entry
+        // point (this row icon + reading pane top bar + context menu + bulk +
+        // keyboard) triggers the same animation uniformly.
+        markEmailsExiting([emailId]);
         const [result] = await Promise.all([
             ipcInvoke<{ success: boolean; error?: string }>('emails:delete', emailId),
             new Promise<void>(resolve => setTimeout(resolve, 250)),
         ]);
         if (result?.success) {
             if (useEmailStore.getState().selectedEmailId === emailId) {
-                // clearActiveEmail clears BOTH selectedEmail and selectedEmailId
-                // — see emailStore.test.ts "selection state stays in lockstep".
                 useEmailStore.getState().clearActiveEmail();
             }
             if (selectedFolderId) {
@@ -462,17 +482,8 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                 if (Array.isArray(refreshed)) setEmails(refreshed);
             }
         }
-        // On failure (success === false) we deliberately leave the row in
-        // place — the IMAP move was rejected, the local DB row is unchanged,
-        // and the next emails:list refresh below would re-add the row anyway.
-        // The toast for the failure is surfaced from the calling component
-        // (ReadingPane handleDelete) since ThreadList has no onToast prop.
-        setExitingIds(prev => {
-            const next = new Set(prev);
-            next.delete(emailId);
-            return next;
-        });
-    }, [selectedFolderId, setEmails]);
+        unmarkEmailsExiting([emailId]);
+    }, [selectedFolderId, setEmails, markEmailsExiting, unmarkEmailsExiting]);
 
     return (
         <div className={`${styles['thread-list']} scrollable`}>
@@ -640,7 +651,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({ onReply, onForward }) =>
                         isUnified={selectedFolderId === '__unified'}
                         showPreview={showThreadPreview}
                         isEntering={enteringIds.has(thread.id)}
-                        isExiting={exitingIds.has(thread.id)}
+                        isExiting={exitingEmailIds.has(thread.id)}
                         accounts={accounts}
                         onSelect={handleSelectEmail}
                         onDelete={handleDeleteEmail}
