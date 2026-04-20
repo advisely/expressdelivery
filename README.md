@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/advisely/expressdelivery/releases/latest"><img src="https://img.shields.io/github/v/release/advisely/expressdelivery?style=flat-square&color=blue" alt="Latest Release" /></a>
-  <img src="https://img.shields.io/badge/tests-1002%20passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1150%20passed-brightgreen?style=flat-square" alt="Tests" />
   <a href="https://github.com/advisely/expressdelivery/actions"><img src="https://img.shields.io/github/actions/workflow/status/advisely/expressdelivery/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square" alt="Platforms" />

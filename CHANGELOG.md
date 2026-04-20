@@ -9,6 +9,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.18.7] - 2026-04-20
+
+User report: "I had the app open, put the laptop to sleep, woke it, then
+sent myself an email from another app, but our app didn't fetch or show the
+new email until I closed and reopened the app — I thought we had a 5/7/10
+second fetcher?"
+
+### Fixed
+- **Wake-from-sleep reconnect.** During OS suspend the IMAP TCP socket is
+  silently killed, and on wake the 15s poll timer was hitting a dead socket:
+  `withImapTimeout` took 60s to time out, then exponential-backoff reconnect
+  compounded further delays. The NOOP heartbeat (120s) and the 180s staleness
+  guard both existed as fallbacks but could add up to 3+ minutes of silence
+  before the user saw new mail. Now the app subscribes to
+  `powerMonitor.on('resume')` and `powerMonitor.on('unlock-screen')` and
+  immediately: (a) `forceDisconnect('health')` to tear down the dead socket,
+  (b) resets `reconnectAttempts` to 0 so backoff doesn't carry over from
+  pre-suspend failures, (c) calls `startAccount()` which synchronously syncs
+  the inbox — the same code path as clean app start.
+- **Network online reconnect.** Wi-Fi switch, VPN reconnect, or tether
+  change now fire the same reconnect path. The renderer listens to
+  `window.addEventListener('online', ...)` and calls a new `network:online`
+  IPC that triggers the shared reconnect.
+- **Event coalescing.** Windows commonly fires `resume` + `unlock-screen`
+  within ~50ms on lid-open-and-login. A shared `createReconnectTrigger`
+  in-flight guard collapses the burst into a single reconnect run across
+  both power events *and* the network:online IPC.
+
+### Added
+- `electron/powerReconnect.ts` — 80-line module with the reconnect trigger,
+  the power-monitor attacher, and a tight structural `PowerReconnectEngine`
+  interface so it's unit-testable without bootstrapping a real IMAP engine.
+- 11 unit tests in `electron/powerReconnect.test.ts` covering
+  force-disconnect, reconnect-counter reset, per-account start, empty-state
+  no-op, rejection tolerance, listener wiring, disposer, and event debounce.
+
+### Technical
+- Zero Semgrep findings, zero lint warnings (`--max-warnings 0`), strict
+  TypeScript clean. 1150/1150 tests passing (up from 1139).
+- Preload allowlist gained one channel: `network:online` (INVOKE).
+- Power monitor detach is wired into the existing `before-quit` cleanup
+  chain alongside `getMcpServer().stop()` and `disconnectAll()`.
+
+---
+
 ## [1.18.6] - 2026-04-19
 
 User report: "When I drag an email and hover over the folder I'll drop it

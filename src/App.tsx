@@ -103,6 +103,17 @@ function App() {
   const isModalOpen = composeState !== null || isSettingsOpen || showShortcutHelp || showGlobalSearch;
 
   // Listen for reminder:due events
+  // Network-online reconnect trigger. When the OS reports `navigator.onLine`
+  // flipping back to true (Wi-Fi switch, VPN reconnect, tether change), tell
+  // main to short-circuit IMAP reconnect backoff. Fire-and-forget.
+  useEffect(() => {
+    const onOnline = () => {
+      ipcInvoke('network:online').catch(() => { /* main may be shutting down */ });
+    };
+    window.addEventListener('online', onOnline);
+    return () => { window.removeEventListener('online', onOnline); };
+  }, []);
+
   useEffect(() => {
     const cleanup = ipcOn('reminder:due', (...args: unknown[]) => {
       const data = args[0] as { emailId?: string; subject?: string; note?: string } | undefined;

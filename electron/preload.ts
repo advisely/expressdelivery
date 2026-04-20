@@ -172,6 +172,9 @@ const ALLOWED_INVOKE_CHANNELS = [
   'auth:cancel-flow',
   'auth:flow-status',
   'auth:get-state',
+  // Network online transition — renderer pokes main to short-circuit reconnect
+  // backoff after Wi-Fi / VPN recovery. Fire-and-forget.
+  'network:online',
 ] as const
 
 const ALLOWED_ON_CHANNELS = [

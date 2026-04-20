@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, screen, Notification, globalShortcut } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, screen, Notification, globalShortcut, powerMonitor } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -60,6 +60,7 @@ import { initDatabase, getDatabase, closeDatabase } from './db.js'
 import { maybeRevokeOAuthCredentials } from './auth/accountRevoke.js'
 import { getMcpServer, setMcpConnectionCallback, restartMcpServer } from './mcpServer.js'
 import { imapEngine } from './imap.js'
+import { attachPowerMonitor, createReconnectTrigger } from './powerReconnect.js'
 import { assessAttachmentRisk } from './attachmentSafety.js'
 import { deleteEmailLogic } from './deleteEmailLogic.js'
 import { listTrustedSenders, addTrustedSender, removeTrustedSender, isSenderTrusted } from './trustedSenders.js'
@@ -90,6 +91,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null
 let tray: Tray | null = null
+let detachPowerMonitor: (() => void) | null = null
 
 // Track excluded account IDs for "All Accounts" filtering
 let excludedAccountIds: Set<string> = new Set();
@@ -274,6 +276,7 @@ app.on('before-quit', async () => {
     tray = null;
   }
   globalShortcut.unregisterAll();
+  try { detachPowerMonitor?.(); detachPowerMonitor = null; } catch { /* best effort */ }
   try { getMcpServer().stop(); } catch { /* best effort */ }
   try { await imapEngine.disconnectAll(); } catch { /* best effort */ }
   try { closeDatabase(); } catch { /* best effort */ }
@@ -2638,6 +2641,27 @@ app.whenReady().then(() => {
 
   imapEngine.setStatusCallback((accountId, status, timestamp) => {
     sendSyncStatus(accountId, status as 'connecting' | 'connected' | 'error' | 'stale' | 'syncing', timestamp);
+  });
+
+  // Wake-from-sleep reconnect. Without this, sockets silently die during OS
+  // suspend and the 15s poll takes up to a minute to detect (withImapTimeout)
+  // plus exponential backoff before the user sees new mail. A shared trigger
+  // is used so `resume`, `unlock-screen`, and renderer `network:online` all
+  // coalesce into a single reconnect run.
+  const reconnectTrigger = createReconnectTrigger(imapEngine);
+  try {
+    detachPowerMonitor = attachPowerMonitor(imapEngine, powerMonitor, reconnectTrigger);
+    logDebug('[power] power monitor attached (resume + unlock-screen)');
+  } catch (err: unknown) {
+    logDebug(`[WARN] power monitor attach failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Renderer-driven reconnect on network transition. `navigator.onLine` flipping
+  // false→true on Wi-Fi switch or VPN re-connect goes through here. Fire-and-
+  // forget: returns `{ ok: true }` immediately so the renderer doesn't block.
+  ipcMain.handle('network:online', () => {
+    reconnectTrigger();
+    return { ok: true };
   });
 
   // Defer non-critical services to after window creation
