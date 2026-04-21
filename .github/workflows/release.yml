@@ -260,19 +260,52 @@ jobs:
       - name: Rebuild native deps for packaging
         run: npx @electron/rebuild -m . --only better-sqlite3 --force
 
+      # v1.18.7: export macOS signing env vars ONLY if the corresponding
+      # secret is present. Empty-string CSC_LINK trips electron-builder into
+      # treating the repo root as a .p12 path → "not a file" error. When the
+      # secrets are absent, explicitly disable signing discovery so the build
+      # produces an unsigned .dmg (acceptable for unsigned distribution).
+      - name: Configure macOS signing env
+        env:
+          CSC_LINK_MAC: ${{ secrets.CSC_LINK_MAC }}
+          CSC_KEY_PASSWORD_MAC: ${{ secrets.CSC_KEY_PASSWORD_MAC }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          if [ -n "$CSC_LINK_MAC" ]; then
+            {
+              echo "CSC_LINK=$CSC_LINK_MAC"
+              echo "CSC_KEY_PASSWORD=$CSC_KEY_PASSWORD_MAC"
+            } >> "$GITHUB_ENV"
+            echo "Code signing enabled: CSC_LINK secret is set."
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "Code signing disabled: CSC_LINK_MAC secret not set (unsigned build)."
+          fi
+          # Notarization only runs when code signing succeeded. Only export
+          # Apple credentials when all three are present to avoid triggering
+          # a partial notarization attempt.
+          if [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID_SECRET"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET"
+            } >> "$GITHUB_ENV"
+            echo "Notarization enabled."
+          else
+            echo "Notarization disabled: one or more Apple credentials missing."
+          fi
+
       - name: Package and publish to GitHub Releases
         # Build both x64 and arm64 dmg + zip targets. electron-builder
         # downloads the opposite-arch Electron binary and lipos the native
-        # modules into a universal package per target.
+        # modules into a universal package per target. Signing + notarization
+        # env vars are set conditionally by the prior step.
         run: npx electron-builder --mac --x64 --arm64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional code signing + notarization — build succeeds unsigned if omitted.
-          CSC_LINK: ${{ secrets.CSC_LINK_MAC }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD_MAC }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           VITE_OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
           VITE_OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
           VITE_OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
