@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.9 — 2026-04-22
+
+### Internal
+
+- Version-only bump over v1.18.8 to enable local update-path testing of the v1.18.8 bug fixes (the already-installed build is v1.18.8; the NSIS installer needs a higher version number to trigger an in-place upgrade). No functional changes vs v1.18.8. Also carries the `scripts/clean-build.mjs` timeout bump (5min → 20min) that unblocked the NSIS signing step on slower timestamp-server round-trips.
+
+---
+
 ## v1.18.8 — 2026-04-22
 
 ### Bug fixes
