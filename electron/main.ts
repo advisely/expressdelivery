@@ -2511,8 +2511,14 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    // Focus existing window
-    if (win) {
+    // Focus existing window. Important: distinguish "hidden-to-tray" (via
+    // win.hide() from the 'close' event handler that prevents full quit
+    // when isQuitting is false) from "minimized".
+    // isMinimized() returns false for hidden windows, and focus() is a
+    // silent no-op on hidden windows — we must call show() to re-register
+    // with the OS window manager before focus() will do anything.
+    if (win && !win.isDestroyed()) {
+      if (!win.isVisible()) win.show();
       if (win.isMinimized()) win.restore();
       win.focus();
     }
