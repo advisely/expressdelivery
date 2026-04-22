@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.10 — 2026-04-22
+
+### Bug fixes
+
+- **Email: SVG unsubscribe links still blanked the email body.** The v1.18.8 click interceptor used `tagName === 'A'` which is case-sensitive; SVG `<a>` elements (common in marketing email graphics) live in the SVG namespace and preserve lowercase `a`, so clicking a clickable SVG graphic bypassed the interceptor and let the iframe self-navigate into an X-Frame-Options-blocked page. Walker now normalizes `tagName.toUpperCase()` and reads `href` via `getAttribute()` with URL resolution against `document.baseURI` (covers `SVGAElement.href`'s non-string `SVGAnimatedString`).
+- **Email: TOC / fragment anchors silently broke native scroll.** Links like `<a href="#top">` resolved to `about:srcdoc#top` inside the iframe; the interceptor posted that to the parent, the scheme allowlist rejected `about:`, and the native scroll had already been preventDefault'd — the click did nothing. The interceptor now bails for same-document fragment anchors and lets the browser scroll natively.
+- **IMAP: brief Wi-Fi blip left controller stuck disconnected.** The v1.18.8 `forceDisconnect` timer cleanup raced against itself when two calls fired concurrently (close listener + in-flight heartbeat/sync rejection). Call #2 cleared the reconnect timer call #1 had just armed, then early-returned without rescheduling — no in-tree caller of `forceDisconnect('health')` follows with an explicit `startAccount`, so the controller sat idle until app restart. Added a `hadPendingReconnect` tracker; if the early-return path cleared a live timer and the caller asked for a health reconnect, re-arm via `scheduleReconnect()` before returning. Wake-from-sleep is unaffected (the follow-up `stopController` uses `reason='user'`, which still does not re-arm).
+
+---
+
 ## v1.18.9 — 2026-04-22
 
 ### Internal
