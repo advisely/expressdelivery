@@ -188,10 +188,26 @@ describe('withImapTimeout', () => {
 describe('AccountSyncController', () => {
     let ctrl: AccountSyncController;
 
+    // Replicate the per-instance exponential-backoff override that
+    // ImapEngine.startAccount() installs in production. The base-class
+    // `scheduleReconnect` intentionally throws (v1.18.8 bug 2 hardening),
+    // so every controller exercised by these tests needs its own wiring.
+    const installBackoffOverride = (c: AccountSyncController) => {
+        c.scheduleReconnect = () => {
+            const baseDelay = 1000 * Math.pow(2, c.reconnectAttempts);
+            const maxDelay = 5 * 60 * 1000;
+            const capped = Math.min(baseDelay, maxDelay);
+            const jitter = capped * (0.8 + Math.random() * 0.4);
+            c.reconnectAttempts++;
+            c.reconnectTimer = setTimeout(() => { c.reconnectTimer = null; }, jitter);
+        };
+    };
+
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         ctrl = new AccountSyncController('acc-1');
+        installBackoffOverride(ctrl);
     });
 
     afterEach(() => {
@@ -229,7 +245,7 @@ describe('AccountSyncController', () => {
     describe('forceDisconnect', () => {
         it('closes client immediately', () => {
             const mockClose = vi.fn();
-            ctrl.client = { close: mockClose } as unknown as ImapFlow;
+            ctrl.client = { close: mockClose, removeAllListeners: vi.fn() } as unknown as ImapFlow;
             ctrl.status = 'connected';
             ctrl.forceDisconnect('health');
             expect(mockClose).toHaveBeenCalled();
@@ -564,14 +580,19 @@ describe('AccountSyncController', () => {
     });
 
     describe('edge cases', () => {
-        it('concurrent forceDisconnect calls produce single reconnect', () => {
-            ctrl.client = { close: vi.fn() } as unknown as ImapFlow;
+        it('concurrent forceDisconnect calls do not double-schedule reconnect', () => {
+            ctrl.client = { close: vi.fn(), removeAllListeners: vi.fn() } as unknown as ImapFlow;
             ctrl.status = 'connected';
+            const scheduleSpy = vi.spyOn(ctrl, 'scheduleReconnect');
             ctrl.forceDisconnect('health');
-            const timer1 = ctrl.reconnectTimer;
-            // Second call — already disconnected, should be no-op
+            expect(scheduleSpy).toHaveBeenCalledTimes(1);
+            // Second call — already disconnected. Post-v1.18.8 bug 2 fix:
+            // the pending timer is cleared (stale-state protection) and
+            // scheduleReconnect is NOT re-invoked. Callers that want to
+            // reconnect after this must explicitly call startAccount.
             ctrl.forceDisconnect('health');
-            expect(ctrl.reconnectTimer).toBe(timer1); // same timer, not doubled
+            expect(scheduleSpy).toHaveBeenCalledTimes(1);
+            expect(ctrl.reconnectTimer).toBeNull();
         });
 
         it('app quit clears all timers via forceDisconnect shutdown', () => {
@@ -1425,5 +1446,115 @@ describe('syncNewEmails two-phase parsing', () => {
         expect(toEmail).toBe('bob@example.com');
 
         imapEngine['controllers'].delete('acct-fields-1');
+    });
+});
+
+describe('AccountSyncController — stale timer cleanup (v1.18.8 bug 2)', () => {
+    it('forceDisconnect clears reconnectTimer even when status is already disconnected', async () => {
+        const { AccountSyncController } = await import('./imap.js');
+        const ctrl = new AccountSyncController('acc-stale');
+        // Arrange: simulate the pre-sleep state where a client close already
+        // disconnected the controller and armed a reconnect timer that was
+        // never cleared because the next forceDisconnect early-returned.
+        const timerFired = vi.fn();
+        ctrl.status = 'disconnected';
+        ctrl.reconnectTimer = setTimeout(timerFired, 10) as unknown as ReturnType<typeof setTimeout>;
+
+        // Act
+        ctrl.forceDisconnect('health');
+
+        // Assert: the pending timer is cleared, and it never fires.
+        expect(ctrl.reconnectTimer).toBeNull();
+        await new Promise(r => setTimeout(r, 20));
+        expect(timerFired).not.toHaveBeenCalled();
+    });
+
+    it('forceDisconnect drains operationQueue and clears heartbeat even when already disconnected', async () => {
+        const { AccountSyncController } = await import('./imap.js');
+        const ctrl = new AccountSyncController('acc-stale-2');
+        ctrl.status = 'disconnected';
+        ctrl.heartbeatTimer = setInterval(() => { /* never */ }, 1000);
+        const heartbeat = ctrl.heartbeatTimer;
+
+        ctrl.forceDisconnect('health');
+
+        expect(ctrl.heartbeatTimer).toBeNull();
+        clearInterval(heartbeat);
+    });
+
+    it('stopController detaches the client close listener so an in-flight close event cannot arm a new reconnect', async () => {
+        const { imapEngine, AccountSyncController } = await import('./imap.js');
+        const fakeClient = {
+            listeners: new Map<string, Array<() => void>>(),
+            on(event: string, cb: () => void) {
+                if (!this.listeners.has(event)) this.listeners.set(event, []);
+                this.listeners.get(event)!.push(cb);
+                return this;
+            },
+            removeAllListeners(event: string) {
+                this.listeners.delete(event);
+                return this;
+            },
+            close() { /* no-op */ },
+            async logout() { /* no-op */ },
+        };
+
+        const ctrl = new AccountSyncController('acc-detach');
+        ctrl.client = fakeClient as unknown as import('imapflow').ImapFlow;
+        ctrl.status = 'connected';
+        // Wire scheduleReconnect so forceDisconnect('user') doesn't trigger the new throw.
+        ctrl.scheduleReconnect = () => { /* test no-op */ };
+        // Simulate the close handler that connectAccountToController registers.
+        fakeClient.on('close', () => { ctrl.forceDisconnect('health'); });
+        imapEngine.controllers.set('acc-detach', ctrl);
+
+        // Act
+        imapEngine.stopController('acc-detach');
+
+        // Assert: the 'close' listener was removed before the client was
+        // closed, so it cannot fire and thrash the next controller.
+        expect(fakeClient.listeners.get('close')).toBeUndefined();
+        expect(imapEngine.controllers.has('acc-detach')).toBe(false);
+    });
+});
+
+describe('handlePowerResume — integration with real AccountSyncController (v1.18.8 bug 2)', () => {
+    it('wakes an already-disconnected-with-stale-timer controller without thrashing', async () => {
+        const { AccountSyncController, imapEngine } = await import('./imap.js');
+        const { handlePowerResume } = await import('./powerReconnect.js');
+
+        // Arrange: a real controller with a stale reconnectTimer from before sleep.
+        const ctrl = new AccountSyncController('acc-wake');
+        ctrl.status = 'disconnected';
+        // Wire scheduleReconnect override so forceDisconnect('health') inside
+        // handlePowerResume doesn't hit the new throw on the base class.
+        ctrl.scheduleReconnect = () => { /* test no-op */ };
+        const staleFired = vi.fn();
+        ctrl.reconnectTimer = setTimeout(staleFired, 20) as unknown as ReturnType<typeof setTimeout>;
+        imapEngine.controllers.set('acc-wake', ctrl);
+
+        // Replace startAccount so we can assert it's called exactly once
+        // without standing up real IMAP.
+        const originalStart = imapEngine.startAccount.bind(imapEngine);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const startSpy = vi.fn(async (_id: string) => { /* no-op */ });
+        (imapEngine as unknown as { startAccount: typeof startSpy }).startAccount = startSpy;
+
+        try {
+            // Act
+            await handlePowerResume(imapEngine);
+
+            // Give the stale timer time to fire if it wasn't cleared.
+            await new Promise(r => setTimeout(r, 40));
+
+            // Assert
+            expect(startSpy).toHaveBeenCalledTimes(1);
+            expect(startSpy).toHaveBeenCalledWith('acc-wake');
+            expect(staleFired).not.toHaveBeenCalled();
+            expect(ctrl.reconnectAttempts).toBe(0);
+        } finally {
+            (imapEngine as unknown as { startAccount: typeof originalStart }).startAccount = originalStart;
+            imapEngine.controllers.delete('acc-wake');
+        }
     });
 });
