@@ -157,6 +157,10 @@ const ALLOWED_INVOKE_CHANNELS = [
   'mcp:get-tools',
   // External link opener (exact-URL allowlisted in main process)
   'shell:open-external',
+  // Email-body link opener — scheme-allowlisted (https/http/mailto) in
+  // shellOpenEmailLink.ts. Invoked from the sandboxed iframe click
+  // interceptor in ReadingPane.tsx (v1.18.8 bug 3 fix).
+  'shell:open-email-link',
   // Phase 12.5: Window controls + app info (frameless window)
   'window:minimize',
   'window:maximize',

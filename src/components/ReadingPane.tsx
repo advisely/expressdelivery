@@ -93,8 +93,34 @@ function processRemoteImages(html: string, block: boolean): { html: string; coun
 // The only script is our injected ResizeObserver that posts height via postMessage.
 // @param sanitizedBodyHtml — MUST be DOMPurify-sanitized before calling.
 // @param allowRemoteImages — when true, adds https: to img-src CSP (user consented).
-function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string builder, no React state
+export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
     const imgSrc = allowRemoteImages ? 'img-src data: https:;' : 'img-src data:;';
+    // Capture-phase click interceptor. Walks up from the click target to the
+    // nearest ancestor <a>, preventDefaults the navigation, and postMessages
+    // the href to the parent so ReadingPane can open it via shell.openExternal.
+    // Capture phase (`true` as the third addEventListener arg) is essential —
+    // otherwise a malicious email script could stopPropagation on bubble and
+    // bypass the interceptor, allowing the iframe to navigate away and wipe
+    // the email content (v1.18.8 bug 3).
+    //
+    // NOTE: this script runs alongside the existing ResizeObserver. Both are
+    // inside the CSP script-src 'unsafe-inline' carveout that our sandbox
+    // policy already permits for the srcdoc document only.
+    const linkInterceptorScript = [
+        "function handleLinkClick(e) {",
+        "  var t = e.target;",
+        "  while (t && t !== document.body) {",
+        "    if ((t.tagName === 'A' || t.tagName === 'AREA') && t.href) {",
+        "      e.preventDefault();",
+        "      window.parent.postMessage({type:'link-click',url:t.href},'*');",
+        "      return;",
+        "    }",
+        "    t = t.parentNode;",
+        "  }",
+        "}",
+        "document.addEventListener('click', handleLinkClick, true);",
+    ].join('');
     return [
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
@@ -103,11 +129,14 @@ function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false)
         'body{margin:0;padding:16px 20px;font-family:system-ui,-apple-system,sans-serif;',
         'font-size:14px;line-height:1.6;color:#1a1a1a;background:transparent;',
         'word-wrap:break-word;overflow-wrap:break-word}',
-        'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5}',
+        'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5;cursor:pointer}',
         '</style>',
-        '<script>new ResizeObserver(function(){',
+        '<script>',
+        linkInterceptorScript,
+        'new ResizeObserver(function(){',
         'window.parent.postMessage({type:"iframe-height",height:document.body.scrollHeight},"*");',
-        '}).observe(document.body);</script>',
+        '}).observe(document.body);',
+        '</script>',
         '</head><body>',
         sanitizedBodyHtml,
         '</body></html>',
@@ -193,17 +222,22 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
         const allowedOrigins = new Set(['null', window.location.origin, '']);
         function handleMessage(e: MessageEvent) {
             // Defence-in-depth: origin allowlist PLUS object-identity check.
-            // Object identity (`e.source === ...contentWindow`) cannot be
-            // spoofed across windows and is the authoritative check; origin
-            // match is a secondary filter to satisfy static-analysis rules
-            // and to reject messages from unrelated tabs / extensions.
             if (!allowedOrigins.has(e.origin)) return;
-            if (
-                e.source === iframeRef.current?.contentWindow &&
-                e.data?.type === 'iframe-height' &&
-                typeof e.data.height === 'number'
-            ) {
-                setContentHeight(e.data.height + 32);
+            if (e.source !== iframeRef.current?.contentWindow) return;
+            const data = e.data as { type?: string; height?: number; url?: string } | undefined;
+            if (!data || typeof data.type !== 'string') return;
+
+            if (data.type === 'iframe-height' && typeof data.height === 'number') {
+                setContentHeight(data.height + 32);
+                return;
+            }
+            if (data.type === 'link-click' && typeof data.url === 'string') {
+                // Validated in main process (shellOpenEmailLink.ts scheme allowlist).
+                // Fire-and-forget; renderer ignores the result.
+                ipcInvoke('shell:open-email-link', { url: data.url }).catch(() => {
+                    /* main may be shutting down or validator rejected */
+                });
+                return;
             }
         }
         window.addEventListener('message', handleMessage);

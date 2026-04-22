@@ -76,6 +76,7 @@ import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
 import { handleShellOpenExternal } from './shellOpen.js'
+import { handleShellOpenEmailLink } from './shellOpenEmailLink.js'
 import { registerAuthIpcHandlers } from './auth/ipcHandlers.js'
 // menu.ts removed — frameless window with custom TitleBar component (Phase 12.5)
 
@@ -2623,6 +2624,15 @@ app.whenReady().then(() => {
   // Keeps renderer-side XSS / prompt-injection from opening arbitrary URLs via shell.
   ipcMain.handle('shell:open-external', async (_event, args: { url?: unknown }) => {
     return handleShellOpenExternal(args);
+  });
+
+  // Email-body link opener. Separate from shell:open-external (which uses a
+  // strict exact-URL allowlist for provider help URLs) — this channel is
+  // invoked by the sandboxed email iframe when the user clicks any <a> in
+  // the email body. Validated by scheme allowlist (https/http/mailto) in
+  // shellOpenEmailLink.ts. See v1.18.8 Task 3 of three-bug-fixes plan.
+  ipcMain.handle('shell:open-email-link', async (_event, args: { url?: unknown }) => {
+    return handleShellOpenEmailLink(args);
   });
 
   // Global shortcuts for actions that should work regardless of focus

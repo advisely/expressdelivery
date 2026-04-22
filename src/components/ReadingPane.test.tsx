@@ -834,3 +834,76 @@ describe('ReadingPane', () => {
         });
     });
 });
+
+describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
+    it('injects a capture-phase click listener into the srcdoc', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<p>hi</p>');
+        // The interceptor must run in capture phase so malicious email
+        // scripts can't stopPropagation on bubble.
+        expect(srcdoc).toMatch(/addEventListener\(\s*['"]click['"][^)]*true\s*\)/);
+        // It must postMessage the clicked URL to the parent with the
+        // agreed-on type.
+        expect(srcdoc).toContain('window.parent.postMessage');
+        expect(srcdoc).toContain('link-click');
+    });
+
+    it('calls preventDefault to stop the iframe from navigating', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<a href="https://example.com">x</a>');
+        expect(srcdoc).toContain('preventDefault');
+    });
+
+    it('posts link-click messages from the iframe to shell:open-email-link IPC', async () => {
+        // Render a ReadingPane with a selected email so SandboxedEmailBody mounts.
+        // The message handler is installed in SandboxedEmailBody's useEffect and
+        // listens on window — we can dispatch a synthetic MessageEvent directly.
+        const { useEmailStore } = await import('../stores/emailStore');
+        const email: Partial<EmailFull> = {
+            id: 'e-link', thread_id: 't-link', account_id: 'a1', folder_id: 'f1',
+            subject: 's', from_name: 'f', from_email: 'f@example.com',
+            to_email: 't@example.com', date: '2026-04-22',
+            snippet: 'snip', is_read: 1, is_flagged: 0, has_attachments: 0,
+            body_html: '<a href="https://example.com">x</a>',
+            body_text: '',
+        };
+        useEmailStore.setState({
+            selectedEmail: email as EmailFull,
+            folders: [{
+                id: 'f1', account_id: 'a1', name: 'Inbox', path: '/INBOX',
+                parent_path: null, type: 'inbox', color: null, sort_order: 0,
+            } as never],
+            tags: [],
+        });
+        (ipcInvoke as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (channel: string) => {
+            if (channel === 'attachments:list') return [];
+            if (channel === 'emails:thread') return [];
+            if (channel === 'emails:unsubscribe-info') return null;
+            if (channel === 'emails:tags') return [];
+            if (channel === 'trusted-senders:list') return [];
+            if (channel === 'settings:get') return null;
+            return null;
+        });
+
+        render(
+            <ThemeProvider>
+                <ReadingPane onReply={() => { /* no-op */ }} onForward={() => { /* no-op */ }} onToast={() => { /* no-op */ }} />
+            </ThemeProvider>
+        );
+        const iframe = (await waitFor(() => screen.getByTitle('Email content'))) as HTMLIFrameElement;
+
+        // Dispatch the link-click message as if it came from the iframe.
+        // jsdom allows passing `source` on MessageEvent init, which SandboxedEmailBody
+        // compares against iframeRef.current.contentWindow.
+        const evt = new MessageEvent('message', {
+            data: { type: 'link-click', url: 'https://unsub.example.com/?t=abc' },
+            source: iframe.contentWindow,
+            origin: 'null',
+        });
+        window.dispatchEvent(evt);
+
+        await waitFor(() => {
+            expect(ipcInvoke).toHaveBeenCalledWith('shell:open-email-link', { url: 'https://unsub.example.com/?t=abc' });
+        });
+    });
+});
