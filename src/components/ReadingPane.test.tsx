@@ -854,6 +854,33 @@ describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
         expect(srcdoc).toContain('preventDefault');
     });
 
+    it('normalizes tagName case so SVG <a> elements are intercepted (v1.18.10)', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<svg><a href="https://example.com"><rect/></a></svg>');
+        // The interceptor must uppercase tagName because SVG <a> preserves
+        // lowercase "a" (SVG namespace, per DOM spec) — without this the
+        // walker bypassed SVG anchors and let the iframe self-navigate,
+        // blanking the email when a user clicked an SVG graphic linking
+        // to an unsubscribe page.
+        expect(srcdoc).toContain('toUpperCase');
+        // Should use getAttribute because SVGAElement.href is an
+        // SVGAnimatedString object (not a usable string).
+        expect(srcdoc).toContain("getAttribute");
+        expect(srcdoc).toContain("'href'");
+    });
+
+    it('bails out for same-document fragment anchors so native scroll works (v1.18.10)', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<a href="#top">Top</a>');
+        // Must detect fragment-only anchors (t.hash non-empty AND same
+        // pathname) and return early without preventDefault, letting the
+        // browser's native same-document scroll handle it. Without this
+        // bailout, href="#top" resolves to about:srcdoc#top → posted to
+        // shellOpenEmailLink → rejected by scheme allowlist → nothing
+        // happens (regression vs pre-fix native scroll).
+        expect(srcdoc).toMatch(/t\.hash.+t\.pathname.+document\.location\.pathname/);
+    });
+
     it('posts link-click messages from the iframe to shell:open-email-link IPC', async () => {
         // Render a ReadingPane with a selected email so SandboxedEmailBody mounts.
         // The message handler is installed in SandboxedEmailBody's useEffect and

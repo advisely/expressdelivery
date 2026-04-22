@@ -107,13 +107,36 @@ export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages =
     // NOTE: this script runs alongside the existing ResizeObserver. Both are
     // inside the CSP script-src 'unsafe-inline' carveout that our sandbox
     // policy already permits for the srcdoc document only.
+    // tagName check MUST uppercase — SVG <a> elements live in the SVG
+    // namespace and preserve lowercase `a` per the DOM spec. Skipping the
+    // uppercase meant clickable SVG graphics in marketing emails bypassed
+    // the interceptor → iframe self-navigated → X-Frame-Options blanked
+    // the email (v1.18.10 follow-up to bug 3).
+    //
+    // href read MUST use getAttribute — SVGAElement.href is an
+    // SVGAnimatedString object (not a string), so `t.href` on an SVG
+    // anchor is truthy-but-useless for URL handling.
+    //
+    // Fragment-only anchors (href="#top") resolve to `about:srcdoc#top`
+    // inside a srcdoc iframe (baseURI = about:srcdoc). If we posted that
+    // to the parent, shellOpenEmailLink would reject `about:` and the
+    // scroll would silently fail — a regression vs native scroll. Bail
+    // out of the interceptor for same-document fragment anchors so the
+    // browser handles the scroll natively.
     const linkInterceptorScript = [
         "function handleLinkClick(e) {",
         "  var t = e.target;",
         "  while (t && t !== document.body) {",
-        "    if ((t.tagName === 'A' || t.tagName === 'AREA') && t.href) {",
+        "    var tn = t.tagName ? String(t.tagName).toUpperCase() : '';",
+        "    if (tn === 'A' || tn === 'AREA') {",
+        "      if (t.hash && t.pathname === document.location.pathname) return;",
+        "      var raw = t.getAttribute ? t.getAttribute('href') : null;",
+        "      if (!raw) return;",
+        "      var resolved;",
+        "      try { resolved = new URL(raw, document.baseURI).href; }",
+        "      catch (_err) { return; }",
         "      e.preventDefault();",
-        "      window.parent.postMessage({type:'link-click',url:t.href},'*');",
+        "      window.parent.postMessage({type:'link-click',url:resolved},'*');",
         "      return;",
         "    }",
         "    t = t.parentNode;",

@@ -580,17 +580,38 @@ describe('AccountSyncController', () => {
     });
 
     describe('edge cases', () => {
-        it('concurrent forceDisconnect calls do not double-schedule reconnect', () => {
+        it('concurrent forceDisconnect(health) re-arms reconnect so controller is not stuck disconnected', () => {
             ctrl.client = { close: vi.fn(), removeAllListeners: vi.fn() } as unknown as ImapFlow;
             ctrl.status = 'connected';
             const scheduleSpy = vi.spyOn(ctrl, 'scheduleReconnect');
+            // Call 1 — close listener path, status was 'connected'. Schedules.
             ctrl.forceDisconnect('health');
             expect(scheduleSpy).toHaveBeenCalledTimes(1);
-            // Second call — already disconnected. Post-v1.18.8 bug 2 fix:
-            // the pending timer is cleared (stale-state protection) and
-            // scheduleReconnect is NOT re-invoked. Callers that want to
-            // reconnect after this must explicitly call startAccount.
+            expect(ctrl.reconnectTimer).not.toBeNull();
+            // Call 2 — in-flight heartbeat / sync rejection path firing on the
+            // same controller milliseconds later. Status is now 'disconnected'
+            // and reconnectTimer is armed. v1.18.10 semantic: the stale timer
+            // is cleared (protecting wake-from-sleep) AND re-armed because
+            // reason='health' and we had a pending reconnect — without this
+            // re-arm, a brief Wi-Fi blip would leave the controller stuck.
             ctrl.forceDisconnect('health');
+            expect(scheduleSpy).toHaveBeenCalledTimes(2);
+            expect(ctrl.reconnectTimer).not.toBeNull();
+        });
+
+        it('concurrent forceDisconnect(health) + forceDisconnect(user) does NOT re-arm (user wins)', () => {
+            ctrl.client = { close: vi.fn(), removeAllListeners: vi.fn() } as unknown as ImapFlow;
+            ctrl.status = 'connected';
+            const scheduleSpy = vi.spyOn(ctrl, 'scheduleReconnect');
+            // Health path schedules.
+            ctrl.forceDisconnect('health');
+            expect(scheduleSpy).toHaveBeenCalledTimes(1);
+            // User path (e.g. stopController during accounts:update) must NOT
+            // re-arm a reconnect — the outer flow owns reconnection lifecycle.
+            // This is the path exercised by handlePowerResume → startAccount →
+            // stopController, which needs to clean up the re-armed timer from
+            // the earlier forceDisconnect('health') call.
+            ctrl.forceDisconnect('user');
             expect(scheduleSpy).toHaveBeenCalledTimes(1);
             expect(ctrl.reconnectTimer).toBeNull();
         });
@@ -1450,23 +1471,32 @@ describe('syncNewEmails two-phase parsing', () => {
 });
 
 describe('AccountSyncController — stale timer cleanup (v1.18.8 bug 2)', () => {
-    it('forceDisconnect clears reconnectTimer even when status is already disconnected', async () => {
+    it('forceDisconnect clears the STALE reconnectTimer even when status is already disconnected', async () => {
         const { AccountSyncController } = await import('./imap.js');
         const ctrl = new AccountSyncController('acc-stale');
+        // Wire a no-op scheduleReconnect so the v1.18.10 re-arm doesn't
+        // hit the base-class throw-stub. We don't care whether a new
+        // timer is armed here — we only care the OLD stale one doesn't
+        // fire (the whole point of the wake-from-sleep fix).
+        let reArmCount = 0;
+        ctrl.scheduleReconnect = () => { reArmCount++; };
         // Arrange: simulate the pre-sleep state where a client close already
         // disconnected the controller and armed a reconnect timer that was
         // never cleared because the next forceDisconnect early-returned.
-        const timerFired = vi.fn();
+        const staleTimerFired = vi.fn();
         ctrl.status = 'disconnected';
-        ctrl.reconnectTimer = setTimeout(timerFired, 10) as unknown as ReturnType<typeof setTimeout>;
+        ctrl.reconnectTimer = setTimeout(staleTimerFired, 10) as unknown as ReturnType<typeof setTimeout>;
 
-        // Act
+        // Act — simulates powerMonitor.resume firing forceDisconnect on a
+        // ctrl that already had a pre-sleep reconnect armed.
         ctrl.forceDisconnect('health');
 
-        // Assert: the pending timer is cleared, and it never fires.
+        // Assert: the STALE timer handle is cleared, its callback never
+        // fires, and v1.18.10 re-arm fired so the controller isn't stuck.
         expect(ctrl.reconnectTimer).toBeNull();
+        expect(reArmCount).toBe(1);
         await new Promise(r => setTimeout(r, 20));
-        expect(timerFired).not.toHaveBeenCalled();
+        expect(staleTimerFired).not.toHaveBeenCalled();
     });
 
     it('forceDisconnect drains operationQueue and clears heartbeat even when already disconnected', async () => {

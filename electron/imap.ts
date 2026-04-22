@@ -199,13 +199,27 @@ export class AccountSyncController {
         if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
         if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
         if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
+        const hadPendingReconnect = this.reconnectTimer !== null;
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
         this.operationQueue.drain();
 
         // Idempotency guard — if we were already disconnected, stop here.
         // Re-entering the socket close / status transition / reconnect-
         // schedule logic would be wasted work and could double-fire events.
-        if (this.status === 'disconnected') return;
+        //
+        // BUT: if we just cleared a live reconnectTimer and the caller is
+        // asking for a health reconnect, re-arm before returning. Without
+        // this, two concurrent forceDisconnect('health') calls (close
+        // listener + in-flight heartbeat/sync rejection on a brief Wi-Fi
+        // blip) leave the controller stuck disconnected — the second call
+        // cancels the timer the first just armed, then early-returns.
+        // (v1.18.10 follow-up to v1.18.8 bug 2.)
+        if (this.status === 'disconnected') {
+            if (hadPendingReconnect && reason === 'health') {
+                this.scheduleReconnect();
+            }
+            return;
+        }
 
         try {
             // Detach our listeners first so the close event we're about to
