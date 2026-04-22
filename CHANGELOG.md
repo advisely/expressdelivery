@@ -9,6 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.8 — 2026-04-22
+
+### Bug fixes
+
+- **Window: can't reopen after close-to-tray.** The second-instance handler (triggered when the user double-clicks the desktop shortcut while the app is hidden to the tray) called `win.focus()` on a hidden window, which is a silent no-op on Windows. The window now calls `win.show()` first when `!isVisible()`, so the window reliably reappears.
+- **IMAP: no reconnect after laptop wake from sleep.** `AccountSyncController.forceDisconnect()` early-returned when the status was already `'disconnected'`, leaving a pre-sleep reconnect `setTimeout` armed with stale exponential-backoff state. On wake, that timer fired mid-way through the power-resume reconnect and thrashed the freshly-established connection. Timer cleanup and `close`/`error` listener detachment now run unconditionally before the status guard.
+- **Email: clicking an unsubscribe link blanked the email body.** The sandboxed iframe rendering email HTML had no click interceptor, so bare `<a href>` clicks (and `<area>` clicks in image maps) navigated the iframe itself and were blocked by `X-Frame-Options: DENY` on the destination — the email content was replaced with a blank frame. A capture-phase click interceptor now runs inside the srcdoc, intercepts anchor and area clicks, and postMessages the URL to the parent, which opens it in the default browser via a new scheme-allowlisted `shell:open-email-link` IPC (https / http / mailto only; javascript / data / file explicitly rejected).
+
+### Security
+
+- New `shell:open-email-link` IPC handler is scheme-allowlisted, length-capped (≤2000 chars), WHATWG-URL-parsed, and log-injection-resistant (CR/LF/NUL stripping). Kept separate from the existing exact-URL-allowlisted `shell:open-external` so the provider-help URL allowlist is not weakened. The handler passes the WHATWG-normalized `parsed.href` (not the raw input) to `shell.openExternal` for defense-in-depth.
+
+---
+
 ## [1.18.7] - 2026-04-20
 
 User report: "I had the app open, put the laptop to sleep, woke it, then
