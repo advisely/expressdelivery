@@ -68,15 +68,19 @@ function escapeAttr(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
-function processRemoteImages(html: string, block: boolean): { html: string; count: number } {
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string transform, no React state
+export function processRemoteImages(html: string, block: boolean): { html: string; count: number } {
     let count = 0;
     if (!block) return { html, count };
-    // Block remote src= URLs
+    // <img src="https://..."> — replace with a 1x1 SVG placeholder, stash the
+    // original URL in data-blocked-src for the "Show images" toggle.
     let processed = html.replace(/<img\s([^>]*?)src=["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (_full, before: string, url: string, after: string) => {
         count++;
         return `<img ${before}src="${PLACEHOLDER_SVG}" data-blocked-src="${escapeAttr(url)}"${after}>`;
     });
-    // Block remote srcset= URLs
+    // <img srcset="..."> — strip the attribute entirely when it contains any
+    // remote URL; the browser falls back to src (which we've already
+    // placeholder'd above).
     processed = processed.replace(/(<img\s[^>]*?)srcset=["']([^"']+)["']/gi, (_full, before: string, srcset: string) => {
         const hasRemote = /https?:\/\//i.test(srcset);
         if (hasRemote) {
@@ -85,31 +89,128 @@ function processRemoteImages(html: string, block: boolean): { html: string; coun
         }
         return _full;
     });
+    // <source srcset="..."> inside <picture> — same treatment as <img srcset>.
+    // Without this, marketing emails with responsive hero images still hit the
+    // network on the srcset URL and log a CSP violation (v1.18.14 fix).
+    processed = processed.replace(/(<source\s[^>]*?)srcset=["']([^"']+)["']/gi, (_full, before: string, srcset: string) => {
+        const hasRemote = /https?:\/\//i.test(srcset);
+        if (hasRemote) {
+            count++;
+            return `${before}data-blocked-srcset="${escapeAttr(srcset)}"`;
+        }
+        return _full;
+    });
+    // CSS url(https://...) — covers both inline `style="background-image:
+    // url(...)"` attributes and <style> blocks. The CSP `img-src` directive
+    // governs all image loads including CSS background-images, so without
+    // rewriting these we get `img-src data:` violations on every email open
+    // when consent isn't granted (v1.18.14 fix). Quote and whitespace variants
+    // are all accepted by the regex; the replacement always emits the safe
+    // placeholder data URI form.
+    processed = processed.replace(/url\(\s*(['"]?)(https?:\/\/[^)'"\s]+)\1\s*\)/gi, (_full, _quote: string, url: string) => {
+        count++;
+        return `url(${PLACEHOLDER_SVG}) /* blocked: ${url.replace(/\*\//g, '')} */`;
+    });
     return { html: processed, count };
 }
 
+// Combined boot script for the sandboxed email iframe: link-click interceptor
+// + ResizeObserver for auto-resizing.
+//
+// THIS STRING IS CSP-HASHED. The SHA-256 of these exact bytes is pinned in
+// index.html's parent `script-src` directive. Any edit — even whitespace —
+// changes the hash, and the browser will refuse to execute the script until
+// index.html is updated. A unit test enforces the sync so the drift fails
+// loud at `npm run test` rather than at runtime in a packaged build.
+//
+// Why pinning is required: srcdoc iframes inherit the parent document's CSP
+// (HTML spec — srcdoc origin is the embedder's origin). The srcdoc's own
+// `<meta http-equiv="Content-Security-Policy">` can ADD restrictions but
+// cannot loosen them. Before v1.18.11, the parent CSP was `script-src
+// 'self'` with no hash/nonce/unsafe-inline allowance, so the srcdoc's own
+// `script-src 'unsafe-inline'` meta was overridden and the script below
+// NEVER EXECUTED. Every email click fell through to default iframe
+// navigation and X-Frame-Options blanked the body (v1.18.8 bug 3 true
+// root cause).
+//
+// Link-interceptor design:
+// - Capture phase (3rd arg `true`) — prevents a malicious email script
+//   from stopPropagation'ing on bubble to bypass the walker.
+// - tagName uppercase — SVG <a> elements preserve lowercase 'a' per the
+//   DOM namespace rules, and clickable SVG graphics in marketing emails
+//   used to sneak past a case-sensitive 'A' check (v1.18.10 fix).
+// - getAttribute('href') — SVGAElement.href is an SVGAnimatedString
+//   object, not a string; .getAttribute returns the raw href both for
+//   HTML and SVG anchors.
+// - Fragment-only anchors (href="#top") bail out early so the browser
+//   handles same-doc scroll natively; baseURI in srcdoc is about:srcdoc
+//   which the scheme allowlist rejects.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test hash verification
+export const IFRAME_BOOT_SCRIPT = [
+    "function handleLinkClick(e) {",
+    "  var t = e.target;",
+    "  while (t && t !== document.body) {",
+    "    var tn = t.tagName ? String(t.tagName).toUpperCase() : '';",
+    "    if (tn === 'A' || tn === 'AREA') {",
+    "      if (t.hash && t.pathname === document.location.pathname) return;",
+    "      var raw = t.getAttribute ? t.getAttribute('href') : null;",
+    "      if (!raw) return;",
+    "      var resolved;",
+    "      try { resolved = new URL(raw, document.baseURI).href; }",
+    "      catch (_err) { return; }",
+    "      e.preventDefault();",
+    "      window.parent.postMessage({type:'link-click',url:resolved},'*');",
+    "      return;",
+    "    }",
+    "    t = t.parentNode;",
+    "  }",
+    "}",
+    "document.addEventListener('click', handleLinkClick, true);",
+    'new ResizeObserver(function(){',
+    'window.parent.postMessage({type:"iframe-height",height:document.body.scrollHeight},"*");',
+    '}).observe(document.body);',
+].join('');
+
 // Wrap sanitized email HTML in a minimal document for iframe srcdoc.
 // SECURITY: sandbox="allow-scripts" (no allow-same-origin) prevents parent DOM access.
-// The only script is our injected ResizeObserver that posts height via postMessage.
+// The only script is IFRAME_BOOT_SCRIPT (link interceptor + ResizeObserver).
 // @param sanitizedBodyHtml — MUST be DOMPurify-sanitized before calling.
 // @param allowRemoteImages — when true, adds https: to img-src CSP (user consented).
-function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
-    const imgSrc = allowRemoteImages ? 'img-src data: https:;' : 'img-src data:;';
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string builder, no React state
+export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
+    // When the user has clicked "Show images" we allow BOTH https: and http:
+    // because marketing emails routinely use plain-HTTP tracking pixels and
+    // off-brand CDNs. Without http: in the allowlist, the iframe (inheriting
+    // the parent's CSP) blocks those images with a mixed-content violation.
+    // Privacy gate is still per-email — without consent, only data: URIs
+    // (CID inline images decoded locally) load.
+    const imgSrc = allowRemoteImages ? 'img-src data: https: http:;' : 'img-src data:;';
+    // `frame-ancestors` is intentionally omitted — it's a meta-CSP no-op per
+    // the spec (Chromium logs a warning) and for srcdoc iframes nobody else
+    // can frame the document anyway (it's created by the parent).
+    //
+    // `<script>` is placed at end-of-body (not head) so `document.body`
+    // exists when the ResizeObserver initializes. Parsing order: scripts in
+    // <head> run synchronously before <body> is parsed, so observing
+    // `document.body` from the head throws "parameter 1 is not of type
+    // 'Element'". Click listeners on `document` still attach early — the
+    // document itself exists from the first tag — so user clicks during the
+    // brief body-parse window still get intercepted once the script runs.
     return [
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
-        `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; ${imgSrc} frame-ancestors 'none';">`,
+        `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; ${imgSrc}">`,
         '<style>',
         'body{margin:0;padding:16px 20px;font-family:system-ui,-apple-system,sans-serif;',
         'font-size:14px;line-height:1.6;color:#1a1a1a;background:transparent;',
         'word-wrap:break-word;overflow-wrap:break-word}',
-        'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5}',
+        'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5;cursor:pointer}',
         '</style>',
-        '<script>new ResizeObserver(function(){',
-        'window.parent.postMessage({type:"iframe-height",height:document.body.scrollHeight},"*");',
-        '}).observe(document.body);</script>',
         '</head><body>',
         sanitizedBodyHtml,
+        '<script>',
+        IFRAME_BOOT_SCRIPT,
+        '</script>',
         '</body></html>',
     ].join('');
 }
@@ -193,17 +294,22 @@ const SandboxedEmailBody = React.memo(function SandboxedEmailBody({
         const allowedOrigins = new Set(['null', window.location.origin, '']);
         function handleMessage(e: MessageEvent) {
             // Defence-in-depth: origin allowlist PLUS object-identity check.
-            // Object identity (`e.source === ...contentWindow`) cannot be
-            // spoofed across windows and is the authoritative check; origin
-            // match is a secondary filter to satisfy static-analysis rules
-            // and to reject messages from unrelated tabs / extensions.
             if (!allowedOrigins.has(e.origin)) return;
-            if (
-                e.source === iframeRef.current?.contentWindow &&
-                e.data?.type === 'iframe-height' &&
-                typeof e.data.height === 'number'
-            ) {
-                setContentHeight(e.data.height + 32);
+            if (e.source !== iframeRef.current?.contentWindow) return;
+            const data = e.data as { type?: string; height?: number; url?: string } | undefined;
+            if (!data || typeof data.type !== 'string') return;
+
+            if (data.type === 'iframe-height' && typeof data.height === 'number') {
+                setContentHeight(data.height + 32);
+                return;
+            }
+            if (data.type === 'link-click' && typeof data.url === 'string') {
+                // Validated in main process (shellOpenEmailLink.ts scheme allowlist).
+                // Fire-and-forget; renderer ignores the result.
+                ipcInvoke('shell:open-email-link', { url: data.url }).catch(() => {
+                    /* main may be shutting down or validator rejected */
+                });
+                return;
             }
         }
         window.addEventListener('message', handleMessage);

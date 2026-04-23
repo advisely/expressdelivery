@@ -53,7 +53,11 @@ function run(cmd, label) {
   console.log(`  ${label}`);
   console.log(`  $ ${cmd}`);
   console.log('='.repeat(60));
-  execSync(cmd, { cwd: ROOT, stdio: 'inherit', timeout: 300_000 });
+  // 20-minute timeout: electron-builder's x64+arm64 NSIS target with signtool
+  // timestamp round-trips routinely exceeds 5 minutes on slower machines /
+  // flaky timestamp servers. A long ceiling is still better than an open-
+  // ended hang; anything past 20 min genuinely warrants operator attention.
+  execSync(cmd, { cwd: ROOT, stdio: 'inherit', timeout: 1_200_000 });
 }
 
 function rmSafe(p) {

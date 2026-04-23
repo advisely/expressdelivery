@@ -205,7 +205,17 @@ describe('ReadingPane', () => {
         expect(srcdoc).toContain('Hello world');
         expect(srcdoc).toContain('Content-Security-Policy');
         expect(srcdoc).toContain('img-src data:');
-        expect(srcdoc).toContain("frame-ancestors 'none'");
+        // frame-ancestors intentionally omitted — meta-CSP no-op per spec
+        // (Chromium logs a warning) and srcdoc can't be re-framed anyway.
+        expect(srcdoc).not.toContain('frame-ancestors');
+        // <script> MUST sit after the email HTML so document.body exists when
+        // the ResizeObserver initializes — from <head> the observer throws
+        // "parameter 1 is not of type 'Element'" and never wires up.
+        const scriptIdx = srcdoc.indexOf('<script>');
+        const bodyOpenIdx = srcdoc.indexOf('<body>');
+        const bodyCloseIdx = srcdoc.indexOf('</body>');
+        expect(scriptIdx).toBeGreaterThan(bodyOpenIdx);
+        expect(scriptIdx).toBeLessThan(bodyCloseIdx);
     });
 
     it('renders plain text when no body_html', () => {
@@ -832,5 +842,228 @@ describe('ReadingPane', () => {
                 }));
             });
         });
+    });
+});
+
+describe('processRemoteImages — CSS + <source> coverage (v1.18.14)', () => {
+    it('passes HTML through unchanged when block=false (user consented)', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<img src="https://example.com/x.png"><div style="background:url(https://example.com/bg.jpg)"></div>';
+        const { html, count } = processRemoteImages(input, false);
+        expect(html).toBe(input);
+        expect(count).toBe(0);
+    });
+
+    it('rewrites <img src=https://...> to placeholder with data-blocked-src', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const { html, count } = processRemoteImages('<img src="https://example.com/x.png" alt="x">', true);
+        expect(html).toContain('data:image/svg+xml');
+        expect(html).toContain('data-blocked-src="https://example.com/x.png"');
+        expect(count).toBe(1);
+    });
+
+    it('rewrites <source srcset=https://...> inside <picture> (v1.18.14)', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<picture><source srcset="https://cdn.example.com/hero.webp 1x, https://cdn.example.com/hero@2x.webp 2x" type="image/webp"></picture>';
+        const { html, count } = processRemoteImages(input, true);
+        // Without <source> coverage marketing emails with responsive hero
+        // images still hit the network and log an img-src CSP violation.
+        // Active attribute must be renamed (data-* isn't fetched by the
+        // browser); substring would match the data-blocked-srcset value so
+        // use a word-boundary check on the attribute name instead.
+        expect(html).toMatch(/\sdata-blocked-srcset="/);
+        expect(html).not.toMatch(/\ssrcset="/);
+        expect(count).toBe(1);
+    });
+
+    it('rewrites CSS background-image url(https://...) in inline style (v1.18.14)', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<td style="background-image: url(https://cloud.example.com/banner.png); padding: 10px;">hi</td>';
+        const { html, count } = processRemoteImages(input, true);
+        // The CSP img-src directive governs CSS background-images, so these
+        // URLs must be rewritten or they trigger violations on every email.
+        expect(html).not.toContain('url(https://cloud.example.com/banner.png)');
+        expect(html).toContain('data:image/svg+xml');
+        expect(count).toBe(1);
+    });
+
+    it('rewrites CSS url() inside <style> blocks', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<style>.hero{background:url("https://cdn.example.com/bg.jpg") no-repeat;}</style><div class="hero"></div>';
+        const { html, count } = processRemoteImages(input, true);
+        expect(html).not.toContain('https://cdn.example.com/bg.jpg)');
+        expect(count).toBe(1);
+    });
+
+    it('handles unquoted, single-quoted, and double-quoted CSS url() forms', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = [
+            '<div style="background:url(https://a.example.com/1.png)"></div>',
+            '<div style=\'background:url("https://a.example.com/2.png")\'></div>',
+            '<div style="background:url( \'https://a.example.com/3.png\' )"></div>',
+        ].join('');
+        const { count } = processRemoteImages(input, true);
+        expect(count).toBe(3);
+    });
+});
+
+describe('buildIframeSrcdoc — img-src policy (v1.18.13)', () => {
+    it('blocks all remote images by default (data: only)', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<img src="http://tracker.example.com/pixel.gif">', false);
+        // Privacy gate: without explicit user consent, remote URIs must be
+        // blocked. Only CID/data: URIs (decoded locally) are allowed.
+        expect(srcdoc).toContain('img-src data:;');
+        expect(srcdoc).not.toContain('https:');
+        expect(srcdoc).not.toContain('img-src data: http');
+    });
+
+    it('allows both https: and http: images when user has consented', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<img src="http://tracker.example.com/pixel.gif">', true);
+        // Marketing emails ship tracking pixels on plain http: routinely.
+        // Without http: in the allowlist, the iframe blocks them with a
+        // mixed-content violation even after the user clicked "Show images".
+        // The per-email consent flag remains the privacy gate.
+        expect(srcdoc).toContain('img-src data: https: http:;');
+    });
+});
+
+describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
+    it('injects a capture-phase click listener into the srcdoc', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<p>hi</p>');
+        // The interceptor must run in capture phase so malicious email
+        // scripts can't stopPropagation on bubble.
+        expect(srcdoc).toMatch(/addEventListener\(\s*['"]click['"][^)]*true\s*\)/);
+        // It must postMessage the clicked URL to the parent with the
+        // agreed-on type.
+        expect(srcdoc).toContain('window.parent.postMessage');
+        expect(srcdoc).toContain('link-click');
+    });
+
+    it('calls preventDefault to stop the iframe from navigating', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<a href="https://example.com">x</a>');
+        expect(srcdoc).toContain('preventDefault');
+    });
+
+    it('normalizes tagName case so SVG <a> elements are intercepted (v1.18.10)', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<svg><a href="https://example.com"><rect/></a></svg>');
+        // The interceptor must uppercase tagName because SVG <a> preserves
+        // lowercase "a" (SVG namespace, per DOM spec) — without this the
+        // walker bypassed SVG anchors and let the iframe self-navigate,
+        // blanking the email when a user clicked an SVG graphic linking
+        // to an unsubscribe page.
+        expect(srcdoc).toContain('toUpperCase');
+        // Should use getAttribute because SVGAElement.href is an
+        // SVGAnimatedString object (not a usable string).
+        expect(srcdoc).toContain("getAttribute");
+        expect(srcdoc).toContain("'href'");
+    });
+
+    it('bails out for same-document fragment anchors so native scroll works (v1.18.10)', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<a href="#top">Top</a>');
+        // Must detect fragment-only anchors (t.hash non-empty AND same
+        // pathname) and return early without preventDefault, letting the
+        // browser's native same-document scroll handle it. Without this
+        // bailout, href="#top" resolves to about:srcdoc#top → posted to
+        // shellOpenEmailLink → rejected by scheme allowlist → nothing
+        // happens (regression vs pre-fix native scroll).
+        expect(srcdoc).toMatch(/t\.hash.+t\.pathname.+document\.location\.pathname/);
+    });
+
+    it('posts link-click messages from the iframe to shell:open-email-link IPC', async () => {
+        // Render a ReadingPane with a selected email so SandboxedEmailBody mounts.
+        // The message handler is installed in SandboxedEmailBody's useEffect and
+        // listens on window — we can dispatch a synthetic MessageEvent directly.
+        const { useEmailStore } = await import('../stores/emailStore');
+        const email: Partial<EmailFull> = {
+            id: 'e-link', thread_id: 't-link', account_id: 'a1', folder_id: 'f1',
+            subject: 's', from_name: 'f', from_email: 'f@example.com',
+            to_email: 't@example.com', date: '2026-04-22',
+            snippet: 'snip', is_read: 1, is_flagged: 0, has_attachments: 0,
+            body_html: '<a href="https://example.com">x</a>',
+            body_text: '',
+        };
+        useEmailStore.setState({
+            selectedEmail: email as EmailFull,
+            folders: [{
+                id: 'f1', account_id: 'a1', name: 'Inbox', path: '/INBOX',
+                parent_path: null, type: 'inbox', color: null, sort_order: 0,
+            } as never],
+            tags: [],
+        });
+        (ipcInvoke as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (channel: string) => {
+            if (channel === 'attachments:list') return [];
+            if (channel === 'emails:thread') return [];
+            if (channel === 'emails:unsubscribe-info') return null;
+            if (channel === 'emails:tags') return [];
+            if (channel === 'trusted-senders:list') return [];
+            if (channel === 'settings:get') return null;
+            return null;
+        });
+
+        render(
+            <ThemeProvider>
+                <ReadingPane onReply={() => { /* no-op */ }} onForward={() => { /* no-op */ }} onToast={() => { /* no-op */ }} />
+            </ThemeProvider>
+        );
+        const iframe = (await waitFor(() => screen.getByTitle('Email content'))) as HTMLIFrameElement;
+
+        // Dispatch the link-click message as if it came from the iframe.
+        // jsdom allows passing `source` on MessageEvent init, which SandboxedEmailBody
+        // compares against iframeRef.current.contentWindow.
+        const evt = new MessageEvent('message', {
+            data: { type: 'link-click', url: 'https://unsub.example.com/?t=abc' },
+            source: iframe.contentWindow,
+            origin: 'null',
+        });
+        window.dispatchEvent(evt);
+
+        await waitFor(() => {
+            expect(ipcInvoke).toHaveBeenCalledWith('shell:open-email-link', { url: 'https://unsub.example.com/?t=abc' });
+        });
+    });
+});
+
+describe('IFRAME_BOOT_SCRIPT — CSP hash sync (v1.18.11 bug 3 true root cause)', () => {
+    it('SHA-256 of IFRAME_BOOT_SCRIPT is pinned in index.html parent CSP script-src', async () => {
+        // The srcdoc iframe inherits the parent's CSP. If the hash in
+        // index.html drifts from IFRAME_BOOT_SCRIPT's actual content, the
+        // inline boot script is blocked at runtime — the link interceptor
+        // silently doesn't install and every anchor click in an email
+        // falls through to default iframe navigation (browser then blanks
+        // the iframe via frame-src / X-Frame-Options on the destination).
+        //
+        // This test fails loud at `npm run test` so drift cannot ship.
+        const { createHash } = await import('node:crypto');
+        const { readFileSync } = await import('node:fs');
+        const { resolve } = await import('node:path');
+        const { IFRAME_BOOT_SCRIPT } = await import('./ReadingPane');
+
+        const hash = createHash('sha256').update(IFRAME_BOOT_SCRIPT).digest('base64');
+        const expected = `sha256-${hash}`;
+
+        const indexHtmlPath = resolve(__dirname, '../../index.html');
+        const indexHtml = readFileSync(indexHtmlPath, 'utf-8');
+
+        // Extract the CSP meta tag and specifically the script-src directive.
+        const cspMatch = indexHtml.match(/Content-Security-Policy"\s+content="([^"]+)"/);
+        expect(cspMatch, 'index.html must contain a CSP meta tag').not.toBeNull();
+        const csp = cspMatch![1];
+        const scriptSrcMatch = csp.match(/script-src\s+([^;]+)/);
+        expect(scriptSrcMatch, 'CSP must define script-src').not.toBeNull();
+        const scriptSrc = scriptSrcMatch![1];
+
+        expect(
+            scriptSrc,
+            `index.html script-src is missing or out of sync with IFRAME_BOOT_SCRIPT.\n` +
+            `Expected hash: '${expected}'\n` +
+            `Current script-src: ${scriptSrc}\n` +
+            `Fix: update index.html so script-src includes '${expected}'.`
+        ).toContain(`'${expected}'`);
     });
 });

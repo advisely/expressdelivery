@@ -1,6 +1,6 @@
 # ExpressDelivery - AI-Powered Email Client
 
-Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted operations. **Status:** v1.18.7 (schema v17, 21 React components, 2 Zustand stores, ~120 IPC handlers, 8 MCP tools, 53 test files / 1150 tests). Full IMAP/SMTP with OAuth2 sign-in for Gmail (RFC 8252 loopback + PKCE S256) and Microsoft personal/business (`@azure/msal-node`), plus a Microsoft Graph send path for personal Outlook.com (Basic Auth SMTP kill April 2026). Per-account `AccountSyncController` with NOOP heartbeat + infinite exponential-backoff reconnect, `AuthTokenManager` singleton with JIT pre-flight refresh + per-account dedup mutex, in-place legacy outlook re-auth, sidebar reauth badges. Frameless window with custom TitleBar, 4 themes, 2 layouts. Rich text compose (TipTap), sandboxed-iframe HTML rendering + DOMPurify, CID inline images, remote image blocking. Multi-client MCP SSE server on port 3000. Playwright E2E Console Health suite (8 enabled).
+Electron desktop email client with MCP (Model Context Protocol) integration for AI-assisted operations. **Status:** v1.18.14 (schema v17, 21 React components, 2 Zustand stores, ~120 IPC handlers, 8 MCP tools, 54 test files / 1179 tests). Full IMAP/SMTP with OAuth2 sign-in for Gmail (RFC 8252 loopback + PKCE S256) and Microsoft personal/business (`@azure/msal-node`), plus a Microsoft Graph send path for personal Outlook.com (Basic Auth SMTP kill April 2026). Per-account `AccountSyncController` with NOOP heartbeat + infinite exponential-backoff reconnect, `AuthTokenManager` singleton with JIT pre-flight refresh + per-account dedup mutex, in-place legacy outlook re-auth, sidebar reauth badges. Frameless window with custom TitleBar, 4 themes, 2 layouts. Rich text compose (TipTap), sandboxed-iframe HTML rendering + DOMPurify, CID inline images, remote image blocking. Multi-client MCP SSE server on port 3000. Playwright E2E Console Health suite (8 enabled).
 
 ## Tech Stack
 
@@ -222,7 +222,7 @@ npm run make:update-package  # Package NSIS installer into .expressdelivery upda
 
 ## Test Coverage
 
-~80% across **46 files / 1023 tests** (Vitest 4 + jsdom) plus **8 Playwright E2E Console Health** tests. Coverage spans crypto, db, mcpServer/mcpTools, imapSync (`AccountSyncController` lifecycle, `withImapTimeout`, heartbeat, reconnect), smtp, scheduler, ruleEngine, spamFilter, phishingDetector, openRouterClient, updater (CWE-22/CWE-78), emailImport, authResults, rateLimiter, all Zustand stores, and all major React components (SettingsModal, ComposeModal, ReadingPane, ThreadList, Sidebar, OnboardingScreen, ConfirmDialog, ProviderHelpPanel, OAuthSignInButton).
+~80% across **54 files / 1179 tests** (Vitest 4 + jsdom) plus **8 Playwright E2E Console Health** tests. Coverage spans crypto, db, mcpServer/mcpTools, imapSync (`AccountSyncController` lifecycle, `withImapTimeout`, heartbeat, reconnect), smtp, scheduler, ruleEngine, spamFilter, phishingDetector, openRouterClient, updater (CWE-22/CWE-78), emailImport, authResults, rateLimiter, all Zustand stores, and all major React components (SettingsModal, ComposeModal, ReadingPane, ThreadList, Sidebar, OnboardingScreen, ConfirmDialog, ProviderHelpPanel, OAuthSignInButton).
 
 **Untested critical paths:** IMAP protocol integration (IMAPFlow client calls — deferred to E2E).
 

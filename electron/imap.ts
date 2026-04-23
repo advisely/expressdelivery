@@ -177,7 +177,11 @@ export class AccountSyncController {
         if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
         if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-        try { this.client?.close(); } catch { /* force close */ }
+        try {
+            this.client?.removeAllListeners('close');
+            this.client?.removeAllListeners('error');
+            this.client?.close();
+        } catch { /* force close */ }
         this.client = null;
         this.status = 'disconnected';
         this.syncing = false;
@@ -186,32 +190,61 @@ export class AccountSyncController {
     }
 
     forceDisconnect(reason: 'health' | 'user' | 'shutdown' = 'health'): void {
-        if (this.status === 'disconnected') return;
-        try { this.client?.close(); } catch { /* force close */ }
-        this.client = null;
-        this.status = 'disconnected';
-        this.syncing = false;
+        // IMPORTANT: clean up timers and close the socket BEFORE the status
+        // guard. If the controller is already 'disconnected' (e.g. from a
+        // previous client.on('close') firing), there may still be a pending
+        // reconnectTimer armed with stale backoff state. Skipping cleanup
+        // leaves that timer live — it later fires and thrashes a freshly
+        // established wake-from-sleep connection (v1.18.8 bug 2).
         if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
         if (this.inboxSyncTimer) { clearInterval(this.inboxSyncTimer); this.inboxSyncTimer = null; }
         if (this.folderSyncTimer) { clearInterval(this.folderSyncTimer); this.folderSyncTimer = null; }
+        const hadPendingReconnect = this.reconnectTimer !== null;
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
         this.operationQueue.drain();
+
+        // Idempotency guard — if we were already disconnected, stop here.
+        // Re-entering the socket close / status transition / reconnect-
+        // schedule logic would be wasted work and could double-fire events.
+        //
+        // BUT: if we just cleared a live reconnectTimer and the caller is
+        // asking for a health reconnect, re-arm before returning. Without
+        // this, two concurrent forceDisconnect('health') calls (close
+        // listener + in-flight heartbeat/sync rejection on a brief Wi-Fi
+        // blip) leave the controller stuck disconnected — the second call
+        // cancels the timer the first just armed, then early-returns.
+        // (v1.18.10 follow-up to v1.18.8 bug 2.)
+        if (this.status === 'disconnected') {
+            if (hadPendingReconnect && reason === 'health') {
+                this.scheduleReconnect();
+            }
+            return;
+        }
+
+        try {
+            // Detach our listeners first so the close event we're about to
+            // trigger doesn't re-enter this method on the same controller.
+            this.client?.removeAllListeners('close');
+            this.client?.removeAllListeners('error');
+            this.client?.close();
+        } catch { /* force close */ }
+        this.client = null;
+        this.status = 'disconnected';
+        this.syncing = false;
         logDebug(`[IMAP:${this.accountId}] Force disconnected (reason: ${reason})`);
         if (reason === 'health') {
             this.scheduleReconnect();
         }
     }
 
+    /**
+     * Reconnect scheduler. Intentionally throws by default — it must be
+     * overridden by `ImapEngine.startAccount()` / `ImapEngine.connectAccount()`
+     * before the controller is exposed. Throwing (rather than the previous
+     * silent no-op stub) surfaces any future wiring regression at test time.
+     */
     scheduleReconnect(): void {
-        const baseDelay = 1000 * Math.pow(2, this.reconnectAttempts);
-        const maxDelay = this.settings.reconnectMaxMinutes * 60 * 1000;
-        const capped = Math.min(baseDelay, maxDelay);
-        const jitter = capped * (0.8 + Math.random() * 0.4); // ±20%
-        this.reconnectAttempts++;
-        this.reconnectTimer = setTimeout(() => {
-            this.reconnectTimer = null;
-            // Reconnect logic will be wired in Task 9
-        }, jitter);
+        throw new Error(`scheduleReconnect not wired for ${this.accountId}`);
     }
 
     resetOnSuccessfulConnect(): void {
@@ -590,6 +623,14 @@ export class ImapEngine {
     stopController(accountId: string): void {
         const ctrl = this.controllers.get(accountId);
         if (!ctrl) return;
+        // Detach the close listener explicitly — forceDisconnect skips this
+        // when status is already 'disconnected', but stopController MUST
+        // always ensure no orphaned close event can arm a reconnect timer
+        // on a controller that's no longer in the engine map.
+        try {
+            ctrl.client?.removeAllListeners('close');
+            ctrl.client?.removeAllListeners('error');
+        } catch { /* best effort */ }
         ctrl.forceDisconnect('user');
         this.controllers.delete(accountId);
     }

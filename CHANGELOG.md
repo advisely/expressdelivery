@@ -9,6 +9,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.14 — 2026-04-22
+
+### Bug fixes
+
+- **Email: `img-src data:` CSP violation logs on every email without consent.** `processRemoteImages` was only rewriting `<img src="https://...">` and `<img srcset="...">`. Three other image-loading shapes reached the iframe unchanged and triggered CSP violations (harmless but very noisy in DevTools):
+  - `<source srcset="...">` inside `<picture>` — responsive hero images in marketing emails.
+  - CSS `background-image: url(https://...)` in inline `style=` attributes — decorative table-cell backgrounds in template emails (Brevo, Mailchimp, SendGrid, etc.).
+  - CSS `url(https://...)` inside `<style>` blocks — stylesheet-style email templates.
+  Rewriter now handles all three: `<source>` srcset gets renamed to `data-blocked-srcset`, and both inline and `<style>`-block `url()` get rewritten to the 1×1 placeholder data URI with the original URL preserved in a CSS comment. Privacy gate is unchanged (no consent → all three still blocked; the rewrite just prevents the browser from attempting the fetch that CSP would then block anyway).
+
+---
+
+## v1.18.13 — 2026-04-22
+
+### Bug fixes
+
+- **Email: `http:` images blocked even after clicking "Show images".** Marketing emails routinely host tracking pixels and off-brand CDN images on plain `http:`. Before v1.18.13 the parent CSP only allowed `https:` for remote images (`img-src 'self' data: blob: https:;`) and the srcdoc CSP matched. Clicking "Show images" didn't unblock them — the browser logged "Loading the image '...' violates the following Content Security Policy directive: 'img-src data: https:'" and the `<img>` rendered as a broken icon. Added `http:` to both CSPs' `img-src`. The per-email consent flag is still the privacy gate — without consent the srcdoc CSP stays `img-src data:;` and remote images (http: or https:) both stay blocked. Tradeoff: remote-image consent now loads HTTP images without TLS (matches IP-leak risk of HTTPS images, adds a small MitM surface that would require on-path attacker + image-parser bug to exploit — the same threat model every other desktop email client with the "show images" button lives with).
+
+---
+
+## v1.18.12 — 2026-04-22
+
+### Bug fixes
+
+- **Email: `ResizeObserver failed: parameter 1 is not of type 'Element'` on every email open (surfaced by v1.18.11).** The iframe boot script was placed in `<head>` and executed synchronously before `<body>` was parsed, so `document.body` was `null` when `ResizeObserver.observe(document.body)` ran. The error was silent pre-v1.18.11 because the inline script was CSP-blocked and never executed. With the v1.18.11 hash pin making the script actually run, the error surfaced on every email. Moved the `<script>` to end-of-body so `document.body` is defined. Click listeners on `document` attach just as early either way — `document` itself exists from the first tag — so the user-perceived latency of click interception is unchanged. Hash in `index.html` is unchanged because `IFRAME_BOOT_SCRIPT`'s bytes are unchanged.
+- **Email: harmless `frame-ancestors` warning on every email open.** `frame-ancestors` is a header-only CSP directive; Chromium (correctly) logs a warning when it's delivered via `<meta http-equiv>` because the spec ignores it there. It was set on the srcdoc meta CSP since v1.18.0 but has been a silent no-op the whole time. Dropped it — srcdoc iframes can't be re-framed by anyone except the parent that created them, so the directive was load-bearing nowhere.
+
+---
+
+## v1.18.11 — 2026-04-22
+
+### Bug fixes
+
+- **Email: unsubscribe / any anchor click still blanked the email body (true root cause of v1.18.8 bug 3).** The v1.18.8 – v1.18.10 iframe click interceptor was correct but **never executed**. Srcdoc iframes inherit the parent document's CSP (HTML spec — srcdoc runs on the embedder's origin), and `index.html`'s parent CSP was `script-src 'self'` with no hash / nonce / `'unsafe-inline'` for the inline boot script. The srcdoc's own `<meta>` CSP can only add restrictions — it cannot loosen the parent's policy — so Chromium blocked the inline script at runtime ("Executing inline script violates the following Content Security Policy directive 'script-src 'self''"). Without the interceptor, every anchor click default-navigated the iframe, the destination blocked framing via `frame-src 'self' blob:`, and the iframe rendered blank. This fires on **every** email render (not only clicks), so auto-resize via `ResizeObserver` has also been silently broken since v1.18.8. Fix: pin the SHA-256 of the combined iframe boot script (`sha256-UimfTAbR7bxwyqyUrY/vGzw3X5JKYJV+4MT/B9t751g=`) into the parent CSP `script-src`, refactor the two inline scripts into a single exported `IFRAME_BOOT_SCRIPT` constant, and add a vitest case that recomputes the hash from the constant and asserts it matches `index.html` — drift now fails loud at `npm run test` instead of silently at runtime in packaged builds.
+
+---
+
+## v1.18.10 — 2026-04-22
+
+### Bug fixes
+
+- **Email: SVG unsubscribe links still blanked the email body.** The v1.18.8 click interceptor used `tagName === 'A'` which is case-sensitive; SVG `<a>` elements (common in marketing email graphics) live in the SVG namespace and preserve lowercase `a`, so clicking a clickable SVG graphic bypassed the interceptor and let the iframe self-navigate into an X-Frame-Options-blocked page. Walker now normalizes `tagName.toUpperCase()` and reads `href` via `getAttribute()` with URL resolution against `document.baseURI` (covers `SVGAElement.href`'s non-string `SVGAnimatedString`).
+- **Email: TOC / fragment anchors silently broke native scroll.** Links like `<a href="#top">` resolved to `about:srcdoc#top` inside the iframe; the interceptor posted that to the parent, the scheme allowlist rejected `about:`, and the native scroll had already been preventDefault'd — the click did nothing. The interceptor now bails for same-document fragment anchors and lets the browser scroll natively.
+- **IMAP: brief Wi-Fi blip left controller stuck disconnected.** The v1.18.8 `forceDisconnect` timer cleanup raced against itself when two calls fired concurrently (close listener + in-flight heartbeat/sync rejection). Call #2 cleared the reconnect timer call #1 had just armed, then early-returned without rescheduling — no in-tree caller of `forceDisconnect('health')` follows with an explicit `startAccount`, so the controller sat idle until app restart. Added a `hadPendingReconnect` tracker; if the early-return path cleared a live timer and the caller asked for a health reconnect, re-arm via `scheduleReconnect()` before returning. Wake-from-sleep is unaffected (the follow-up `stopController` uses `reason='user'`, which still does not re-arm).
+
+---
+
+## v1.18.9 — 2026-04-22
+
+### Internal
+
+- Version-only bump over v1.18.8 to enable local update-path testing of the v1.18.8 bug fixes (the already-installed build is v1.18.8; the NSIS installer needs a higher version number to trigger an in-place upgrade). No functional changes vs v1.18.8. Also carries the `scripts/clean-build.mjs` timeout bump (5min → 20min) that unblocked the NSIS signing step on slower timestamp-server round-trips.
+
+---
+
+## v1.18.8 — 2026-04-22
+
+### Bug fixes
+
+- **Window: can't reopen after close-to-tray.** The second-instance handler (triggered when the user double-clicks the desktop shortcut while the app is hidden to the tray) called `win.focus()` on a hidden window, which is a silent no-op on Windows. The window now calls `win.show()` first when `!isVisible()`, so the window reliably reappears.
+- **IMAP: no reconnect after laptop wake from sleep.** `AccountSyncController.forceDisconnect()` early-returned when the status was already `'disconnected'`, leaving a pre-sleep reconnect `setTimeout` armed with stale exponential-backoff state. On wake, that timer fired mid-way through the power-resume reconnect and thrashed the freshly-established connection. Timer cleanup and `close`/`error` listener detachment now run unconditionally before the status guard.
+- **Email: clicking an unsubscribe link blanked the email body.** The sandboxed iframe rendering email HTML had no click interceptor, so bare `<a href>` clicks (and `<area>` clicks in image maps) navigated the iframe itself and were blocked by `X-Frame-Options: DENY` on the destination — the email content was replaced with a blank frame. A capture-phase click interceptor now runs inside the srcdoc, intercepts anchor and area clicks, and postMessages the URL to the parent, which opens it in the default browser via a new scheme-allowlisted `shell:open-email-link` IPC (https / http / mailto only; javascript / data / file explicitly rejected).
+
+### Security
+
+- New `shell:open-email-link` IPC handler is scheme-allowlisted, length-capped (≤2000 chars), WHATWG-URL-parsed, and log-injection-resistant (CR/LF/NUL stripping). Kept separate from the existing exact-URL-allowlisted `shell:open-external` so the provider-help URL allowlist is not weakened. The handler passes the WHATWG-normalized `parsed.href` (not the raw input) to `shell.openExternal` for defense-in-depth.
+
+---
+
 ## [1.18.7] - 2026-04-20
 
 User report: "I had the app open, put the laptop to sleep, woke it, then

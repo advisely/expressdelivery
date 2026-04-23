@@ -76,6 +76,7 @@ import { importEml, importMbox } from './emailImport.js'
 import { exportVcard, exportCsv, importVcard, importCsv } from './contactPortability.js'
 import { trainSpam, classifySpam } from './spamFilter.js'
 import { handleShellOpenExternal } from './shellOpen.js'
+import { handleShellOpenEmailLink } from './shellOpenEmailLink.js'
 import { registerAuthIpcHandlers } from './auth/ipcHandlers.js'
 // menu.ts removed — frameless window with custom TitleBar component (Phase 12.5)
 
@@ -2511,8 +2512,14 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    // Focus existing window
-    if (win) {
+    // Focus existing window. Important: distinguish "hidden-to-tray" (via
+    // win.hide() from the 'close' event handler that prevents full quit
+    // when isQuitting is false) from "minimized".
+    // isMinimized() returns false for hidden windows, and focus() is a
+    // silent no-op on hidden windows — we must call show() to re-register
+    // with the OS window manager before focus() will do anything.
+    if (win && !win.isDestroyed()) {
+      if (!win.isVisible()) win.show();
       if (win.isMinimized()) win.restore();
       win.focus();
     }
@@ -2617,6 +2624,15 @@ app.whenReady().then(() => {
   // Keeps renderer-side XSS / prompt-injection from opening arbitrary URLs via shell.
   ipcMain.handle('shell:open-external', async (_event, args: { url?: unknown }) => {
     return handleShellOpenExternal(args);
+  });
+
+  // Email-body link opener. Separate from shell:open-external (which uses a
+  // strict exact-URL allowlist for provider help URLs) — this channel is
+  // invoked by the sandboxed email iframe when the user clicks any <a> in
+  // the email body. Validated by scheme allowlist (https/http/mailto) in
+  // shellOpenEmailLink.ts. See v1.18.8 Task 3 of three-bug-fixes plan.
+  ipcMain.handle('shell:open-email-link', async (_event, args: { url?: unknown }) => {
+    return handleShellOpenEmailLink(args);
   });
 
   // Global shortcuts for actions that should work regardless of focus
