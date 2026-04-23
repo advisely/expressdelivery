@@ -845,6 +845,28 @@ describe('ReadingPane', () => {
     });
 });
 
+describe('buildIframeSrcdoc — img-src policy (v1.18.13)', () => {
+    it('blocks all remote images by default (data: only)', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<img src="http://tracker.example.com/pixel.gif">', false);
+        // Privacy gate: without explicit user consent, remote URIs must be
+        // blocked. Only CID/data: URIs (decoded locally) are allowed.
+        expect(srcdoc).toContain('img-src data:;');
+        expect(srcdoc).not.toContain('https:');
+        expect(srcdoc).not.toContain('img-src data: http');
+    });
+
+    it('allows both https: and http: images when user has consented', async () => {
+        const { buildIframeSrcdoc } = await import('./ReadingPane');
+        const srcdoc = buildIframeSrcdoc('<img src="http://tracker.example.com/pixel.gif">', true);
+        // Marketing emails ship tracking pixels on plain http: routinely.
+        // Without http: in the allowlist, the iframe blocks them with a
+        // mixed-content violation even after the user clicked "Show images".
+        // The per-email consent flag remains the privacy gate.
+        expect(srcdoc).toContain('img-src data: https: http:;');
+    });
+});
+
 describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
     it('injects a capture-phase click listener into the srcdoc', async () => {
         const { buildIframeSrcdoc } = await import('./ReadingPane');

@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.13 — 2026-04-22
+
+### Bug fixes
+
+- **Email: `http:` images blocked even after clicking "Show images".** Marketing emails routinely host tracking pixels and off-brand CDN images on plain `http:`. Before v1.18.13 the parent CSP only allowed `https:` for remote images (`img-src 'self' data: blob: https:;`) and the srcdoc CSP matched. Clicking "Show images" didn't unblock them — the browser logged "Loading the image '...' violates the following Content Security Policy directive: 'img-src data: https:'" and the `<img>` rendered as a broken icon. Added `http:` to both CSPs' `img-src`. The per-email consent flag is still the privacy gate — without consent the srcdoc CSP stays `img-src data:;` and remote images (http: or https:) both stay blocked. Tradeoff: remote-image consent now loads HTTP images without TLS (matches IP-leak risk of HTTPS images, adds a small MitM surface that would require on-path attacker + image-parser bug to exploit — the same threat model every other desktop email client with the "show images" button lives with).
+
+---
+
 ## v1.18.12 — 2026-04-22
 
 ### Bug fixes

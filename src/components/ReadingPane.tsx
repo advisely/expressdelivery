@@ -152,7 +152,13 @@ export const IFRAME_BOOT_SCRIPT = [
 // @param allowRemoteImages — when true, adds https: to img-src CSP (user consented).
 // eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string builder, no React state
 export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
-    const imgSrc = allowRemoteImages ? 'img-src data: https:;' : 'img-src data:;';
+    // When the user has clicked "Show images" we allow BOTH https: and http:
+    // because marketing emails routinely use plain-HTTP tracking pixels and
+    // off-brand CDNs. Without http: in the allowlist, the iframe (inheriting
+    // the parent's CSP) blocks those images with a mixed-content violation.
+    // Privacy gate is still per-email — without consent, only data: URIs
+    // (CID inline images decoded locally) load.
+    const imgSrc = allowRemoteImages ? 'img-src data: https: http:;' : 'img-src data:;';
     // `frame-ancestors` is intentionally omitted — it's a meta-CSP no-op per
     // the spec (Chromium logs a warning) and for srcdoc iframes nobody else
     // can frame the document anyway (it's created by the parent).
