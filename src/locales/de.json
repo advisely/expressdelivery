@@ -148,6 +148,7 @@
     "previewLoading": "Vorschau wird geladen…",
     "previewFailed": "Vorschau konnte nicht geladen werden",
     "previewUnsupported": "Für diesen Dateityp ist keine Vorschau verfügbar",
+    "previewDescription": "Anhangsvorschau für {{filename}} ({{type}})",
     "download": "Herunterladen",
     "flagFailed": "Markierung konnte nicht geändert werden",
     "archiveFailed": "E-Mail konnte nicht archiviert werden",

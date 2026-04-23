@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.15 — 2026-04-22
+
+### Bug fixes
+
+- **Attachment preview modal: transparent header + broken theming.** `AttachmentPreviewModal.module.css` referenced six non-existent CSS variables (`--surface-primary`, `--surface-secondary`, `--surface-tertiary`, `--text-tertiary`, `--border-primary`, `--accent-primary`). None of these are defined anywhere in the theme — the canonical tokens are `--color-bg-*`, `var(--text-primary)`, `rgb(var(--color-border))`, `rgb(var(--color-accent))`, etc. CSS silently resolves `rgb(var(--undefined))` to invalid, so every rule that depended on these tokens fell back to user-agent defaults (transparent header, no border colors, invisible hover states). Rewrote the file to use the actual theme tokens — header now has a solid `rgb(var(--color-bg-secondary))` background, the PDF iframe area uses `rgb(var(--color-bg-tertiary))`, text colors resolve correctly.
+- **Attachment preview modal: missing `Dialog.Description` a11y warning.** Radix `Dialog.Content` emits a dev-mode warning when neither `aria-describedby` nor a `Dialog.Description` child is provided — we had neither, so every preview open spammed "Missing `Description` or `aria-describedby={undefined}` for {DialogContent}" into the console. Added a visually-hidden (`sr-only`) `Dialog.Description` that announces the filename and MIME type to screen readers without changing the visible header. New `readingPane.previewDescription` translation key added to all four locales (en/fr/es/de).
+
+### Known non-functional noise (not a bug)
+
+- **`Electron sandboxed_renderer.bundle.js script failed to run / invokeSync null`** when opening a PDF attachment. Emitted by Chromium's built-in PDF viewer extension initializing in its own sandboxed sub-renderer — the extension expects a preload shim via sync IPC that our main process doesn't register (by design: we don't run arbitrary preloads in attachment viewers). The PDF still renders correctly and the parent renderer is unaffected; this is an Electron/Chromium-internal warning, not a bug in ExpressDelivery. Tracked as a follow-up if a cleaner embed path (e.g. PDF.js on a data URL instead of blob URL iframe) proves worth the bundle-size cost.
+
+---
+
 ## v1.18.14 — 2026-04-22
 
 ### Bug fixes
