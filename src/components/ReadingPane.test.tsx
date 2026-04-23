@@ -205,7 +205,17 @@ describe('ReadingPane', () => {
         expect(srcdoc).toContain('Hello world');
         expect(srcdoc).toContain('Content-Security-Policy');
         expect(srcdoc).toContain('img-src data:');
-        expect(srcdoc).toContain("frame-ancestors 'none'");
+        // frame-ancestors intentionally omitted — meta-CSP no-op per spec
+        // (Chromium logs a warning) and srcdoc can't be re-framed anyway.
+        expect(srcdoc).not.toContain('frame-ancestors');
+        // <script> MUST sit after the email HTML so document.body exists when
+        // the ResizeObserver initializes — from <head> the observer throws
+        // "parameter 1 is not of type 'Element'" and never wires up.
+        const scriptIdx = srcdoc.indexOf('<script>');
+        const bodyOpenIdx = srcdoc.indexOf('<body>');
+        const bodyCloseIdx = srcdoc.indexOf('</body>');
+        expect(scriptIdx).toBeGreaterThan(bodyOpenIdx);
+        expect(scriptIdx).toBeLessThan(bodyCloseIdx);
     });
 
     it('renders plain text when no body_html', () => {

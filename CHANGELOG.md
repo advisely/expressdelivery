@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.12 — 2026-04-22
+
+### Bug fixes
+
+- **Email: `ResizeObserver failed: parameter 1 is not of type 'Element'` on every email open (surfaced by v1.18.11).** The iframe boot script was placed in `<head>` and executed synchronously before `<body>` was parsed, so `document.body` was `null` when `ResizeObserver.observe(document.body)` ran. The error was silent pre-v1.18.11 because the inline script was CSP-blocked and never executed. With the v1.18.11 hash pin making the script actually run, the error surfaced on every email. Moved the `<script>` to end-of-body so `document.body` is defined. Click listeners on `document` attach just as early either way — `document` itself exists from the first tag — so the user-perceived latency of click interception is unchanged. Hash in `index.html` is unchanged because `IFRAME_BOOT_SCRIPT`'s bytes are unchanged.
+- **Email: harmless `frame-ancestors` warning on every email open.** `frame-ancestors` is a header-only CSP directive; Chromium (correctly) logs a warning when it's delivered via `<meta http-equiv>` because the spec ignores it there. It was set on the srcdoc meta CSP since v1.18.0 but has been a silent no-op the whole time. Dropped it — srcdoc iframes can't be re-framed by anyone except the parent that created them, so the directive was load-bearing nowhere.
+
+---
+
 ## v1.18.11 — 2026-04-22
 
 ### Bug fixes

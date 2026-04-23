@@ -153,21 +153,32 @@ export const IFRAME_BOOT_SCRIPT = [
 // eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string builder, no React state
 export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
     const imgSrc = allowRemoteImages ? 'img-src data: https:;' : 'img-src data:;';
+    // `frame-ancestors` is intentionally omitted — it's a meta-CSP no-op per
+    // the spec (Chromium logs a warning) and for srcdoc iframes nobody else
+    // can frame the document anyway (it's created by the parent).
+    //
+    // `<script>` is placed at end-of-body (not head) so `document.body`
+    // exists when the ResizeObserver initializes. Parsing order: scripts in
+    // <head> run synchronously before <body> is parsed, so observing
+    // `document.body` from the head throws "parameter 1 is not of type
+    // 'Element'". Click listeners on `document` still attach early — the
+    // document itself exists from the first tag — so user clicks during the
+    // brief body-parse window still get intercepted once the script runs.
     return [
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
-        `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; ${imgSrc} frame-ancestors 'none';">`,
+        `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; ${imgSrc}">`,
         '<style>',
         'body{margin:0;padding:16px 20px;font-family:system-ui,-apple-system,sans-serif;',
         'font-size:14px;line-height:1.6;color:#1a1a1a;background:transparent;',
         'word-wrap:break-word;overflow-wrap:break-word}',
         'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5;cursor:pointer}',
         '</style>',
+        '</head><body>',
+        sanitizedBodyHtml,
         '<script>',
         IFRAME_BOOT_SCRIPT,
         '</script>',
-        '</head><body>',
-        sanitizedBodyHtml,
         '</body></html>',
     ].join('');
 }
