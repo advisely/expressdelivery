@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.14 — 2026-04-22
+
+### Bug fixes
+
+- **Email: `img-src data:` CSP violation logs on every email without consent.** `processRemoteImages` was only rewriting `<img src="https://...">` and `<img srcset="...">`. Three other image-loading shapes reached the iframe unchanged and triggered CSP violations (harmless but very noisy in DevTools):
+  - `<source srcset="...">` inside `<picture>` — responsive hero images in marketing emails.
+  - CSS `background-image: url(https://...)` in inline `style=` attributes — decorative table-cell backgrounds in template emails (Brevo, Mailchimp, SendGrid, etc.).
+  - CSS `url(https://...)` inside `<style>` blocks — stylesheet-style email templates.
+  Rewriter now handles all three: `<source>` srcset gets renamed to `data-blocked-srcset`, and both inline and `<style>`-block `url()` get rewritten to the 1×1 placeholder data URI with the original URL preserved in a CSS comment. Privacy gate is unchanged (no consent → all three still blocked; the rewrite just prevents the browser from attempting the fetch that CSP would then block anyway).
+
+---
+
 ## v1.18.13 — 2026-04-22
 
 ### Bug fixes

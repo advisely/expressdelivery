@@ -845,6 +845,68 @@ describe('ReadingPane', () => {
     });
 });
 
+describe('processRemoteImages — CSS + <source> coverage (v1.18.14)', () => {
+    it('passes HTML through unchanged when block=false (user consented)', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<img src="https://example.com/x.png"><div style="background:url(https://example.com/bg.jpg)"></div>';
+        const { html, count } = processRemoteImages(input, false);
+        expect(html).toBe(input);
+        expect(count).toBe(0);
+    });
+
+    it('rewrites <img src=https://...> to placeholder with data-blocked-src', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const { html, count } = processRemoteImages('<img src="https://example.com/x.png" alt="x">', true);
+        expect(html).toContain('data:image/svg+xml');
+        expect(html).toContain('data-blocked-src="https://example.com/x.png"');
+        expect(count).toBe(1);
+    });
+
+    it('rewrites <source srcset=https://...> inside <picture> (v1.18.14)', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<picture><source srcset="https://cdn.example.com/hero.webp 1x, https://cdn.example.com/hero@2x.webp 2x" type="image/webp"></picture>';
+        const { html, count } = processRemoteImages(input, true);
+        // Without <source> coverage marketing emails with responsive hero
+        // images still hit the network and log an img-src CSP violation.
+        // Active attribute must be renamed (data-* isn't fetched by the
+        // browser); substring would match the data-blocked-srcset value so
+        // use a word-boundary check on the attribute name instead.
+        expect(html).toMatch(/\sdata-blocked-srcset="/);
+        expect(html).not.toMatch(/\ssrcset="/);
+        expect(count).toBe(1);
+    });
+
+    it('rewrites CSS background-image url(https://...) in inline style (v1.18.14)', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<td style="background-image: url(https://cloud.example.com/banner.png); padding: 10px;">hi</td>';
+        const { html, count } = processRemoteImages(input, true);
+        // The CSP img-src directive governs CSS background-images, so these
+        // URLs must be rewritten or they trigger violations on every email.
+        expect(html).not.toContain('url(https://cloud.example.com/banner.png)');
+        expect(html).toContain('data:image/svg+xml');
+        expect(count).toBe(1);
+    });
+
+    it('rewrites CSS url() inside <style> blocks', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = '<style>.hero{background:url("https://cdn.example.com/bg.jpg") no-repeat;}</style><div class="hero"></div>';
+        const { html, count } = processRemoteImages(input, true);
+        expect(html).not.toContain('https://cdn.example.com/bg.jpg)');
+        expect(count).toBe(1);
+    });
+
+    it('handles unquoted, single-quoted, and double-quoted CSS url() forms', async () => {
+        const { processRemoteImages } = await import('./ReadingPane');
+        const input = [
+            '<div style="background:url(https://a.example.com/1.png)"></div>',
+            '<div style=\'background:url("https://a.example.com/2.png")\'></div>',
+            '<div style="background:url( \'https://a.example.com/3.png\' )"></div>',
+        ].join('');
+        const { count } = processRemoteImages(input, true);
+        expect(count).toBe(3);
+    });
+});
+
 describe('buildIframeSrcdoc — img-src policy (v1.18.13)', () => {
     it('blocks all remote images by default (data: only)', async () => {
         const { buildIframeSrcdoc } = await import('./ReadingPane');

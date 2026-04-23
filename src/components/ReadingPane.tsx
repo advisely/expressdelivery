@@ -68,15 +68,19 @@ function escapeAttr(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
-function processRemoteImages(html: string, block: boolean): { html: string; count: number } {
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string transform, no React state
+export function processRemoteImages(html: string, block: boolean): { html: string; count: number } {
     let count = 0;
     if (!block) return { html, count };
-    // Block remote src= URLs
+    // <img src="https://..."> — replace with a 1x1 SVG placeholder, stash the
+    // original URL in data-blocked-src for the "Show images" toggle.
     let processed = html.replace(/<img\s([^>]*?)src=["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (_full, before: string, url: string, after: string) => {
         count++;
         return `<img ${before}src="${PLACEHOLDER_SVG}" data-blocked-src="${escapeAttr(url)}"${after}>`;
     });
-    // Block remote srcset= URLs
+    // <img srcset="..."> — strip the attribute entirely when it contains any
+    // remote URL; the browser falls back to src (which we've already
+    // placeholder'd above).
     processed = processed.replace(/(<img\s[^>]*?)srcset=["']([^"']+)["']/gi, (_full, before: string, srcset: string) => {
         const hasRemote = /https?:\/\//i.test(srcset);
         if (hasRemote) {
@@ -84,6 +88,28 @@ function processRemoteImages(html: string, block: boolean): { html: string; coun
             return `${before}data-blocked-srcset="${escapeAttr(srcset)}"`;
         }
         return _full;
+    });
+    // <source srcset="..."> inside <picture> — same treatment as <img srcset>.
+    // Without this, marketing emails with responsive hero images still hit the
+    // network on the srcset URL and log a CSP violation (v1.18.14 fix).
+    processed = processed.replace(/(<source\s[^>]*?)srcset=["']([^"']+)["']/gi, (_full, before: string, srcset: string) => {
+        const hasRemote = /https?:\/\//i.test(srcset);
+        if (hasRemote) {
+            count++;
+            return `${before}data-blocked-srcset="${escapeAttr(srcset)}"`;
+        }
+        return _full;
+    });
+    // CSS url(https://...) — covers both inline `style="background-image:
+    // url(...)"` attributes and <style> blocks. The CSP `img-src` directive
+    // governs all image loads including CSS background-images, so without
+    // rewriting these we get `img-src data:` violations on every email open
+    // when consent isn't granted (v1.18.14 fix). Quote and whitespace variants
+    // are all accepted by the regex; the replacement always emits the safe
+    // placeholder data URI form.
+    processed = processed.replace(/url\(\s*(['"]?)(https?:\/\/[^)'"\s]+)\1\s*\)/gi, (_full, _quote: string, url: string) => {
+        count++;
+        return `url(${PLACEHOLDER_SVG}) /* blocked: ${url.replace(/\*\//g, '')} */`;
     });
     return { html: processed, count };
 }
