@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## v1.18.11 — 2026-04-22
+
+### Bug fixes
+
+- **Email: unsubscribe / any anchor click still blanked the email body (true root cause of v1.18.8 bug 3).** The v1.18.8 – v1.18.10 iframe click interceptor was correct but **never executed**. Srcdoc iframes inherit the parent document's CSP (HTML spec — srcdoc runs on the embedder's origin), and `index.html`'s parent CSP was `script-src 'self'` with no hash / nonce / `'unsafe-inline'` for the inline boot script. The srcdoc's own `<meta>` CSP can only add restrictions — it cannot loosen the parent's policy — so Chromium blocked the inline script at runtime ("Executing inline script violates the following Content Security Policy directive 'script-src 'self''"). Without the interceptor, every anchor click default-navigated the iframe, the destination blocked framing via `frame-src 'self' blob:`, and the iframe rendered blank. This fires on **every** email render (not only clicks), so auto-resize via `ResizeObserver` has also been silently broken since v1.18.8. Fix: pin the SHA-256 of the combined iframe boot script (`sha256-UimfTAbR7bxwyqyUrY/vGzw3X5JKYJV+4MT/B9t751g=`) into the parent CSP `script-src`, refactor the two inline scripts into a single exported `IFRAME_BOOT_SCRIPT` constant, and add a vitest case that recomputes the hash from the constant and asserts it matches `index.html` — drift now fails loud at `npm run test` instead of silently at runtime in packaged builds.
+
+---
+
 ## v1.18.10 — 2026-04-22
 
 ### Bug fixes

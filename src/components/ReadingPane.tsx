@@ -88,62 +88,71 @@ function processRemoteImages(html: string, block: boolean): { html: string; coun
     return { html: processed, count };
 }
 
+// Combined boot script for the sandboxed email iframe: link-click interceptor
+// + ResizeObserver for auto-resizing.
+//
+// THIS STRING IS CSP-HASHED. The SHA-256 of these exact bytes is pinned in
+// index.html's parent `script-src` directive. Any edit — even whitespace —
+// changes the hash, and the browser will refuse to execute the script until
+// index.html is updated. A unit test enforces the sync so the drift fails
+// loud at `npm run test` rather than at runtime in a packaged build.
+//
+// Why pinning is required: srcdoc iframes inherit the parent document's CSP
+// (HTML spec — srcdoc origin is the embedder's origin). The srcdoc's own
+// `<meta http-equiv="Content-Security-Policy">` can ADD restrictions but
+// cannot loosen them. Before v1.18.11, the parent CSP was `script-src
+// 'self'` with no hash/nonce/unsafe-inline allowance, so the srcdoc's own
+// `script-src 'unsafe-inline'` meta was overridden and the script below
+// NEVER EXECUTED. Every email click fell through to default iframe
+// navigation and X-Frame-Options blanked the body (v1.18.8 bug 3 true
+// root cause).
+//
+// Link-interceptor design:
+// - Capture phase (3rd arg `true`) — prevents a malicious email script
+//   from stopPropagation'ing on bubble to bypass the walker.
+// - tagName uppercase — SVG <a> elements preserve lowercase 'a' per the
+//   DOM namespace rules, and clickable SVG graphics in marketing emails
+//   used to sneak past a case-sensitive 'A' check (v1.18.10 fix).
+// - getAttribute('href') — SVGAElement.href is an SVGAnimatedString
+//   object, not a string; .getAttribute returns the raw href both for
+//   HTML and SVG anchors.
+// - Fragment-only anchors (href="#top") bail out early so the browser
+//   handles same-doc scroll natively; baseURI in srcdoc is about:srcdoc
+//   which the scheme allowlist rejects.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test hash verification
+export const IFRAME_BOOT_SCRIPT = [
+    "function handleLinkClick(e) {",
+    "  var t = e.target;",
+    "  while (t && t !== document.body) {",
+    "    var tn = t.tagName ? String(t.tagName).toUpperCase() : '';",
+    "    if (tn === 'A' || tn === 'AREA') {",
+    "      if (t.hash && t.pathname === document.location.pathname) return;",
+    "      var raw = t.getAttribute ? t.getAttribute('href') : null;",
+    "      if (!raw) return;",
+    "      var resolved;",
+    "      try { resolved = new URL(raw, document.baseURI).href; }",
+    "      catch (_err) { return; }",
+    "      e.preventDefault();",
+    "      window.parent.postMessage({type:'link-click',url:resolved},'*');",
+    "      return;",
+    "    }",
+    "    t = t.parentNode;",
+    "  }",
+    "}",
+    "document.addEventListener('click', handleLinkClick, true);",
+    'new ResizeObserver(function(){',
+    'window.parent.postMessage({type:"iframe-height",height:document.body.scrollHeight},"*");',
+    '}).observe(document.body);',
+].join('');
+
 // Wrap sanitized email HTML in a minimal document for iframe srcdoc.
 // SECURITY: sandbox="allow-scripts" (no allow-same-origin) prevents parent DOM access.
-// The only script is our injected ResizeObserver that posts height via postMessage.
+// The only script is IFRAME_BOOT_SCRIPT (link interceptor + ResizeObserver).
 // @param sanitizedBodyHtml — MUST be DOMPurify-sanitized before calling.
 // @param allowRemoteImages — when true, adds https: to img-src CSP (user consented).
 // eslint-disable-next-line react-refresh/only-export-components -- exported for unit-test access; pure string builder, no React state
 export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages = false): string {
     const imgSrc = allowRemoteImages ? 'img-src data: https:;' : 'img-src data:;';
-    // Capture-phase click interceptor. Walks up from the click target to the
-    // nearest ancestor <a>, preventDefaults the navigation, and postMessages
-    // the href to the parent so ReadingPane can open it via shell.openExternal.
-    // Capture phase (`true` as the third addEventListener arg) is essential —
-    // otherwise a malicious email script could stopPropagation on bubble and
-    // bypass the interceptor, allowing the iframe to navigate away and wipe
-    // the email content (v1.18.8 bug 3).
-    //
-    // NOTE: this script runs alongside the existing ResizeObserver. Both are
-    // inside the CSP script-src 'unsafe-inline' carveout that our sandbox
-    // policy already permits for the srcdoc document only.
-    // tagName check MUST uppercase — SVG <a> elements live in the SVG
-    // namespace and preserve lowercase `a` per the DOM spec. Skipping the
-    // uppercase meant clickable SVG graphics in marketing emails bypassed
-    // the interceptor → iframe self-navigated → X-Frame-Options blanked
-    // the email (v1.18.10 follow-up to bug 3).
-    //
-    // href read MUST use getAttribute — SVGAElement.href is an
-    // SVGAnimatedString object (not a string), so `t.href` on an SVG
-    // anchor is truthy-but-useless for URL handling.
-    //
-    // Fragment-only anchors (href="#top") resolve to `about:srcdoc#top`
-    // inside a srcdoc iframe (baseURI = about:srcdoc). If we posted that
-    // to the parent, shellOpenEmailLink would reject `about:` and the
-    // scroll would silently fail — a regression vs native scroll. Bail
-    // out of the interceptor for same-document fragment anchors so the
-    // browser handles the scroll natively.
-    const linkInterceptorScript = [
-        "function handleLinkClick(e) {",
-        "  var t = e.target;",
-        "  while (t && t !== document.body) {",
-        "    var tn = t.tagName ? String(t.tagName).toUpperCase() : '';",
-        "    if (tn === 'A' || tn === 'AREA') {",
-        "      if (t.hash && t.pathname === document.location.pathname) return;",
-        "      var raw = t.getAttribute ? t.getAttribute('href') : null;",
-        "      if (!raw) return;",
-        "      var resolved;",
-        "      try { resolved = new URL(raw, document.baseURI).href; }",
-        "      catch (_err) { return; }",
-        "      e.preventDefault();",
-        "      window.parent.postMessage({type:'link-click',url:resolved},'*');",
-        "      return;",
-        "    }",
-        "    t = t.parentNode;",
-        "  }",
-        "}",
-        "document.addEventListener('click', handleLinkClick, true);",
-    ].join('');
     return [
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
@@ -155,10 +164,7 @@ export function buildIframeSrcdoc(sanitizedBodyHtml: string, allowRemoteImages =
         'img{max-width:100%;height:auto}table{max-width:100%}a{color:#4f46e5;cursor:pointer}',
         '</style>',
         '<script>',
-        linkInterceptorScript,
-        'new ResizeObserver(function(){',
-        'window.parent.postMessage({type:"iframe-height",height:document.body.scrollHeight},"*");',
-        '}).observe(document.body);',
+        IFRAME_BOOT_SCRIPT,
         '</script>',
         '</head><body>',
         sanitizedBodyHtml,

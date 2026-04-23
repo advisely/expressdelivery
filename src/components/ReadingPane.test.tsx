@@ -934,3 +934,42 @@ describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
         });
     });
 });
+
+describe('IFRAME_BOOT_SCRIPT — CSP hash sync (v1.18.11 bug 3 true root cause)', () => {
+    it('SHA-256 of IFRAME_BOOT_SCRIPT is pinned in index.html parent CSP script-src', async () => {
+        // The srcdoc iframe inherits the parent's CSP. If the hash in
+        // index.html drifts from IFRAME_BOOT_SCRIPT's actual content, the
+        // inline boot script is blocked at runtime — the link interceptor
+        // silently doesn't install and every anchor click in an email
+        // falls through to default iframe navigation (browser then blanks
+        // the iframe via frame-src / X-Frame-Options on the destination).
+        //
+        // This test fails loud at `npm run test` so drift cannot ship.
+        const { createHash } = await import('node:crypto');
+        const { readFileSync } = await import('node:fs');
+        const { resolve } = await import('node:path');
+        const { IFRAME_BOOT_SCRIPT } = await import('./ReadingPane');
+
+        const hash = createHash('sha256').update(IFRAME_BOOT_SCRIPT).digest('base64');
+        const expected = `sha256-${hash}`;
+
+        const indexHtmlPath = resolve(__dirname, '../../index.html');
+        const indexHtml = readFileSync(indexHtmlPath, 'utf-8');
+
+        // Extract the CSP meta tag and specifically the script-src directive.
+        const cspMatch = indexHtml.match(/Content-Security-Policy"\s+content="([^"]+)"/);
+        expect(cspMatch, 'index.html must contain a CSP meta tag').not.toBeNull();
+        const csp = cspMatch![1];
+        const scriptSrcMatch = csp.match(/script-src\s+([^;]+)/);
+        expect(scriptSrcMatch, 'CSP must define script-src').not.toBeNull();
+        const scriptSrc = scriptSrcMatch![1];
+
+        expect(
+            scriptSrc,
+            `index.html script-src is missing or out of sync with IFRAME_BOOT_SCRIPT.\n` +
+            `Expected hash: '${expected}'\n` +
+            `Current script-src: ${scriptSrc}\n` +
+            `Fix: update index.html so script-src includes '${expected}'.`
+        ).toContain(`'${expected}'`);
+    });
+});
