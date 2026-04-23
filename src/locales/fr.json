@@ -148,6 +148,7 @@
     "previewLoading": "Chargement de l'aperçu…",
     "previewFailed": "Impossible de charger l'aperçu",
     "previewUnsupported": "L'aperçu n'est pas disponible pour ce type de fichier",
+    "previewDescription": "Aperçu de la pièce jointe {{filename}} ({{type}})",
     "download": "Télécharger",
     "flagFailed": "Échec du basculement du drapeau",
     "archiveFailed": "Échec de l'archivage",

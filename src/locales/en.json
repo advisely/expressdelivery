@@ -148,6 +148,7 @@
     "previewLoading": "Loading preview…",
     "previewFailed": "Could not load preview",
     "previewUnsupported": "Preview is not available for this file type",
+    "previewDescription": "Attachment preview for {{filename}} ({{type}})",
     "download": "Download",
     "flagFailed": "Failed to toggle flag",
     "archiveFailed": "Failed to archive email",

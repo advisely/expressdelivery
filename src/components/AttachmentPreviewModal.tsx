@@ -155,6 +155,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             <Dialog.Portal>
                 <Dialog.Overlay className={styles['overlay']} />
                 <Dialog.Content className={styles['content']}>
+                    <Dialog.Description className={styles['sr-only']}>
+                        {attachment
+                            ? t('readingPane.previewDescription', {
+                                filename: attachment.filename,
+                                type: attachment.mime_type,
+                            })
+                            : ''}
+                    </Dialog.Description>
                     <header className={styles['header']}>
                         <div className={styles['title-group']}>
                             <FileText size={18} />
