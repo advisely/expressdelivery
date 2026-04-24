@@ -846,6 +846,12 @@ describe('ReadingPane', () => {
 });
 
 describe('processRemoteImages — CSS + <source> coverage (v1.18.14)', () => {
+    beforeEach(() => {
+        // Module-level `mockIpcInvoke` and `useEmailStore` state are shared
+        // across top-level describes; reset so this suite is hermetic.
+        vi.clearAllMocks();
+    });
+
     it('passes HTML through unchanged when block=false (user consented)', async () => {
         const { processRemoteImages } = await import('./ReadingPane');
         const input = '<img src="https://example.com/x.png"><div style="background:url(https://example.com/bg.jpg)"></div>';
@@ -908,6 +914,10 @@ describe('processRemoteImages — CSS + <source> coverage (v1.18.14)', () => {
 });
 
 describe('buildIframeSrcdoc — img-src policy (v1.18.13)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
     it('blocks all remote images by default (data: only)', async () => {
         const { buildIframeSrcdoc } = await import('./ReadingPane');
         const srcdoc = buildIframeSrcdoc('<img src="http://tracker.example.com/pixel.gif">', false);
@@ -930,6 +940,19 @@ describe('buildIframeSrcdoc — img-src policy (v1.18.13)', () => {
 });
 
 describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
+    beforeEach(() => {
+        // This suite includes a test that renders ReadingPane and dispatches
+        // a postMessage event to trigger ipcInvoke('shell:open-email-link').
+        // Without clearing mocks, a prior test's state leaks into the
+        // assertion here. CodeRabbit flagged this in the v1.18.14 review.
+        vi.clearAllMocks();
+        useEmailStore.setState({
+            selectedEmail: null,
+            folders: [],
+            tags: [],
+        });
+    });
+
     it('injects a capture-phase click listener into the srcdoc', async () => {
         const { buildIframeSrcdoc } = await import('./ReadingPane');
         const srcdoc = buildIframeSrcdoc('<p>hi</p>');
@@ -1030,6 +1053,10 @@ describe('buildIframeSrcdoc — link-click interceptor (v1.18.8 bug 3)', () => {
 });
 
 describe('IFRAME_BOOT_SCRIPT — CSP hash sync (v1.18.11 bug 3 true root cause)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
     it('SHA-256 of IFRAME_BOOT_SCRIPT is pinned in index.html parent CSP script-src', async () => {
         // The srcdoc iframe inherits the parent's CSP. If the hash in
         // index.html drifts from IFRAME_BOOT_SCRIPT's actual content, the

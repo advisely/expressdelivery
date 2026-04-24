@@ -149,7 +149,6 @@
     "previewFailed": "No se pudo cargar la vista previa",
     "previewUnsupported": "La vista previa no está disponible para este tipo de archivo",
     "previewDescription": "Vista previa del adjunto {{filename}} ({{type}})",
-    "download": "Descargar",
     "flagFailed": "Error al cambiar la marca",
     "archiveFailed": "Error al archivar el correo",
     "moveFailed": "Error al mover el correo",
