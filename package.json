@@ -47,7 +47,7 @@
     "electron-updater": "^6.8.3",
     "express": "^5.2.1",
     "grammy": "^1.41.1",
-    "i18next": "^25.8.13",
+    "i18next": "^26.0.8",
     "imapflow": "^1.2.10",
     "lucide-react": "^1.9.0",
     "mailparser": "^3.9.3",
