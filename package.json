@@ -50,7 +50,7 @@
     "i18next": "^25.8.13",
     "imapflow": "^1.2.10",
     "lucide-react": "^1.9.0",
-    "mailparser": "^3.9.3",
+    "mailparser": "^3.9.14",
     "nodemailer": "^8.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
